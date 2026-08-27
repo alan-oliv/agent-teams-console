@@ -4101,9 +4101,6 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
 }
 ```
 
-Create the one-line re-export the ingest imports so the shared parser resolves from a single place:
-
-```ts
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run src/server/ingest/files.test.ts`
@@ -7931,8 +7928,6 @@ it('mounts status bar, body, needs-you strip and panel once the snapshot lands',
 
   expect(screen.getByRole('tablist')).toBeTruthy();
   expect(screen.getByText('session-98b0b4a7')).toBeTruthy();
-  expect
-```tsx
   expect(screen.getByRole('main')).toBeTruthy();
   expect(screen.getByText('NEEDS YOU · 0')).toBeTruthy();
   expect(screen.getByText('PANEL')).toBeTruthy();
