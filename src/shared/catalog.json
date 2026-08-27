@@ -1,0 +1,26 @@
+{
+  "version": "2.1.231",
+  "outputReserve": 20000,
+  "compactHeadroom": 13000,
+  "fallbackModel": "claude-opus-5",
+  "fallbackWindow": 200000,
+  "aliases": {
+    "opus": "claude-opus-5",
+    "sonnet": "claude-sonnet-5",
+    "haiku": "claude-haiku-4-5"
+  },
+  "models": {
+    "claude-opus-5": {
+      "window": 1000000,
+      "pricing": { "input": 5, "output": 25, "cacheWrite5m": 6.25, "cacheWrite1h": 10, "cacheRead": 0.5, "webSearch": 0.01 }
+    },
+    "claude-sonnet-5": {
+      "window": 1000000,
+      "pricing": { "input": 2, "output": 10, "cacheWrite5m": 2.5, "cacheWrite1h": 4, "cacheRead": 0.2, "webSearch": 0.01 }
+    },
+    "claude-haiku-4-5": {
+      "window": 200000,
+      "pricing": { "input": 1, "output": 5, "cacheWrite5m": 1.25, "cacheWrite1h": 2, "cacheRead": 0.1, "webSearch": 0.01 }
+    }
+  }
+}
