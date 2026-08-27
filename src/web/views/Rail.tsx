@@ -2,11 +2,10 @@ import { useState, type KeyboardEvent } from 'react';
 import type { Agent } from '../../shared/domain';
 import { AGENT_STATUS } from '../../shared/status';
 import { Composer } from '../components/Composer';
-import { ContextMeter } from '../components/ContextMeter';
 import { Portrait } from '../components/Portrait';
 import { StatusGlyph } from '../components/StatusGlyph';
 import { TranscriptFeed } from '../components/TranscriptFeed';
-import { costLabel, ctxLabel, elapsedLabel, pctLabel } from '../format';
+import { contextBar, costLabel, ctxLabel, elapsedLabel, pctLabel } from '../format';
 
 export function Rail({
   agents, focused, onFocus, now,
@@ -129,13 +128,12 @@ export function Rail({
                     </span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-                    <ContextMeter
-                      contextTokens={agent.contextTokens}
-                      contextLimit={agent.contextLimit}
-                      compactAt={agent.compactAt}
-                      barSize={11}
-                      textSize={10.5}
-                    />
+                    <span
+                      data-testid="rail-bar"
+                      style={{ letterSpacing: '-.5px', color: 'var(--color-accent-600)', fontSize: '11px' }}
+                    >
+                      {contextBar(agent.contextTokens, agent.contextLimit, agent.compactAt)}
+                    </span>
                     <span
                       data-testid="rail-pct"
                       style={{ color: 'var(--color-neutral-500)', fontSize: '10.5px' }}
@@ -220,13 +218,12 @@ export function Rail({
             {attached.role}
           </span>
           <span style={{ flex: 1 }} />
-          <ContextMeter
-            contextTokens={attached.contextTokens}
-            contextLimit={attached.contextLimit}
-            compactAt={attached.compactAt}
-            barSize={11.5}
-            textSize={11}
-          />
+          <span
+            data-testid="rail-detail-bar"
+            style={{ letterSpacing: '-.5px', color: 'var(--color-accent-600)', fontSize: '11.5px' }}
+          >
+            {contextBar(attached.contextTokens, attached.contextLimit, attached.compactAt)}
+          </span>
           <span
             data-testid="rail-detail-ctx"
             style={{ color: 'var(--color-neutral-500)', fontSize: '11px' }}

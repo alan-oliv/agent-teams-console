@@ -31,6 +31,17 @@ describe('Wall', () => {
     expect(columns[2].style.left).toBe('');
   });
 
+  it('pins the lead column leftmost even when it is last in the agents array', () => {
+    const leadLast = [...agents.slice(1), agents[0]];
+    expect(leadLast[leadLast.length - 1].isLead).toBe(true);
+    render(<Wall agents={leadLast} focused="probe-alpha" onFocus={vi.fn()} now={FIXTURE_NOW} />);
+    const columns = screen.getAllByTestId('wall-column');
+    expect(within(columns[0]).getByTestId('wall-name').textContent).toBe('team-lead');
+    expect(columns[0].style.position).toBe('sticky');
+    expect(columns[0].style.left).toBe('0px');
+    expect(columns[0].style.zIndex).toBe('2');
+  });
+
   it('scrolls horizontally only', () => {
     renderWall();
     const wall = screen.getByTestId('wall');

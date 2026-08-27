@@ -1,4 +1,4 @@
-import { contextBar, formatPct, formatTokens } from '../format';
+import { contextBar, formatPct, formatTokens, warnMark } from '../format';
 
 export interface ContextMeterProps {
   contextTokens: number;
@@ -30,7 +30,7 @@ export function ContextMeter({
         data-testid="context-warn"
         style={{ color: 'var(--attention)', fontSize: textSize, width: 7 }}
       >
-        {contextTokens >= compactAt ? '!' : ''}
+        {warnMark(contextTokens, compactAt)}
       </span>
       <span style={{ color: 'var(--color-neutral-600)', fontSize: textSize }}>
         {`${formatTokens(contextTokens)} / ${formatTokens(contextLimit)}`}

@@ -19,14 +19,15 @@ it('renders the bar, percent and "53.1k / 1M" for an opus agent', () => {
   expect(screen.getByText('53.1k / 1M')).toBeTruthy();
 });
 
-it('shows the warn glyph exactly at and past compactAt', () => {
+it('shows the warn glyph at and past 75% of compactAt, sharing the warnMark rule', () => {
+  // compactAt=167_000; 75% of it is 125_250 — the single shared threshold (format.ts warnMark).
   const below = render(
-    <ContextMeter contextTokens={166_999} contextLimit={200_000} compactAt={167_000} />,
+    <ContextMeter contextTokens={125_249} contextLimit={200_000} compactAt={167_000} />,
   );
   expect(screen.getByTestId('context-warn').textContent).toBe('');
   below.unmount();
 
-  const at = render(<ContextMeter contextTokens={167_000} contextLimit={200_000} compactAt={167_000} />);
+  const at = render(<ContextMeter contextTokens={125_250} contextLimit={200_000} compactAt={167_000} />);
   expect(screen.getByTestId('context-warn').textContent).toBe('!');
   expect(screen.getByTestId('context-warn').style.color).toBe('var(--attention)');
   expect(screen.getByTestId('context-warn').style.width).toBe('7px');

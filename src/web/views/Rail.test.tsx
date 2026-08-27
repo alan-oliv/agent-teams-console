@@ -40,8 +40,18 @@ describe('Rail — left list', () => {
     expect(alpha.getByTestId('rail-name').textContent).toBe('probe-alpha');
     expect(alpha.getByTestId('rail-type').textContent).toBe('general-purpose');
     expect(alpha.getByTestId('rail-elapsed').textContent).toBe('0m 42s');
+    // 34_469 / 1_000_000 * 16 cells rounds to 1 filled cell, plus the forced compactAt tick at
+    // floor(967_000 / 1_000_000 * 16) = index 15.
+    expect(alpha.getByTestId('rail-bar').textContent).toBe('█░░░░░░░░░░░░░░█');
     expect(alpha.getByTestId('rail-pct').textContent).toBe('3%');
     expect(alpha.getByTestId('rail-cost').textContent).toBe('≈$0.46');
+  });
+
+  it('shows the percent exactly once per row, not duplicated by a context meter', () => {
+    renderRail();
+    const alpha = within(screen.getAllByRole('option')[1]);
+    expect(alpha.getAllByText('3%')).toHaveLength(1);
+    expect(alpha.queryByTestId('context-warn')).toBeNull();
   });
 
   it('lists the key legend in the footer', () => {
@@ -96,8 +106,18 @@ describe('Rail — attached pane', () => {
     expect(within(header).getByTestId('rail-detail-name').textContent).toBe('probe-charlie');
     expect(within(header).getByTestId('rail-detail-type').textContent).toBe('general-purpose');
     expect(within(header).getByTestId('rail-detail-role').textContent).toBe('Spike probe charlie');
+    // 23_639 / 200_000 * 16 cells rounds to 2 filled, plus the forced compactAt tick at
+    // floor(167_000 / 200_000 * 16) = index 13.
+    expect(within(header).getByTestId('rail-detail-bar').textContent).toBe('██░░░░░░░░░░░█░░');
     expect(within(header).getByTestId('rail-detail-ctx').textContent).toBe('23.6k / 200k');
     expect(within(header).getByTestId('rail-detail-cost').textContent).toBe('≈$0.04');
+  });
+
+  it('shows the token count exactly once in the header, not duplicated by a context meter', () => {
+    renderRail(vi.fn(), 'probe-charlie');
+    const header = within(screen.getByTestId('rail-detail-header'));
+    expect(header.getAllByText('23.6k / 200k')).toHaveLength(1);
+    expect(header.queryByTestId('context-warn')).toBeNull();
   });
 
   it('renders the attached transcript at rail size and a rail composer', () => {

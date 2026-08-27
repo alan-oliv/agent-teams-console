@@ -31,6 +31,8 @@ export function Wall({
   now: number;
 }) {
   const [hovered, setHovered] = useState<string | null>(null);
+  const lead = agents.find((a) => a.isLead);
+  const ordered = lead ? [lead, ...agents.filter((a) => a !== lead)] : agents;
 
   return (
     <div
@@ -45,9 +47,9 @@ export function Wall({
         background: 'var(--color-neutral-900)',
       }}
     >
-      {agents.map((agent, index) => {
+      {ordered.map((agent) => {
         const status = AGENT_STATUS[agent.status];
-        const isLeadColumn = index === 0;
+        const isLeadColumn = agent.isLead;
         const isFocused = agent.name === focused;
         const isTinted = isFocused || hovered === agent.name;
 
