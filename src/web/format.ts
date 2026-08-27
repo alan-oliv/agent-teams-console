@@ -42,3 +42,34 @@ export function formatElapsed(ms: number): string {
     ? `${hours}h ${String(minutes).padStart(2, '0')}m`
     : `${minutes}m ${String(seconds).padStart(2, '0')}s`;
 }
+
+export function tokensLabel(n: number): string {
+  return formatTokens(n);
+}
+
+export function pctLabel(tokens: number, limit: number): string {
+  return limit > 0 ? formatPct(tokens / limit) : '0%';
+}
+
+export function ctxLabel(tokens: number, limit: number): string {
+  return `${tokensLabel(tokens)} / ${tokensLabel(limit)}`;
+}
+
+// Warns against the auto-compact trigger, not the raw window (spec §4.3).
+export function warnMark(tokens: number, compactAt: number): string {
+  if (compactAt <= 0) return '';
+  return tokens / compactAt >= 0.75 ? '!' : '';
+}
+
+export function costLabel(usd: number): string {
+  return formatCost(usd);
+}
+
+export function elapsedLabel(startedAt: number, now: number): string {
+  return formatElapsed(now - startedAt);
+}
+
+// UTC so the rendered clock is identical on every machine that reads a captured log.
+export function clockLabel(ts: number): string {
+  return new Date(ts).toISOString().slice(11, 19);
+}
