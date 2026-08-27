@@ -27,7 +27,7 @@ afterEach(async () => {
 });
 
 describe('hookBlock', () => {
-  const block = hookBlock(4317);
+  const block = hookBlock(4823);
 
   it('round-trips as valid JSON', () => {
     expect(JSON.parse(JSON.stringify(block))).toEqual(block);
@@ -40,7 +40,7 @@ describe('hookBlock', () => {
       expect(entries).toHaveLength(1);
       expect(entries[0].hooks).toHaveLength(1);
       expect(entries[0].hooks[0].type).toBe('http');
-      expect(entries[0].hooks[0].url).toBe('http://127.0.0.1:4317/hook');
+      expect(entries[0].hooks[0].url).toBe('http://127.0.0.1:4823/hook');
     }
   });
 
@@ -65,8 +65,8 @@ describe('hookBlock', () => {
 
   it('points both status lines at their own endpoints', () => {
     expect(block.statusLine.type).toBe('command');
-    expect(block.statusLine.command).toContain('http://127.0.0.1:4317/statusline');
-    expect(block.subagentStatusLine.command).toContain('http://127.0.0.1:4317/substatus');
+    expect(block.statusLine.command).toContain('http://127.0.0.1:4823/statusline');
+    expect(block.subagentStatusLine.command).toContain('http://127.0.0.1:4823/substatus');
   });
 
   it('honours a non-default port', () => {
@@ -78,22 +78,22 @@ describe('hookBlock', () => {
 
 describe('mergeHookBlock / removeHookBlock', () => {
   it('adds the block without disturbing unrelated settings', () => {
-    const merged = mergeHookBlock({ model: 'opus', hooks: { Stop: [{ hooks: [{ type: 'command', command: 'say done' }] }] } }, 4317);
+    const merged = mergeHookBlock({ model: 'opus', hooks: { Stop: [{ hooks: [{ type: 'command', command: 'say done' }] }] } }, 4823);
     expect(merged.model).toBe('opus');
     const stop = (merged.hooks as Record<string, HookEntry[]>).Stop;
     expect(stop).toHaveLength(2);
     expect((stop[0].hooks[0] as unknown as { command: string }).command).toBe('say done');
-    expect(stop[1].hooks[0].url).toBe('http://127.0.0.1:4317/hook');
+    expect(stop[1].hooks[0].url).toBe('http://127.0.0.1:4823/hook');
   });
 
   it('is idempotent', () => {
-    const once = mergeHookBlock({}, 4317);
-    expect(mergeHookBlock(once, 4317)).toEqual(once);
+    const once = mergeHookBlock({}, 4823);
+    expect(mergeHookBlock(once, 4823)).toEqual(once);
   });
 
   it('removes exactly what it added', () => {
     const original = { model: 'opus', hooks: { Stop: [{ hooks: [{ type: 'command', command: 'say done' }] }] } };
-    expect(removeHookBlock(mergeHookBlock(original, 4317))).toEqual(original);
+    expect(removeHookBlock(mergeHookBlock(original, 4823))).toEqual(original);
   });
 
   it('leaves a settings file with no console hooks untouched', () => {
@@ -130,9 +130,9 @@ describe('checkClaudeVersion', () => {
 describe('runSetup', () => {
   it('prints the block and writes nothing without confirmation', async () => {
     const settingsPath = path.join(dir, 'settings.json');
-    const output = await runSetup({ settingsPath, port: 4317, confirm: false });
+    const output = await runSetup({ settingsPath, port: 4823, confirm: false });
     expect(output).toContain('"type": "http"');
-    expect(output).toContain('http://127.0.0.1:4317/hook');
+    expect(output).toContain('http://127.0.0.1:4823/hook');
     expect(output).toContain('nothing was written');
     await expect(fs.stat(settingsPath)).rejects.toThrow();
   });
@@ -141,12 +141,12 @@ describe('runSetup', () => {
     const settingsPath = path.join(dir, 'settings.json');
     await fs.writeFile(settingsPath, JSON.stringify({ model: 'opus' }, null, 2));
 
-    await runSetup({ settingsPath, port: 4317, confirm: true });
+    await runSetup({ settingsPath, port: 4823, confirm: true });
     const written = JSON.parse(await fs.readFile(settingsPath, 'utf8')) as Record<string, unknown>;
     expect(written.model).toBe('opus');
     expect(Object.keys(written.hooks as object)).toEqual([...HOOK_EVENTS]);
 
-    await runSetup({ settingsPath, port: 4317, confirm: true, uninstall: true });
+    await runSetup({ settingsPath, port: 4823, confirm: true, uninstall: true });
     expect(JSON.parse(await fs.readFile(settingsPath, 'utf8'))).toEqual({ model: 'opus' });
   });
 

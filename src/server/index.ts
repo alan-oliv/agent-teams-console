@@ -13,7 +13,7 @@ import { readJsonSafe } from './watch/jsonfile';
 import { checkClaudeVersion, readClaudeVersion, runSetup } from './setup';
 import type { TeamConfig } from '../shared/roster';
 
-export const DEFAULT_PORT = 4317;
+export const DEFAULT_PORT = 4823;
 
 export interface Cli {
   command: 'run' | 'setup' | 'uninstall';

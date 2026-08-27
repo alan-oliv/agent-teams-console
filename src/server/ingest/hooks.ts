@@ -135,12 +135,9 @@ export function createHookHandlers(deps: HookDeps): HookHandlers {
           const t = bagOf(raw);
           // SCOPE RULE: agent teams only. subagentStatusLine reports a row for
           // EVERY subagent, including Agent-tool subagents and workflow
-          // fan-outs. Only in_process_teammate rows are team members. A row
-          // with no `type` at all (never observed from the real hook, but
-          // possible from a hand-built payload) is treated as a teammate
-          // rather than silently dropped.
-          const type = str(t.type);
-          if (type !== undefined && type !== 'in_process_teammate') continue;
+          // fan-outs. Only in_process_teammate rows are team members — a row
+          // with no `type` at all is dropped, not treated as a teammate.
+          if (str(t.type) !== 'in_process_teammate') continue;
           const agent = agentNameFrom(t.agentId ?? t.agent_id ?? t.name, leadName);
           store.append(
             'substatus',

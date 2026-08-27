@@ -40,15 +40,15 @@ export async function sendToInbox(
   await fs.mkdir(dir, { recursive: true });
 
   const file = path.join(dir, `${toAgent}.json`);
-  try {
-    await fs.access(file);
-  } catch {
-    await atomicWrite(file, '[]');
-  }
-
   const color = await colorOf(teamName, from);
   const msgId = randomUUID();
 
+  // The lockfile is keyed off `file` but doesn't require `file` itself to
+  // exist (realpath: false skips the fs.realpath that would need it), so the
+  // lock can be taken before the inbox is ever created. Everything that
+  // touches `file` — including its lazy creation — must happen after this,
+  // or two concurrent sends to a brand-new inbox can race to initialize it
+  // and the second one clobbers the first's entry with an empty array.
   const release = await lockfile.lock(file, {
     lockfilePath: `${file}.lock`,
     realpath: false,

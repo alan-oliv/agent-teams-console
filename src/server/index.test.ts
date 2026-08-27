@@ -16,11 +16,15 @@ afterEach(async () => {
 });
 
 describe('parseArgs', () => {
-  it('defaults to running the console on 4317', () => {
+  it('binds DEFAULT_PORT to 4823, matching the vite proxy and lifecycle probe', () => {
+    expect(DEFAULT_PORT).toBe(4823);
+  });
+
+  it('defaults to running the console on 4823', () => {
     const cli = parseArgs([]);
     expect(cli.command).toBe('run');
     expect(cli.port).toBe(DEFAULT_PORT);
-    expect(DEFAULT_PORT).toBe(4317);
+    expect(DEFAULT_PORT).toBe(4823);
     expect(cli.readOnly).toBe(false);
     expect(cli.confirm).toBe(false);
     expect(cli.claudeHome.endsWith(path.join('.claude'))).toBe(true);

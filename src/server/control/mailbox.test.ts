@@ -94,4 +94,19 @@ describe('sendToInbox', () => {
     const entries = await readInbox('probe-bravo');
     expect(entries.map((e) => e.text).sort()).toEqual(['one', 'two']);
   });
+
+  it('loses no messages when many sends race to create the same brand-new inbox', async () => {
+    // Regression for a TOCTOU bug: the inbox file used to be lazily created
+    // with a plain fs.access + atomicWrite('[]') BEFORE the lock was taken,
+    // so a concurrent creator could clobber an already-written entry with an
+    // empty array. Firing many sends at a path that has never existed is the
+    // shape of traffic that used to lose messages.
+    const N = 8;
+    await Promise.all(
+      Array.from({ length: N }, (_, i) => sendToInbox(TEAM, 'probe-concurrent', { text: `msg-${i}` })),
+    );
+    const entries = await readInbox('probe-concurrent');
+    expect(entries).toHaveLength(N);
+    expect(new Set(entries.map((e) => e.text)).size).toBe(N);
+  });
 });

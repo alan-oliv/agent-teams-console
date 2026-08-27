@@ -197,8 +197,8 @@ describe('substatus', () => {
   it('appends one event per teammate task entry', async () => {
     const res = await handlers.substatus({
       tasks: [
-        { name: 'probe-charlie', tokenCount: 23639, contextWindowSize: 200000, status: 'idle', model: 'claude-haiku-4-5-20251001' },
-        { agentId: 'aprobe-alpha-84fd551b27de6433', tokenCount: 34469, contextWindowSize: 1000000, status: 'working' },
+        { name: 'probe-charlie', type: 'in_process_teammate', tokenCount: 23639, contextWindowSize: 200000, status: 'idle', model: 'claude-haiku-4-5-20251001' },
+        { agentId: 'aprobe-alpha-84fd551b27de6433', type: 'in_process_teammate', tokenCount: 34469, contextWindowSize: 1000000, status: 'working' },
       ],
     });
     expect(res).toEqual({ status: 200, body: {} });
@@ -214,6 +214,16 @@ describe('substatus', () => {
     });
     expect(payloads[1].agent).toBe('probe-alpha');
     expect(payloads[1].tokenCount).toBe(34469);
+  });
+
+  it('drops a task row with no type field, rather than treating it as a teammate', async () => {
+    const res = await handlers.substatus({
+      tasks: [
+        { name: 'probe-charlie', tokenCount: 23639, contextWindowSize: 200000, status: 'idle' },
+      ],
+    });
+    expect(res).toEqual({ status: 200, body: {} });
+    expect(of(store.replay(), 'substatus')).toHaveLength(0);
   });
 
   it('answers 200 when tasks is missing', async () => {
