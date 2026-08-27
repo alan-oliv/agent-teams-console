@@ -133,3 +133,7 @@ button {
   min-height: 0;
   display: flex;
 }
+
+.tab:hover {
+  background: var(--color-neutral-900);
+}
