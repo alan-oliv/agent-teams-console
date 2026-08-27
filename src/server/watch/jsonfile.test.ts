@@ -13,7 +13,7 @@ afterEach(async () => {
   await fs.rm(dir, { recursive: true, force: true });
 });
 
-async function waitFor<T>(fn: () => T | undefined, timeoutMs = 4000): Promise<T> {
+async function waitFor<T>(fn: () => T | undefined, timeoutMs = 10_000): Promise<T> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const v = fn();

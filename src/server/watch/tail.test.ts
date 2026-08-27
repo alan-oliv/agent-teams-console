@@ -13,7 +13,7 @@ afterEach(async () => {
   await fs.rm(dir, { recursive: true, force: true });
 });
 
-async function waitFor<T>(fn: () => T | undefined, timeoutMs = 4000): Promise<T> {
+async function waitFor<T>(fn: () => T | undefined, timeoutMs = 10_000): Promise<T> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const v = fn();
@@ -86,7 +86,9 @@ describe('drain', () => {
 });
 
 describe('watchAppendOnly', () => {
-  it('picks up a brand-new nested file (macOS reports rename, not change)', async () => {
+  it('picks up a brand-new file in an already-watched nested directory (macOS reports rename, not change)', async () => {
+    // The containing directory exists before the watcher arms, so the only thing
+    // under test is the file's first-write event.
     await fs.mkdir(path.join(dir, 'slug', 'subagents'), { recursive: true });
     const got: Array<{ path: string; lines: string[] }> = [];
     const w = watchAppendOnly(dir, (p, lines) => got.push({ path: p, lines }));
@@ -103,6 +105,27 @@ describe('watchAppendOnly', () => {
           : undefined,
       );
       expect(second.lines).toEqual(['{"type":"user"}']);
+    } finally {
+      w.close();
+    }
+  });
+
+  it('picks up a file written into a directory created after the watcher starts', async () => {
+    const got: Array<{ path: string; lines: string[] }> = [];
+    const w = watchAppendOnly(dir, (p, lines) => got.push({ path: p, lines }));
+    try {
+      // Unlike the test above, the nested directory itself is new here: it appears
+      // after the recursive watcher is already running. This is the genuinely
+      // timing-dependent case, since macOS FSEvents has to notice the brand-new
+      // subtree before it can report the rename inside it, so this test gets the
+      // most generous budget in the suite. The raw watcher has no fallback for a
+      // missed/delayed event; in production, ingest/files.ts layers a periodic
+      // reconciliation sweep on top of watchAppendOnly for exactly this case.
+      await fs.mkdir(path.join(dir, 'slug', 'subagents'), { recursive: true });
+      const file = path.join(dir, 'slug', 'subagents', 'agent-aprobe-charlie-12ee4cb1ed35cf7c.jsonl');
+      await fs.writeFile(file, '{"type":"assistant"}\n');
+      const hit = await waitFor(() => got.find((g) => g.path === file), 20_000);
+      expect(hit.lines).toEqual(['{"type":"assistant"}']);
     } finally {
       w.close();
     }

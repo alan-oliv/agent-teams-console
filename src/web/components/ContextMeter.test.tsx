@@ -9,7 +9,9 @@ afterEach(cleanup);
 
 it('renders the bar, percent and "53.1k / 1M" for an opus agent', () => {
   render(<ContextMeter contextTokens={53_100} contextLimit={1_000_000} compactAt={967_000} />);
-  expect(screen.getByTestId('context-bar').textContent).toBe('░░░░░░░░░░░░░░░█');
+  // 53_100 / 1_000_000 * 16 = 0.8496 cells, which rounds up to 1 filled cell
+  // (matches the prototype's bar(): Math.round, not Math.floor).
+  expect(screen.getByTestId('context-bar').textContent).toBe('█░░░░░░░░░░░░░░█');
   expect(screen.getByTestId('context-bar').style.fontSize).toBe('11.5px');
   expect(screen.getByTestId('context-bar').style.letterSpacing).toBe('-.5px');
   expect(screen.getByTestId('context-bar').style.color).toBe('var(--color-accent-600)');

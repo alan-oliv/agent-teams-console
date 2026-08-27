@@ -2,7 +2,7 @@ const CELLS = 16;
 
 export function meterCells(ratio: number): string {
   const safe = Number.isFinite(ratio) ? ratio : 0;
-  const filled = Math.max(0, Math.min(CELLS, Math.floor(safe * CELLS)));
+  const filled = Math.max(0, Math.min(CELLS, Math.round(safe * CELLS)));
   return '█'.repeat(filled) + '░'.repeat(CELLS - filled);
 }
 
