@@ -139,7 +139,12 @@ describe('scope rule: agent teams only', () => {
     let ingest: FileIngest;
 
     beforeEach(() => {
-      ingest = startFileIngest(store, { paths, leadSessionId: LEAD, leadName: 'team-lead', sweepIntervalMs: 0 });
+      // A short sweep here isn't just cleanup: this describe block creates the
+      // agentDir *after* the watcher's recursive fs.watch is already running, so
+      // FSEvents on macOS can drop or coalesce the event for that fresh nested
+      // path. sweepIntervalMs: 0 would leave these tests with no recovery path
+      // at all inside waitFor's budget; 200ms keeps the sweep well inside it.
+      ingest = startFileIngest(store, { paths, leadSessionId: LEAD, leadName: 'team-lead', sweepIntervalMs: 200 });
     });
 
     afterEach(() => {
@@ -269,7 +274,10 @@ describe('startFileIngest', () => {
 
   it('watches a live inbox rewrite without a sweep', async () => {
     await layout();
-    const ingest = startFileIngest(store, { paths, sweepIntervalMs: 0 });
+    // A short sweep is the recovery path for a watcher event FSEvents drops or
+    // coalesces; sweepIntervalMs: 0 would leave waitFor below with nothing to
+    // fall back on inside its budget.
+    const ingest = startFileIngest(store, { paths, sweepIntervalMs: 200 });
     try {
       await settle();
       await ingest.sweep();
@@ -290,7 +298,9 @@ describe('startFileIngest', () => {
 
   it('watches a live transcript append without a sweep', async () => {
     await layout();
-    const ingest = startFileIngest(store, { paths, sweepIntervalMs: 0 });
+    // Same recovery-path reasoning as the inbox test above: a short sweep gives
+    // waitFor a fallback if the watcher's own event is dropped or coalesced.
+    const ingest = startFileIngest(store, { paths, sweepIntervalMs: 200 });
     try {
       const agentDir = path.join(paths.projects, SLUG, LEAD_SESSION, 'subagents');
       const file = path.join(agentDir, 'agent-aprobe-bravo-babf58016882bc72.jsonl');
