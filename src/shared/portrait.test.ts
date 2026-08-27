@@ -65,17 +65,41 @@ describe('portraitFor', () => {
 
   it('falls back to a stable hash of the name for the real fixture teammates', () => {
     expect(portraitFor({ name: 'probe-alpha', agentType: 'general-purpose', isLead: false })).toEqual({
-      portrait: 'perf',
+      portrait: 'security',
       skinIndex: 2,
     });
     expect(portraitFor({ name: 'probe-bravo', agentType: 'Explore', isLead: false })).toEqual({
-      portrait: 'perf',
+      portrait: 'architect',
       skinIndex: 2,
     });
     expect(portraitFor({ name: 'probe-charlie', agentType: 'general-purpose', isLead: false })).toEqual({
       portrait: 'architect',
       skinIndex: 4,
     });
+  });
+
+  it('never hands a non-lead agent the crown, even when the hash fallback fires', () => {
+    expect(portraitFor({ name: 'api-worker', agentType: 'general-purpose', isLead: false }).portrait).not.toBe(
+      'lead',
+    );
+    const sampleNames = [
+      'api-worker', 'probe-alpha', 'probe-bravo', 'probe-charlie', 'worker-1', 'worker-2',
+      'worker-3', 'ghost', 'runner', 'helper', 'agent-99', 'octo', 'nightly-job', '', 'x', 'y', 'z',
+    ];
+    for (const name of sampleNames) {
+      expect(portraitFor({ name, agentType: 'general-purpose', isLead: false }).portrait, name).not.toBe('lead');
+    }
+  });
+
+  it('matches keywords in the name when agentType is generic', () => {
+    expect(portraitFor({ name: 'security-scan', agentType: 'general-purpose', isLead: false }).portrait).toBe(
+      'security',
+    );
+    expect(portraitFor({ name: 'perf-probe', agentType: 'general-purpose', isLead: false }).portrait).toBe('perf');
+  });
+
+  it('still gives the lead the crown when isLead is true', () => {
+    expect(portraitFor({ name: 'team-lead', agentType: 'team-lead', isLead: true }).portrait).toBe('lead');
   });
 
   it('is deterministic across repeated calls', () => {

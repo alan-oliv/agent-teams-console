@@ -104,6 +104,9 @@ export const SKIN_PAIRS: Record<PortraitId, [string, string]> = {
 
 export const PORTRAIT_IDS: PortraitId[] = ['lead', 'security', 'perf', 'tests', 'architect', 'repro'];
 
+// The crown is the lead's identity marker; the hash fallback must never assign it to a teammate.
+const NON_LEAD_PORTRAIT_IDS: PortraitId[] = PORTRAIT_IDS.slice(1);
+
 const TYPE_PORTRAITS: Array<[RegExp, PortraitId]> = [
   [/security|review/, 'security'],
   [/perf/, 'perf'],
@@ -127,13 +130,18 @@ export function portraitFor(agent: { name: string; agentType: string; isLead: bo
   portrait: PortraitId;
   skinIndex: number;
 } {
-  const skinIndex = hashName(agent.name) % PORTRAIT_IDS.length;
+  const hash = hashName(agent.name);
+  const skinIndex = hash % PORTRAIT_IDS.length;
   if (agent.isLead) return { portrait: 'lead', skinIndex };
   const type = agent.agentType.toLowerCase();
+  const name = agent.name.toLowerCase();
   for (const [pattern, portrait] of TYPE_PORTRAITS) {
     if (pattern.test(type)) return { portrait, skinIndex };
   }
-  return { portrait: PORTRAIT_IDS[skinIndex], skinIndex };
+  for (const [pattern, portrait] of TYPE_PORTRAITS) {
+    if (pattern.test(name)) return { portrait, skinIndex };
+  }
+  return { portrait: NON_LEAD_PORTRAIT_IDS[hash % NON_LEAD_PORTRAIT_IDS.length], skinIndex };
 }
 
 const svgCache = new Map<string, string>();
