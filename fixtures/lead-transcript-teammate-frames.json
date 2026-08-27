@@ -1,0 +1,27 @@
+[
+  {
+    "timestamp": "2026-08-27T14:30:31.269Z",
+    "type": "assistant",
+    "isSidechain": false,
+    "frames": []
+  },
+  {
+    "timestamp": "2026-08-27T15:12:17.951Z",
+    "type": "user",
+    "isSidechain": false,
+    "frames": [
+      "<teammate-message teammate_id=\"probe-charlie\" color=\"yellow\" summary=\"probe-charlie alive\">\nprobe-charlie reporting: running on a different model so the console can prove per-agent model resolution.\n</teammate-message>",
+      "<teammate-message teammate_id=\"probe-alpha\" color=\"blue\" summary=\"probe-alpha claimed task 1\">\nprobe-alpha reporting: I claimed task 1. This is spike traffic.\n</teammate-message>",
+      "<teammate-message teammate_id=\"probe-charlie\" color=\"yellow\">\n{\"type\":\"idle_notification\",\"from\":\"probe-charlie\",\"timestamp\":\"2026-08-27T15:10:22.099Z\",\"idleReason\":\"available\"}\n</teammate-message>",
+      "<teammate-message teammate_id=\"probe-bravo\" color=\"green\" summary=\"probe-bravo claimed task 2\">\nprobe-bravo reporting: I claimed task 2. This is spike traffic.\n</teammate-message>",
+      "<teammate-message teammate_id=\"probe-alpha\" color=\"blue\">\n{\"type\":\"idle_notification\",\"from\":\"probe-alpha\",\"timestamp\":\"2026-08-27T15:10:50.152Z\",\"idleReason\":\"available\"}\n</teammate-message>",
+      "<teammate-message teammate_id=\"probe-bravo\" color=\"green\">\n{\"type\":\"idle_notification\",\"from\":\"probe-bravo\",\"timestamp\":\"2026-08-27T15:10:52.579Z\",\"idleReason\":\"available\"}\n</teammate-message>"
+    ]
+  },
+  {
+    "timestamp": "2026-08-27T15:12:32.305Z",
+    "type": "assistant",
+    "isSidechain": false,
+    "frames": []
+  }
+]

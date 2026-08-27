@@ -1,0 +1,160 @@
+[
+  {
+    "path": "probe-alpha.json",
+    "observedAt": 1787843399.415222,
+    "entries": [
+      {
+        "from": "probe-alpha",
+        "text": "{\"type\":\"task_assignment\",\"taskId\":\"1\",\"subject\":\"SPIKE probe A \u2014 report your identity\",\"description\":\"Throwaway spike task. Claim this task with TaskUpdate (set owner to your own name and status to in_progress), then use SendMessage to send team-lead a one-line message saying which task you claimed. Then mark it completed. Do nothing else.\",\"assignedBy\":\"probe-alpha\",\"timestamp\":\"2026-08-27T15:09:59.360Z\"}",
+        "timestamp": "2026-08-27T15:09:59.360Z",
+        "color": "blue",
+        "msgV": 1,
+        "msg_id": "45142e72-ccf0-493d-951c-900d73d989ec",
+        "type": "message",
+        "read": false
+      }
+    ]
+  },
+  {
+    "path": "probe-bravo.json",
+    "observedAt": 1787843406.299242,
+    "entries": [
+      {
+        "from": "probe-bravo",
+        "text": "{\"type\":\"task_assignment\",\"taskId\":\"2\",\"subject\":\"SPIKE probe B \u2014 report your identity\",\"description\":\"Throwaway spike task. Claim this task with TaskUpdate (set owner to your own name and status to in_progress), then use SendMessage to send team-lead a one-line message saying which task you claimed. Then mark it completed. Do nothing else.\",\"assignedBy\":\"probe-bravo\",\"timestamp\":\"2026-08-27T15:10:06.196Z\"}",
+        "timestamp": "2026-08-27T15:10:06.196Z",
+        "color": "green",
+        "msgV": 1,
+        "msg_id": "579e9d30-724d-4092-8f4c-c33eb35da2f2",
+        "type": "message",
+        "read": false
+      }
+    ]
+  },
+  {
+    "path": "team-lead.json",
+    "observedAt": 1787843415.784874,
+    "entries": [
+      {
+        "from": "probe-charlie",
+        "text": "probe-charlie reporting: running on a different model so the console can prove per-agent model resolution.",
+        "summary": "probe-charlie alive",
+        "timestamp": "2026-08-27T15:10:15.734Z",
+        "color": "yellow",
+        "msgV": 1,
+        "msg_id": "48ba3528-7a03-4d43-ab32-b3ef759ff2bd",
+        "type": "message",
+        "read": false
+      }
+    ]
+  },
+  {
+    "path": "team-lead.json",
+    "observedAt": 1787843417.96081,
+    "entries": [
+      {
+        "from": "probe-alpha",
+        "text": "probe-alpha reporting: I claimed task 1. This is spike traffic.",
+        "summary": "probe-alpha claimed task 1",
+        "timestamp": "2026-08-27T15:10:17.891Z",
+        "color": "blue",
+        "msgV": 1,
+        "msg_id": "4a236089-e8f5-4688-bca2-e47c6f0d8310",
+        "type": "message",
+        "read": false
+      }
+    ]
+  },
+  {
+    "path": "team-lead.json",
+    "observedAt": 1787843422.173215,
+    "entries": [
+      {
+        "from": "probe-charlie",
+        "text": "{\"type\":\"idle_notification\",\"from\":\"probe-charlie\",\"timestamp\":\"2026-08-27T15:10:22.099Z\",\"idleReason\":\"available\"}",
+        "timestamp": "2026-08-27T15:10:22.099Z",
+        "color": "yellow",
+        "msgV": 1,
+        "msg_id": "c6390c86-1b02-43f4-b8bb-0a58ef1afd66",
+        "type": "message",
+        "read": false
+      }
+    ]
+  },
+  {
+    "path": "probe-alpha.json",
+    "observedAt": 1787843424.9717162,
+    "entries": [
+      {
+        "from": "probe-alpha",
+        "text": "{\"type\":\"task_assignment\",\"taskId\":\"1\",\"subject\":\"SPIKE probe A \u2014 report your identity\",\"description\":\"Throwaway spike task. Claim this task with TaskUpdate (set owner to your own name and status to in_progress), then use SendMessage to send team-lead a one-line message saying which task you claimed. Then mark it completed. Do nothing else.\",\"assignedBy\":\"probe-alpha\",\"timestamp\":\"2026-08-27T15:09:59.360Z\"}",
+        "timestamp": "2026-08-27T15:09:59.360Z",
+        "color": "blue",
+        "msgV": 1,
+        "msg_id": "45142e72-ccf0-493d-951c-900d73d989ec",
+        "type": "message",
+        "read": false
+      },
+      {
+        "from": "probe-bravo",
+        "text": "probe-bravo reporting: teammate-to-teammate spike traffic, no relay through the lead.",
+        "summary": "bravo greets alpha",
+        "timestamp": "2026-08-27T15:10:24.932Z",
+        "color": "green",
+        "msgV": 1,
+        "msg_id": "55f993ea-ab92-4351-944a-ff7f9f181cfd",
+        "type": "message",
+        "read": false
+      }
+    ]
+  },
+  {
+    "path": "team-lead.json",
+    "observedAt": 1787843427.767757,
+    "entries": [
+      {
+        "from": "probe-bravo",
+        "text": "probe-bravo reporting: I claimed task 2. This is spike traffic.",
+        "summary": "probe-bravo claimed task 2",
+        "timestamp": "2026-08-27T15:10:27.630Z",
+        "color": "green",
+        "msgV": 1,
+        "msg_id": "c49b271e-53cc-47bd-b138-0bfdb79599bb",
+        "type": "message",
+        "read": false
+      }
+    ]
+  },
+  {
+    "path": "team-lead.json",
+    "observedAt": 1787843450.226634,
+    "entries": [
+      {
+        "from": "probe-alpha",
+        "text": "{\"type\":\"idle_notification\",\"from\":\"probe-alpha\",\"timestamp\":\"2026-08-27T15:10:50.152Z\",\"idleReason\":\"available\"}",
+        "timestamp": "2026-08-27T15:10:50.152Z",
+        "color": "blue",
+        "msgV": 1,
+        "msg_id": "02ae1670-b76a-496f-b2c7-67fdeae06e8b",
+        "type": "message",
+        "read": false
+      }
+    ]
+  },
+  {
+    "path": "team-lead.json",
+    "observedAt": 1787843452.724952,
+    "entries": [
+      {
+        "from": "probe-bravo",
+        "text": "{\"type\":\"idle_notification\",\"from\":\"probe-bravo\",\"timestamp\":\"2026-08-27T15:10:52.579Z\",\"idleReason\":\"available\"}",
+        "timestamp": "2026-08-27T15:10:52.579Z",
+        "color": "green",
+        "msgV": 1,
+        "msg_id": "179b39e6-3516-490f-91f6-3a49a458175d",
+        "type": "message",
+        "read": false
+      }
+    ]
+  }
+]

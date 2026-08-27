@@ -1,0 +1,38 @@
+[
+  {
+    "agentType": "probe-alpha",
+    "description": "Spike probe alpha",
+    "name": "probe-alpha",
+    "spawnDepth": 0,
+    "model": "claude-opus-5",
+    "taskKind": "in_process_teammate",
+    "teamName": "session-98b0b4a7",
+    "color": "blue",
+    "planModeRequired": false,
+    "permissionMode": "bypassPermissions"
+  },
+  {
+    "agentType": "probe-bravo",
+    "description": "Spike probe bravo",
+    "name": "probe-bravo",
+    "spawnDepth": 0,
+    "model": "claude-opus-5",
+    "taskKind": "in_process_teammate",
+    "teamName": "session-98b0b4a7",
+    "color": "green",
+    "planModeRequired": false,
+    "permissionMode": "bypassPermissions"
+  },
+  {
+    "agentType": "probe-charlie",
+    "description": "Spike probe charlie",
+    "name": "probe-charlie",
+    "spawnDepth": 0,
+    "model": "haiku",
+    "taskKind": "in_process_teammate",
+    "teamName": "session-98b0b4a7",
+    "color": "yellow",
+    "planModeRequired": false,
+    "permissionMode": "bypassPermissions"
+  }
+]

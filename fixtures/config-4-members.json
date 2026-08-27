@@ -1,0 +1,60 @@
+{
+  "name": "session-98b0b4a7",
+  "createdAt": 1787798107581,
+  "leadAgentId": "team-lead@session-98b0b4a7",
+  "leadSessionId": "98b0b4a7-3206-455b-aaf6-a5a81ad1e283",
+  "members": [
+    {
+      "agentId": "team-lead@session-98b0b4a7",
+      "name": "team-lead",
+      "agentType": "team-lead",
+      "joinedAt": 1787798107581,
+      "tmuxPaneId": "leader",
+      "cwd": "/Users/alanoliv/code/agents-team-ui",
+      "subscriptions": [],
+      "backendType": "in-process"
+    },
+    {
+      "agentId": "probe-alpha@session-98b0b4a7",
+      "name": "probe-alpha",
+      "color": "blue",
+      "joinedAt": 1787843382976,
+      "tmuxPaneId": "in-process",
+      "subscriptions": [],
+      "agentType": "general-purpose",
+      "model": "claude-opus-5",
+      "prompt": "You are a throwaway probe for a 2-minute data-capture spike. Do EXACTLY these steps and nothing else. Do not read or write any project files.\n\n1. Run: `sleep 10`\n2. Call TaskList, then TaskUpdate on task id \"1\" setting owner to your own agent name and status to \"in_progress\".\n3. Run: `sleep 15`\n4. Call SendMessage with to=\"team-lead\", summary=\"probe-alpha claimed task 1\", message=\"probe-alpha reporting: I claimed task 1. This is spike traffic.\"\n5. Run: `sleep 20`\n6. Call TaskUpdate on task id \"1\" setting status to \"completed\".\n7. Return the single line: `probe-alpha done`\n\nDo not do any other work. Do not explore the codebase.",
+      "planModeRequired": false,
+      "cwd": "/Users/alanoliv/code/agents-team-ui",
+      "backendType": "in-process"
+    },
+    {
+      "agentId": "probe-bravo@session-98b0b4a7",
+      "name": "probe-bravo",
+      "color": "green",
+      "joinedAt": 1787843388449,
+      "tmuxPaneId": "in-process",
+      "subscriptions": [],
+      "agentType": "Explore",
+      "model": "claude-opus-5",
+      "prompt": "You are a throwaway probe for a 2-minute data-capture spike. Do EXACTLY these steps and nothing else. Do not read or write any project files.\n\n1. Run: `sleep 12`\n2. Call TaskList, then TaskUpdate on task id \"2\" setting owner to your own agent name and status to \"in_progress\".\n3. Run: `sleep 15`\n4. Call SendMessage with to=\"probe-alpha\", summary=\"bravo greets alpha\", message=\"probe-bravo reporting: teammate-to-teammate spike traffic, no relay through the lead.\"\n5. Call SendMessage with to=\"team-lead\", summary=\"probe-bravo claimed task 2\", message=\"probe-bravo reporting: I claimed task 2. This is spike traffic.\"\n6. Run: `sleep 20`\n7. Return the single line: `probe-bravo done`\n\nDo not do any other work. Do not explore the codebase.",
+      "planModeRequired": false,
+      "cwd": "/Users/alanoliv/code/agents-team-ui",
+      "backendType": "in-process"
+    },
+    {
+      "agentId": "probe-charlie@session-98b0b4a7",
+      "name": "probe-charlie",
+      "color": "yellow",
+      "joinedAt": 1787843393618,
+      "tmuxPaneId": "in-process",
+      "subscriptions": [],
+      "agentType": "general-purpose",
+      "model": "haiku",
+      "prompt": "You are a throwaway probe for a 2-minute data-capture spike. Do EXACTLY these steps and nothing else. Do not read or write any project files.\n\n1. Run: `sleep 14`\n2. Call SendMessage with to=\"team-lead\", summary=\"probe-charlie alive\", message=\"probe-charlie reporting: running on a different model so the console can prove per-agent model resolution.\"\n3. Run: `sleep 30`\n4. Return the single line: `probe-charlie done`\n\nDo not do any other work. Do not explore the codebase.",
+      "planModeRequired": false,
+      "cwd": "/Users/alanoliv/code/agents-team-ui",
+      "backendType": "in-process"
+    }
+  ]
+}

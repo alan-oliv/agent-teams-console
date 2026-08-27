@@ -1,0 +1,50 @@
+[
+  {
+    "id": "1",
+    "subject": "SPIKE probe A \u2014 report your identity",
+    "description": "Throwaway spike task. Claim this task with TaskUpdate (set owner to your own name and status to in_progress), then use SendMessage to send team-lead a one-line message saying which task you claimed. Then mark it completed. Do nothing else.",
+    "activeForm": "Probing identity A",
+    "status": "pending",
+    "blocks": [],
+    "blockedBy": []
+  },
+  {
+    "id": "2",
+    "subject": "SPIKE probe B \u2014 report your identity",
+    "description": "Throwaway spike task. Claim this task with TaskUpdate (set owner to your own name and status to in_progress), then use SendMessage to send team-lead a one-line message saying which task you claimed. Then mark it completed. Do nothing else.",
+    "activeForm": "Probing identity B",
+    "status": "pending",
+    "blocks": [],
+    "blockedBy": []
+  },
+  {
+    "id": "1",
+    "subject": "SPIKE probe A \u2014 report your identity",
+    "description": "Throwaway spike task. Claim this task with TaskUpdate (set owner to your own name and status to in_progress), then use SendMessage to send team-lead a one-line message saying which task you claimed. Then mark it completed. Do nothing else.",
+    "activeForm": "Probing identity A",
+    "status": "in_progress",
+    "blocks": [],
+    "blockedBy": [],
+    "owner": "probe-alpha"
+  },
+  {
+    "id": "2",
+    "subject": "SPIKE probe B \u2014 report your identity",
+    "description": "Throwaway spike task. Claim this task with TaskUpdate (set owner to your own name and status to in_progress), then use SendMessage to send team-lead a one-line message saying which task you claimed. Then mark it completed. Do nothing else.",
+    "activeForm": "Probing identity B",
+    "status": "in_progress",
+    "blocks": [],
+    "blockedBy": [],
+    "owner": "probe-bravo"
+  },
+  {
+    "id": "1",
+    "subject": "SPIKE probe A \u2014 report your identity",
+    "description": "Throwaway spike task. Claim this task with TaskUpdate (set owner to your own name and status to in_progress), then use SendMessage to send team-lead a one-line message saying which task you claimed. Then mark it completed. Do nothing else.",
+    "activeForm": "Probing identity A",
+    "owner": "probe-alpha",
+    "status": "completed",
+    "blocks": [],
+    "blockedBy": []
+  }
+]
