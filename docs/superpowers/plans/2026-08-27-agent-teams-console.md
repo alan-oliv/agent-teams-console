@@ -3827,7 +3827,7 @@ import { drain, emptyTailState, watchAppendOnly, type TailState } from '../watch
 import { readJsonSafe, watchJsonTree } from '../watch/jsonfile.js';
 import type { Store } from '../store.js';
 import type { TaskPayload } from '../project.js';
-import { parseLine, type TranscriptRecord } from '../shared-imports.js';
+import { parseLine, type TranscriptRecord } from '../../shared/transcript.js';
 import type { TeamConfig, Sidecar } from '../../shared/roster.js';
 import type { InboxEntry } from '../../shared/mailbox.js';
 
@@ -4104,11 +4104,6 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
 Create the one-line re-export the ingest imports so the shared parser resolves from a single place:
 
 ```ts
-// src/server/shared-imports.ts
-export { parseLine, toTranscriptLines, currentToolOf } from '../shared/transcript.js';
-export type { TranscriptRecord } from '../shared/transcript.js';
-```
-
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run src/server/ingest/files.test.ts`
@@ -4117,7 +4112,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/server/ingest/files.ts src/server/shared-imports.ts src/server/ingest/files.test.ts && git commit -m "feat: wire transcript, team, task and session watchers to the store with a 5s reconciliation sweep"
+git add src/server/ingest/files.ts src/server/ingest/files.test.ts && git commit -m "feat: wire transcript, team, task and session watchers to the store with a 5s reconciliation sweep"
 ```
 
 ---
@@ -4125,6 +4120,7 @@ git add src/server/ingest/files.ts src/server/shared-imports.ts src/server/inges
 ### Task 14: Hook, statusline and substatus endpoints
 
 **Files:**
+- Create: `src/server/control/permits.ts` (types only; Task 15 adds `createPermits`)
 - Create: `src/server/ingest/hooks.ts`
 - Test: `src/server/ingest/hooks.test.ts`
 
@@ -4567,7 +4563,7 @@ git add src/server/ingest/hooks.ts src/server/ingest/hooks.test.ts && git commit
 
 **Files:**
 - Create: `src/server/control/mailbox.ts`
-- Create: `src/server/control/permits.ts`
+- Modify: `src/server/control/permits.ts` (types created in Task 14 — ADD `createPermits`, keep the existing exports)
 - Test: `src/server/control/mailbox.test.ts`
 - Test: `src/server/control/permits.test.ts`
 
@@ -8101,7 +8097,7 @@ git add src/web/chrome/Panel.tsx src/web/chrome/Panel.test.tsx src/web/App.tsx s
 ### Task 24: TranscriptFeed, Composer and the view format helpers
 
 **Files:**
-- Create: `src/web/format.ts`
+- Modify: `src/web/format.ts` (created in Task 20 — APPEND to it; do not recreate)
 - Create: `src/web/agents.fixture.ts`
 - Create: `src/web/components/TranscriptFeed.tsx`
 - Create: `src/web/components/Composer.tsx`
@@ -8362,7 +8358,10 @@ Expected: FAIL with `Failed to resolve import "./format"`, `"./TranscriptFeed"`,
 - [ ] **Step 3: Write the implementation**
 
 ```ts
-// src/web/format.ts
+// src/web/format.ts — APPEND. Task 20 already created this file with
+// meterCells(), contextBar() and formatTokens(). Keep every existing export
+// intact (ContextMeter imports them) and reuse formatTokens rather than
+// adding a second token formatter.
 
 function scaled(value: number, suffix: string): string {
   const rounded = value >= 100 ? Math.round(value) : Math.round(value * 10) / 10;
@@ -10407,7 +10406,9 @@ Implements spec §5.4 and success criterion #0. The console is not a daemon: a `
 - Create: `src/server/lifecycle.ts`
 - Test: `src/server/lifecycle.test.ts`
 - Modify: `src/server/setup.ts` (add the `PostToolUse`/`Agent` launcher entry to `hookBlock`)
-- Modify: `src/server/http.ts` (add `GET /health` and `POST /api/shutdown`)
+- Modify: `src/server/http.ts` (add `GET /health`)
+- Modify: `src/server/ingest/hooks.ts` (exit on SessionEnd)
+- Modify: `src/server/index.ts` (start the idle reaper)
 
 **Interfaces:**
 - Consumes: `hookBlock(port: number)` from `src/server/setup.ts`; `createHttpServer`, `listen` from `src/server/http.ts`; `readJsonSafe` from `src/server/watch/jsonfile.ts`
