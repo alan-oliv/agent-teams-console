@@ -61,6 +61,12 @@ export function createHttpServer(deps: HttpDeps): Server {
           return;
         }
 
+        if (method === 'GET' && route === '/health') {
+          const s = deps.state();
+          json(res, 200, { ok: true, team: s.teamName, agents: s.agents.length });
+          return;
+        }
+
         if (method === 'POST' && (route === '/hook' || route === '/statusline' || route === '/substatus')) {
           const body = await readBody(req);
           const out =

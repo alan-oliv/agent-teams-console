@@ -11,9 +11,11 @@ import { createStream } from './stream';
 import { createHttpServer, listen } from './http';
 import { readJsonSafe } from './watch/jsonfile';
 import { checkClaudeVersion, readClaudeVersion, runSetup } from './setup';
+import { startIdleReaper } from './lifecycle';
 import type { TeamConfig } from '../shared/roster';
 
 export const DEFAULT_PORT = 4823;
+const IDLE_GRACE_MS = 10 * 60 * 1000;
 
 export interface Cli {
   command: 'run' | 'setup' | 'uninstall';
@@ -150,7 +152,17 @@ export async function main(argv: string[]): Promise<number> {
   const port = await listen(server, cli.port);
   console.log(`agent teams console on http://127.0.0.1:${port}${cli.readOnly ? ' (read-only)' : ''}`);
 
+  const reaper = startIdleReaper({
+    teamsRoot,
+    graceMs: IDLE_GRACE_MS,
+    onIdle: () => {
+      console.error('[octo] no live team for 10 minutes — exiting');
+      process.exit(0);
+    },
+  });
+
   const stop = () => {
+    reaper.stop();
     ingest.close();
     hub.close();
     server.close();

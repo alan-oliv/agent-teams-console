@@ -2,12 +2,14 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { LAUNCH_SCRIPT } from './lifecycle';
 
 const run = promisify(execFile);
 
 export const PINNED_CLAUDE_VERSION = '2.1.231';
 export const HOOK_TIMEOUT_MS = 5000;
 export const PERMISSION_HOOK_TIMEOUT_MS = 600_000;
+export const LAUNCH_HOOK_TIMEOUT_MS = 5000;
 
 export const HOOK_EVENTS = [
   'PreToolUse',
@@ -30,9 +32,14 @@ export interface HttpHook {
   url: string;
   timeout: number;
 }
+export interface CommandHook {
+  type: 'command';
+  command: string;
+  timeout: number;
+}
 export interface HookEntry {
   matcher?: string;
-  hooks: HttpHook[];
+  hooks: Array<HttpHook | CommandHook>;
 }
 export interface StatusLineCommand {
   type: 'command';
@@ -66,6 +73,21 @@ export function hookBlock(port: number): HookBlock {
     if (MATCHER_EVENTS.has(event)) entry.matcher = '*';
     hooks[event] = [entry];
   }
+
+  // The launcher runs on EVERY Agent spawn and exits immediately unless a real
+  // team exists, so its cost on the common path is one shell process.
+  // It must be PostToolUse, not SubagentStart: SubagentStart runs in the
+  // spawned agent's context, where systemMessage is filtered out of the hook
+  // result and the link never reaches the operator. PostToolUse also fires
+  // AFTER the spawn returns, so config.json already lists the new member.
+  hooks.PostToolUse = [
+    ...(hooks.PostToolUse ?? []),
+    {
+      matcher: 'Agent',
+      hooks: [{ type: 'command', command: LAUNCH_SCRIPT, timeout: LAUNCH_HOOK_TIMEOUT_MS }],
+    },
+  ];
+
   return {
     hooks,
     statusLine: { type: 'command', command: post(port, 'statusline'), refreshInterval: 5 },
@@ -76,7 +98,11 @@ export function hookBlock(port: number): HookBlock {
 function isConsoleEntry(entry: unknown): boolean {
   const hooks = (entry as HookEntry | undefined)?.hooks;
   if (!Array.isArray(hooks)) return false;
-  return hooks.some((h) => h?.type === 'http' && typeof h.url === 'string' && CONSOLE_HOOK_URL.test(h.url));
+  return hooks.some(
+    (h) =>
+      (h?.type === 'http' && typeof h.url === 'string' && CONSOLE_HOOK_URL.test(h.url)) ||
+      (h?.type === 'command' && typeof h.command === 'string' && h.command.endsWith('console-launch.sh')),
+  );
 }
 
 function isConsoleStatusLine(value: unknown, route: string): boolean {

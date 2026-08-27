@@ -68,6 +68,14 @@ export function createHookHandlers(deps: HookDeps): HookHandlers {
         const text = str(b.message) ?? str(b.prompt);
         store.append('hook', { event, agent, toolName, text }, agent);
 
+        if (event === 'SessionEnd') {
+          // Respond first; a hook that never gets its 200 stalls the session's exit.
+          setTimeout(() => {
+            console.error('[octo] session ended — exiting');
+            process.exit(0);
+          }, 250);
+        }
+
         if (event !== 'PermissionRequest') return { status: 200, body: {} };
 
         const timeoutMs = num(b.timeout) ?? deps.permissionTimeoutMs ?? DEFAULT_PERMISSION_TIMEOUT_MS;

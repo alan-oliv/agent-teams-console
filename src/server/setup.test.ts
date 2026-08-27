@@ -12,6 +12,7 @@ import {
   mergeHookBlock,
   removeHookBlock,
   runSetup,
+  type CommandHook,
 } from './setup';
 
 interface HttpHook { type: string; url: string; timeout: number }
@@ -37,7 +38,8 @@ describe('hookBlock', () => {
     expect(Object.keys(block.hooks)).toEqual([...HOOK_EVENTS]);
     for (const event of HOOK_EVENTS) {
       const entries = block.hooks[event] as HookEntry[];
-      expect(entries).toHaveLength(1);
+      // PostToolUse carries one extra entry: the command-hook launcher.
+      expect(entries).toHaveLength(event === 'PostToolUse' ? 2 : 1);
       expect(entries[0].hooks).toHaveLength(1);
       expect(entries[0].hooks[0].type).toBe('http');
       expect(entries[0].hooks[0].url).toBe('http://127.0.0.1:4823/hook');
@@ -73,6 +75,23 @@ describe('hookBlock', () => {
     const other = hookBlock(4400);
     expect(((other.hooks.Stop as HookEntry[])[0].hooks[0]).url).toBe('http://127.0.0.1:4400/hook');
     expect(other.statusLine.command).toContain(':4400/statusline');
+  });
+
+  it('registers the launcher as a PostToolUse:Agent command hook with an explicit timeout', () => {
+    const entry = block.hooks.PostToolUse.find((e) => e.matcher === 'Agent');
+    expect(entry).toBeDefined();
+    expect(entry!.hooks[0]).toMatchObject({ type: 'command', timeout: 5000 });
+    expect((entry!.hooks[0] as CommandHook).command).toMatch(/console-launch\.sh$/);
+  });
+
+  it('does not register a SubagentStart hook — systemMessage is stripped there', () => {
+    expect(hookBlock(4823).hooks.SubagentStart).toBeUndefined();
+  });
+
+  it('uninstall removes the launcher as well as the http hooks', () => {
+    const installed = mergeHookBlock({}, 4823);
+    const cleaned = removeHookBlock(installed) as { hooks?: Record<string, unknown[]> };
+    expect(cleaned.hooks?.PostToolUse ?? []).toHaveLength(0);
   });
 });
 
