@@ -14,9 +14,16 @@ export interface PanelProps {
 
 export function Panel({ agents, focusedAgent, onFocusAgent }: PanelProps) {
   const [expanded, setExpanded] = useState(false);
-  const idle = agents.filter((a) => a.status === 'idle');
+  const [departedExpanded, setDepartedExpanded] = useState(false);
+
+  // Departed agents are gone for good, so they never occupy an addressable
+  // chip — they only ever appear collapsed, unlike idle which needs >3 first.
+  const live = agents.filter((a) => a.status !== 'departed');
+  const departed = agents.filter((a) => a.status === 'departed');
+
+  const idle = live.filter((a) => a.status === 'idle');
   const collapsed = idle.length > IDLE_COLLAPSE_AT && !expanded;
-  const shown = collapsed ? agents.filter((a) => a.status !== 'idle') : agents;
+  const shown = collapsed ? live.filter((a) => a.status !== 'idle') : live;
 
   return (
     <div
@@ -74,6 +81,33 @@ export function Panel({ agents, focusedAgent, onFocusAgent }: PanelProps) {
             {`${idle.length} idle agents`}
           </button>
         )}
+        {departed.length > 0 && (
+          <button
+            type="button"
+            className="chip"
+            data-testid="departed-chip"
+            onClick={() => setDepartedExpanded((e) => !e)}
+            style={{
+              border: '1px dashed var(--color-neutral-800)',
+              borderRadius: 'var(--radius-sm)',
+              padding: '2px 7px',
+              color: 'var(--color-neutral-700)',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {`${departed.length} departed`}
+          </button>
+        )}
+        {departedExpanded &&
+          departed.map((a) => (
+            <span
+              key={a.name}
+              data-testid="departed-name"
+              style={{ color: 'var(--color-neutral-800)', whiteSpace: 'nowrap' }}
+            >
+              {a.name}
+            </span>
+          ))}
       </div>
       <span style={{ color: 'var(--color-neutral-700)', whiteSpace: 'nowrap' }}>{LEGEND}</span>
     </div>

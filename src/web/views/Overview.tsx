@@ -38,6 +38,7 @@ export function Overview({
           flexDirection: 'column',
           minHeight: 0,
           cursor: 'pointer',
+          opacity: agent.status === 'departed' ? 0.55 : 1,
         };
 
         function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {

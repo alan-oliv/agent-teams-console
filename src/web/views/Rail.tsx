@@ -96,6 +96,7 @@ export function Rail({
                   alignItems: 'flex-start',
                   background: selected ? 'var(--color-bg)' : 'transparent',
                   borderLeft: `2px solid ${selected ? 'var(--color-accent-600)' : 'transparent'}`,
+                  opacity: agent.status === 'departed' ? 0.55 : 1,
                 }}
               >
                 <Portrait agent={agent} slot="rail-row" />

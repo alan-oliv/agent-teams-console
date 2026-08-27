@@ -7,7 +7,7 @@ import { openStore, type Store } from './store';
 import { createPermits, type Permits } from './control/permits';
 import { createHookHandlers } from './ingest/hooks';
 import { createStream, type StreamHub } from './stream';
-import { createHttpServer, listen, READ_ONLY_BODY } from './http';
+import { createHttpServer, listen, NO_BUNDLE_BODY, READ_ONLY_BODY } from './http';
 import { setTeamsRoot } from './control/mailbox';
 import type { InboxEntry } from '../shared/mailbox';
 import type { TeamState } from '../shared/domain';
@@ -38,7 +38,7 @@ function emptyState(readOnly: boolean): TeamState {
   };
 }
 
-async function boot(readOnly: boolean): Promise<{ server: Server; url: string }> {
+async function boot(readOnly: boolean, webDist?: string): Promise<{ server: Server; url: string }> {
   state = emptyState(readOnly);
   hub = createStream(() => state, 50);
   const server = createHttpServer({
@@ -47,6 +47,7 @@ async function boot(readOnly: boolean): Promise<{ server: Server; url: string }>
     stream: hub,
     state: () => state,
     readOnly,
+    webDist,
   });
   const port = await listen(server, 0);
   return { server, url: `http://127.0.0.1:${port}` };
@@ -92,6 +93,89 @@ describe('GET /stream', () => {
       expect(second.match(/event: state/g)).toHaveLength(1);
 
       await reader.cancel();
+    } finally {
+      await shutdown(server);
+    }
+  });
+});
+
+describe('static web bundle', () => {
+  async function makeWebDist(): Promise<string> {
+    const webDist = await fs.mkdtemp(path.join(os.tmpdir(), 'dist-web-'));
+    await fs.writeFile(path.join(webDist, 'index.html'), '<!doctype html><title>console</title>');
+    await fs.mkdir(path.join(webDist, 'assets'));
+    await fs.writeFile(path.join(webDist, 'assets', 'index.js'), 'console.log(1)');
+    return webDist;
+  }
+
+  it('serves index.html at GET / and real files under /assets/*', async () => {
+    const webDist = await makeWebDist();
+    const { server, url } = await boot(false, webDist);
+    try {
+      const root = await fetch(`${url}/`);
+      expect(root.status).toBe(200);
+      expect(root.headers.get('content-type')).toContain('text/html');
+      expect(await root.text()).toContain('<title>console</title>');
+
+      const asset = await fetch(`${url}/assets/index.js`);
+      expect(asset.status).toBe(200);
+      expect(asset.headers.get('content-type')).toContain('javascript');
+      expect(await asset.text()).toBe('console.log(1)');
+    } finally {
+      await shutdown(server);
+      await fs.rm(webDist, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to index.html for an unmatched non-API GET, so client-side routes resolve', async () => {
+    const webDist = await makeWebDist();
+    const { server, url } = await boot(false, webDist);
+    try {
+      const res = await fetch(`${url}/wall?view=grid&agent=probe-bravo`);
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('<title>console</title>');
+    } finally {
+      await shutdown(server);
+      await fs.rm(webDist, { recursive: true, force: true });
+    }
+  });
+
+  it('does not shadow /health, /hook or /api/* with the static bundle', async () => {
+    const webDist = await makeWebDist();
+    const { server, url } = await boot(false, webDist);
+    try {
+      const health = await fetch(`${url}/health`);
+      expect(health.headers.get('content-type')).toContain('application/json');
+      expect((await health.json()).ok).toBe(true);
+
+      const apiGet = await fetch(`${url}/api/agents/probe-alpha/message`);
+      expect(apiGet.status).toBe(404);
+      expect(apiGet.headers.get('content-type')).toContain('application/json');
+    } finally {
+      await shutdown(server);
+      await fs.rm(webDist, { recursive: true, force: true });
+    }
+  });
+
+  it('404s a missing asset without falling back to index.html', async () => {
+    const webDist = await makeWebDist();
+    const { server, url } = await boot(false, webDist);
+    try {
+      const res = await fetch(`${url}/assets/does-not-exist.js`);
+      expect(res.status).toBe(404);
+    } finally {
+      await shutdown(server);
+      await fs.rm(webDist, { recursive: true, force: true });
+    }
+  });
+
+  it('returns an explanatory 503 instead of a bare 404 when dist/web is missing', async () => {
+    const missing = path.join(dir, 'no-such-dist-web');
+    const { server, url } = await boot(false, missing);
+    try {
+      const res = await fetch(`${url}/`);
+      expect(res.status).toBe(503);
+      expect(await res.json()).toEqual(NO_BUNDLE_BODY);
     } finally {
       await shutdown(server);
     }

@@ -63,4 +63,16 @@ describe('Grid', () => {
     fireEvent.click(screen.getAllByTestId('grid-pane')[2]);
     expect(onFocus).toHaveBeenCalledWith('probe-bravo');
   });
+
+  it('dims a departed agent pane to opacity .55', () => {
+    const withDeparted = four.map((a) =>
+      a.name === 'probe-charlie' ? { ...a, status: 'departed' as const } : a,
+    );
+    render(<Grid agents={withDeparted} focused={null} onFocus={vi.fn()} now={FIXTURE_NOW} />);
+    const panes = screen.getAllByTestId('grid-pane');
+    const charlie = panes.find((p) => within(p).getByTestId('grid-name').textContent === 'probe-charlie')!;
+    expect(charlie.style.opacity).toBe('0.55');
+    const alpha = panes.find((p) => within(p).getByTestId('grid-name').textContent === 'probe-alpha')!;
+    expect(alpha.style.opacity).toBe('1');
+  });
 });

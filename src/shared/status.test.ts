@@ -38,7 +38,8 @@ describe('AGENT_STATUS', () => {
     expect(AGENT_STATUS.plan_pending).toEqual({ glyph: '▲', label: 'plan approval', color: '#d99e5c' });
     expect(AGENT_STATUS.failed).toEqual({ glyph: '✗', label: 'failed', color: '#c98d8d' });
     expect(AGENT_STATUS.blocked).toEqual({ glyph: '⊘', label: 'blocked', color: 'var(--color-neutral-600)' });
-    expect(Object.keys(AGENT_STATUS)).toHaveLength(5);
+    expect(AGENT_STATUS.departed).toEqual({ glyph: '◌', label: 'departed', color: 'var(--color-neutral-800)' });
+    expect(Object.keys(AGENT_STATUS)).toHaveLength(6);
   });
 });
 

@@ -26,8 +26,8 @@ function recordsOf(file: string): TranscriptRecord[] {
     .filter((r): r is TranscriptRecord => r !== null);
 }
 
-function buildLog(): StoredEvent[] {
-  const config = readJson<TeamConfig>('config-4-members.json');
+function buildLog(configOverride?: TeamConfig | null): StoredEvent[] {
+  const config = configOverride !== undefined ? configOverride : readJson<TeamConfig>('config-4-members.json');
   const sidecars = readJson<Sidecar[]>('meta-sidecars.json').map((meta) => ({
     meta,
     transcriptPath: `/projects/slug/subagents/agent-a${meta.name}-0000000000000000.jsonl`,
@@ -174,5 +174,35 @@ describe('project', () => {
     const twice = project(log, false).agents.find((a) => a.name === 'probe-charlie')!;
     expect(twice.transcript.length).toBe(once.transcript.length);
     expect(twice.costUsd).toBeCloseTo(once.costUsd, 9);
+  });
+});
+
+describe('departed status', () => {
+  it('marks an agent missing from config.members as departed but keeps its cost in the total', () => {
+    const config = readJson<TeamConfig>('config-4-members.json');
+    const withoutCharlie: TeamConfig = {
+      ...config,
+      members: config.members.filter((m) => m.name !== 'probe-charlie'),
+    };
+    const state = project(buildLog(withoutCharlie), false);
+    const byName = Object.fromEntries(state.agents.map((a) => [a.name, a]));
+
+    expect(byName['probe-charlie'].status).toBe('departed');
+    expect(byName['probe-alpha'].status).not.toBe('departed');
+    expect(byName['probe-charlie'].costUsd).toBeGreaterThan(0);
+    // The departed agent keeps its final transcript/model, and its spend still
+    // counts toward the team total.
+    expect(byName['probe-charlie'].transcript.length).toBeGreaterThan(0);
+    expect(byName['probe-charlie'].model).toBe('claude-haiku-4-5');
+    expect(state.totalCostUsd).toBeCloseTo(
+      byName['probe-alpha'].costUsd + byName['probe-bravo'].costUsd + byName['probe-charlie'].costUsd,
+      9,
+    );
+  });
+
+  it('marks every agent departed when config is null — lead exited, team dir gone', () => {
+    const state = project(buildLog(null), false);
+    expect(state.agents.length).toBeGreaterThan(0);
+    expect(state.agents.every((a) => a.status === 'departed')).toBe(true);
   });
 });

@@ -99,4 +99,16 @@ describe('Wall', () => {
     fireEvent.mouseLeave(charlie);
     expect(charlie.style.background).toBe('rgb(18, 20, 31)');
   });
+
+  it('dims a departed agent column to opacity .55', () => {
+    const withDeparted = agents.map((a) =>
+      a.name === 'probe-charlie' ? { ...a, status: 'departed' as const } : a,
+    );
+    render(<Wall agents={withDeparted} focused="probe-alpha" onFocus={vi.fn()} now={FIXTURE_NOW} />);
+    const columns = screen.getAllByTestId('wall-column');
+    const charlie = columns.find((c) => within(c).getByTestId('wall-name').textContent === 'probe-charlie')!;
+    expect(charlie.style.opacity).toBe('0.55');
+    const alpha = columns.find((c) => within(c).getByTestId('wall-name').textContent === 'probe-alpha')!;
+    expect(alpha.style.opacity).toBe('1');
+  });
 });

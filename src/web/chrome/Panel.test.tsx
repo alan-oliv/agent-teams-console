@@ -106,6 +106,34 @@ it('shows the glyph, name and context percent on each chip and focuses on click'
   expect(onFocusAgent).toHaveBeenCalledWith('probe-alpha');
 });
 
+it('collapses departed agents into their own dashed chip, distinct from idle', () => {
+  render(
+    <Panel
+      agents={[
+        agent('team-lead', 'working', 53_100),
+        agent('probe-alpha', 'idle', 120_000),
+        agent('probe-ghost', 'departed', 90_000),
+      ]}
+      focusedAgent={null}
+      onFocusAgent={vi.fn()}
+    />,
+  );
+  // Only three or fewer idle agents, so the idle chip does not collapse — but
+  // the departed agent never gets an addressable chip regardless of count.
+  expect(screen.getAllByTestId('agent-chip')).toHaveLength(2);
+  expect(screen.queryByTestId('idle-chip')).toBeNull();
+  expect(screen.queryByText('probe-ghost')).toBeNull();
+
+  const departedChip = screen.getByTestId('departed-chip');
+  expect(departedChip.textContent).toBe('1 departed');
+  expect(departedChip.style.border).toBe('1px dashed var(--color-neutral-800)');
+
+  fireEvent.click(departedChip);
+  expect(screen.getByTestId('departed-name').textContent).toBe('probe-ghost');
+  // Still not an addressable chip once revealed.
+  expect(screen.getAllByTestId('agent-chip')).toHaveLength(2);
+});
+
 it('renders the PANEL label and the key legend', () => {
   render(<Panel agents={[]} focusedAgent={null} onFocusAgent={vi.fn()} />);
   const label = screen.getByText('PANEL');

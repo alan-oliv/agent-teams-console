@@ -8,6 +8,7 @@ export const AGENT_STATUS: Record<AgentStatus, StatusStyle> = {
   plan_pending: { glyph: '▲', label: 'plan approval', color: '#d99e5c' },
   failed: { glyph: '✗', label: 'failed', color: '#c98d8d' },
   blocked: { glyph: '⊘', label: 'blocked', color: 'var(--color-neutral-600)' },
+  departed: { glyph: '◌', label: 'departed', color: 'var(--color-neutral-800)' },
 };
 
 export const TASK_STATUS: Record<TaskState, StatusStyle> = {

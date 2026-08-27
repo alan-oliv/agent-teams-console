@@ -58,6 +58,7 @@ export function Grid({
               minHeight: 0,
               minWidth: 0,
               cursor: 'pointer',
+              opacity: agent.status === 'departed' ? 0.55 : 1,
             }}
           >
             <div

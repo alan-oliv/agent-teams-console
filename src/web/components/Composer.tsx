@@ -29,10 +29,11 @@ export function Composer({ agent, variant }: { agent: Agent; variant: 'wall' | '
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const v = VARIANT[variant];
+  const departed = agent.status === 'departed';
 
   async function send() {
     const body = text.trim();
-    if (!body || busy) return;
+    if (!body || busy || departed) return;
     setBusy(true);
     try {
       const res = await fetch(`/api/agents/${encodeURIComponent(agent.name)}/message`, {
@@ -70,6 +71,7 @@ export function Composer({ agent, variant }: { agent: Agent; variant: 'wall' | '
         rows={1}
         value={text}
         placeholder={v.placeholder(agent.name)}
+        disabled={departed}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={onKeyDown}
         style={{

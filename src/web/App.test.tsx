@@ -111,3 +111,25 @@ it('wires each view into the body and never unmounts the chrome switching betwee
   expect(screen.getByRole('tablist')).toBe(tablist);
   expect(screen.getByText('PANEL')).toBe(panel);
 });
+
+it('wires useKeyboard to the store — ⌘2 switches from the wall to overview', () => {
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+
+  expect(screen.getByTestId('wall')).toBeTruthy();
+  fireEvent.keyDown(document.body, { key: '2', metaKey: true });
+  expect(screen.getByTestId('overview')).toBeTruthy();
+  expect(screen.queryByTestId('wall')).toBeNull();
+});
+
+it('does not let ⌘2 switch the view while a composer has focus', () => {
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+
+  const composer = screen.getAllByTestId('composer-input')[0];
+  composer.focus();
+  fireEvent.keyDown(composer, { key: '2', metaKey: true });
+
+  expect(screen.getByTestId('wall')).toBeTruthy();
+  expect(screen.queryByTestId('overview')).toBeNull();
+});

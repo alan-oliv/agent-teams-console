@@ -62,6 +62,17 @@ describe('Composer', () => {
     expect(screen.queryByTestId('composer-caret')).toBeNull();
   });
 
+  it('disables the composer for a departed agent and refuses to send', () => {
+    const departedAgent = { ...alpha, status: 'departed' as const };
+    render(<Composer agent={departedAgent} variant="wall" />);
+    const input = screen.getByTestId('composer-input') as HTMLTextAreaElement;
+    expect(input.disabled).toBe(true);
+
+    fireEvent.change(input, { target: { value: 'stop after task 1' } });
+    fireEvent.keyDown(input, { key: 'Enter', metaKey: true });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('shows the blinking caret and the current tool in the rail variant', () => {
     render(<Composer agent={alpha} variant="rail" />);
     const caret = screen.getByTestId('composer-caret');

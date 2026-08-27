@@ -1,4 +1,4 @@
-export type AgentStatus = 'working' | 'idle' | 'plan_pending' | 'failed' | 'blocked';
+export type AgentStatus = 'working' | 'idle' | 'plan_pending' | 'failed' | 'blocked' | 'departed';
 export type TaskState = 'pending' | 'in_progress' | 'completed' | 'plan_pending' | 'failed' | 'blocked';
 export type ViewId = 'wall' | 'overview' | 'tasks' | 'rail' | 'grid';
 export type Marker = '❯' | '⏺' | '⎿' | '✓' | '✗' | '+' | '!' | '▲' | '○';

@@ -65,6 +65,7 @@ export function Wall({
           flexDirection: 'column',
           minHeight: 0,
           cursor: 'pointer',
+          opacity: agent.status === 'departed' ? 0.55 : 1,
           ...(shadows.length ? { boxShadow: shadows.join(',') } : {}),
           ...(isLeadColumn ? { position: 'sticky', left: 0, zIndex: 2 } : {}),
         };

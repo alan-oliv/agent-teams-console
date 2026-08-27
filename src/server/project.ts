@@ -232,6 +232,12 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
   const cards = [...needsYou.values()];
   let totalTokens = 0;
 
+  // Liveness comes ONLY from config.json membership. The sidecars survive a
+  // teammate's exit on purpose (§2.2), so an agent present there but no longer
+  // in `members[]` has finished, not gone idle — and a null config (lead
+  // exited, team dir gone) means nobody is live.
+  const liveMembers = config ? new Set(config.members.map((m) => m.name)) : null;
+
   const agents: Agent[] = buildRoster(config, sidecars).map((id) => {
     const recs = records.get(id.name) ?? [];
     const sub = substatus.get(id.name);
@@ -243,7 +249,8 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
     for (const rec of recs) for (const l of toTranscriptLines(rec)) lines.push(l);
 
     let status: AgentStatus = 'working';
-    if (errors.has(id.name)) status = 'failed';
+    if (!liveMembers || !liveMembers.has(id.name)) status = 'departed';
+    else if (errors.has(id.name)) status = 'failed';
     else if (cards.some((c) => c.agent === id.name && c.kind === 'plan')) status = 'plan_pending';
     else {
       const act = lastActivity.get(id.name) ?? -1;

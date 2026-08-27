@@ -128,4 +128,16 @@ describe('Rail — attached pane', () => {
     );
     expect(screen.getByTestId('composer-caret')).toBeTruthy();
   });
+
+  it('dims a departed agent row to opacity .55', () => {
+    const withDeparted = agents.map((a) =>
+      a.name === 'probe-charlie' ? { ...a, status: 'departed' as const } : a,
+    );
+    render(<Rail agents={withDeparted} focused="team-lead" onFocus={vi.fn()} now={FIXTURE_NOW} />);
+    const rows = screen.getAllByRole('option');
+    const charlie = rows.find((r) => within(r).getByTestId('rail-name').textContent === 'probe-charlie')!;
+    expect(charlie.style.opacity).toBe('0.55');
+    const alpha = rows.find((r) => within(r).getByTestId('rail-name').textContent === 'probe-alpha')!;
+    expect(alpha.style.opacity).toBe('1');
+  });
 });
