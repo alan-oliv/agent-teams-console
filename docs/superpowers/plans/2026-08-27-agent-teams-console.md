@@ -15,6 +15,7 @@
 - **Build target is `#4a`**, lines 40–348 of `design_handoff_agent_teams_console/Octo Session Console.dc.html`. Its DOM and CSS values are the visual truth. Three README behaviours are folded back on top: the current-tool row in wall columns, wall hover + click-to-focus, and the two-line mailbox footer. Branch, PR and diffstat are **dropped** — the view switcher took that space.
 - **The pinned type contract in Task 1's `src/shared/domain.ts` is frozen.** Never rename an exported symbol, change a property's casing, or add a field to a contract type. If a task needs a helper the contract does not define, define it inside that task's own module.
 - **Node ≥ 22.17, ESM only** (`"type": "module"`). No CommonJS.
+- **Relative imports are EXTENSIONLESS** (`from './catalog'`), not `.js`. `tsconfig` uses `moduleResolution: bundler`, and both `tsx` (dev/start) and Vite (web) resolve them. Verified: `npx tsx` runs an extensionless relative import; plain `node` ESM does not — which is why the server is BUNDLED for production rather than emitted file-by-file.
 - **Server binds `127.0.0.1` only**, default port **4823**. No authentication, no external interface.
 - **Hook endpoints must never block.** Claude Code hooks are synchronous and stall the agent's turn; the default timeout is **600 000 ms**. Every endpoint returns `200 {}` immediately, wrapped so a thrown error cannot escape — the one exception is the deliberate `PermissionRequest` hold in Task 15, which auto-denies at 90 % of its timeout.
 - **Never write to `~/.claude/settings.json` as a side effect.** Hook installation is an explicit `setup` command that prints the block and writes only on confirmation (Task 17).
@@ -5482,7 +5483,36 @@ git add src/server/stream.ts src/server/http.ts src/server/http.test.ts && git c
 - Consumes: `openStore`, `Store` from `src/server/store.ts`; `project` from `src/server/project.ts`; `startFileIngest` from `src/server/ingest/files.ts`; `createHookHandlers` from `src/server/ingest/hooks.ts`; `createPermits` from `src/server/control/permits.ts`; `setTeamsRoot` from `src/server/control/mailbox.ts`; `createStream` from `src/server/stream.ts`; `createHttpServer`, `listen` from `src/server/http.ts`; `readJsonSafe` from `src/server/watch/jsonfile.ts`
 - Produces: `PINNED_CLAUDE_VERSION`, `HOOK_EVENTS`, `HOOK_TIMEOUT_MS`, `PERMISSION_HOOK_TIMEOUT_MS`, `hookBlock(port: number): HookBlock`, `mergeHookBlock(settings, port)`, `removeHookBlock(settings)`, `checkClaudeVersion(raw: string | null)`, `runSetup(opts)`, and from index.ts `parseArgs(argv: string[]): Cli`, `main(argv: string[]): Promise<number>`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Add the server bundle step**
+
+`npm run build` currently builds only the web. The lifecycle launcher (Task 30) starts the
+server with `node dist/server/index.js`, and plain Node ESM rejects this repo's extensionless
+relative imports — so the server must be bundled into one self-contained file, not emitted
+file-by-file by tsc.
+
+```bash
+npm i -D esbuild
+```
+
+Add to `package.json` scripts:
+
+```json
+{
+  "build:server": "esbuild src/server/index.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/server/index.js --external:better-sqlite3 --external:proper-lockfile --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
+  "build": "vite build && npm run build:server"
+}
+```
+
+`better-sqlite3` is native and `proper-lockfile` is CJS, so both stay external; the banner
+gives the bundle a working `require` for them. Verify:
+
+```bash
+npm run build:server && node dist/server/index.js --help
+```
+
+Expected: the bundle runs and prints usage — no `ERR_MODULE_NOT_FOUND`.
+
+- [ ] **Step 2: Write the failing test**
 
 ```ts
 // src/server/setup.test.ts
@@ -5647,12 +5677,12 @@ describe('runSetup', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 3: Run test to verify it fails**
 
 Run: `npx vitest run src/server/setup.test.ts`
 Expected: FAIL with "Failed to resolve import \"./setup.js\" from \"src/server/setup.test.ts\""
 
-- [ ] **Step 3: Write the implementation**
+- [ ] **Step 4: Write the implementation**
 
 ```ts
 // src/server/setup.ts
@@ -5841,18 +5871,18 @@ export async function runSetup(opts: {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [ ] **Step 5: Run tests to verify they pass**
 
 Run: `npx vitest run src/server/setup.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/server/setup.ts src/server/setup.test.ts && git commit -m "feat: explicit setup/uninstall that prints the settings.json hook block before writing it"
 ```
 
-- [ ] **Step 6: Write the failing test for the CLI entry**
+- [ ] **Step 7: Write the failing test for the CLI entry**
 
 ```ts
 // src/server/index.test.ts
@@ -5939,12 +5969,12 @@ describe('discoverTeam', () => {
 });
 ```
 
-- [ ] **Step 7: Run test to verify it fails**
+- [ ] **Step 8: Run test to verify it fails**
 
 Run: `npx vitest run src/server/index.test.ts`
 Expected: FAIL with "Failed to resolve import \"./index.js\" from \"src/server/index.test.ts\""
 
-- [ ] **Step 8: Write the CLI entry**
+- [ ] **Step 9: Write the CLI entry**
 
 ```ts
 // src/server/index.ts
@@ -6118,17 +6148,17 @@ if (process.argv[1] && import.meta.url.endsWith(path.basename(process.argv[1])))
 }
 ```
 
-- [ ] **Step 9: Run tests to verify they pass**
+- [ ] **Step 10: Run tests to verify they pass**
 
 Run: `npx vitest run src/server/index.test.ts`
 Expected: PASS
 
-- [ ] **Step 10: Run the whole server suite**
+- [ ] **Step 11: Run the whole server suite**
 
 Run: `npx vitest run src/server`
 Expected: PASS
 
-- [ ] **Step 11: Commit**
+- [ ] **Step 12: Commit**
 
 ```bash
 git add src/server/index.ts src/server/index.test.ts && git commit -m "feat: CLI entry wiring store, ingest, hooks, stream and http with team discovery"
@@ -10707,8 +10737,15 @@ members=$(tr -d ' \n' < "$config" 2>/dev/null | grep -o '"agentId"' | wc -l | tr
 # Start the server if it is not already answering.
 if ! curl -sf -m 1 "$HEALTH" >/dev/null 2>&1; then
   if [ "${OCTO_NO_SPAWN:-}" != "1" ]; then
-    nohup node "$ROOT/dist/server/index.js" --port "$PORT" \
-      >>"$CLAUDE_DIR/agent-teams-console.log" 2>&1 &
+    # Prefer the bundle (fast cold start). Fall back to tsx when it has not
+    # been built, so a fresh checkout still works without `npm run build`.
+    if [ -f "$ROOT/dist/server/index.js" ]; then
+      nohup node "$ROOT/dist/server/index.js" --port "$PORT" \
+        >>"$CLAUDE_DIR/agent-teams-console.log" 2>&1 &
+    else
+      nohup npx --prefix "$ROOT" tsx "$ROOT/src/server/index.ts" --port "$PORT" \
+        >>"$CLAUDE_DIR/agent-teams-console.log" 2>&1 &
+    fi
     i=0
     while [ "$i" -lt 15 ]; do
       curl -sf -m 1 "$HEALTH" >/dev/null 2>&1 && break
