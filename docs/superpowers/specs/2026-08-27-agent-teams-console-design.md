@@ -287,7 +287,12 @@ cost = input*rate_in + output*rate_out + cache_read*rate_read
 
 Sum top-level `usage` only — never `usage.iterations`, which double-counts. `thinking_tokens` is a subset of `output_tokens`.
 
-**Context occupancy** = last non-sidechain, non-error assistant line's `input_tokens + cache_read + cache_creation`. After a `{type:"system", subtype:"compact_boundary"}` record, recompute from the first line *after* the boundary, falling back to `compactMetadata.postTokens`.
+**Context occupancy** is computed **per transcript file**, and the `isSidechain` rule differs by file:
+
+- **The lead's transcript** contains both main-chain records and the sidechain records of any subagents it spawned. Those subagents have their own context windows, so sidechain records must be **excluded**.
+- **A teammate's transcript** (`agent-*.jsonl`) is *entirely* sidechain — every assistant record carries `isSidechain: true` (verified across all three captured fixtures). Those records are that teammate's own window, so they must be **included**.
+
+A rule of "exclude sidechain" alone therefore returns 0 for every teammate. The implementation resolves this without the caller needing to know which kind of file it holds: prefer non-sidechain records, and fall back to sidechain records when the file contains none. Occupancy is then the last qualifying non-error assistant record's `input_tokens + cache_read_input_tokens + cache_creation_input_tokens`. After a `{type:"system", subtype:"compact_boundary"}` record, recompute from the first line *after* the boundary, falling back to `compactMetadata.postTokens`.
 
 ### 4.2 Model resolution
 

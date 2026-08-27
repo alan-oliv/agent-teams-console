@@ -6,3 +6,4 @@ dist/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+PROGRESS.md
