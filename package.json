@@ -19,6 +19,7 @@
   "devDependencies": {
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.2.0",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.13.1",
     "@types/proper-lockfile": "^4.1.4",
     "@types/react": "^19.0.8",
