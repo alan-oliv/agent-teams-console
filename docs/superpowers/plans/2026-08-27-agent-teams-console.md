@@ -6181,6 +6181,28 @@ git add src/server/index.ts src/server/index.test.ts && git commit -m "feat: CLI
 - Consumes: nothing
 - Produces: `export function App(): JSX.Element` (`src/web/App.tsx`); `src/web/theme.css` custom properties — the full Nocturne token set (`--color-bg`, `--color-surface`, `--color-text`, `--color-accent`, `--color-accent-2`, `--color-divider`, `--color-neutral-100…900`, `--color-accent-100…900`, `--color-accent-2-100…900`, `--radius-sm|md|lg`, `--shadow-sm|md|lg`, `--font-heading`, `--font-body`, `--space-1…8`) plus the five non-token names `--terminal-ground`, `--row-hairline`, `--attention`, `--attention-border`, `--failure-rose`; CSS classes `.console`, `.console-body`; global `:focus-visible` outline and a full `button` reset. The Nocturne deck-only `--color-section*` fills are deliberately omitted — the source file marks them "Deck-scale fills only — not interface colors".
 
+
+> **Fonts are self-hosted, not loaded from a CDN.** This console watches local files and must
+> render correctly with no network. The design's ASCII meters (`█`/`░`) and its tuned
+> `letter-spacing: -.5px` depend on JetBrains Mono's metrics — a fallback to `ui-monospace`
+> silently changes every meter's width. Install them as packages instead of linking Google Fonts:
+>
+> ```bash
+> npm i @fontsource/jetbrains-mono @fontsource/inter
+> ```
+>
+> and import the weights the design actually uses at the top of `src/web/main.tsx`:
+>
+> ```ts
+> import '@fontsource/jetbrains-mono/400.css';
+> import '@fontsource/jetbrains-mono/500.css';
+> import '@fontsource/jetbrains-mono/700.css';
+> import '@fontsource/inter/400.css';
+> import '@fontsource/inter/500.css';
+> ```
+>
+> Do NOT add any `<link>` to fonts.googleapis.com anywhere, including `index.html`.
+
 - [ ] **Step 1: Write the failing test**
 
 ```bash
@@ -6282,12 +6304,6 @@ export default defineConfig({
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Agent Teams Console</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500;700&display=swap"
-    />
   </head>
   <body>
     <div id="root"></div>

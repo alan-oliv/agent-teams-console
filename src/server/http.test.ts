@@ -1,0 +1,259 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { promises as fs } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import type { Server } from 'node:http';
+import { openStore, type Store } from './store';
+import { createPermits, type Permits } from './control/permits';
+import { createHookHandlers } from './ingest/hooks';
+import { createStream, type StreamHub } from './stream';
+import { createHttpServer, listen, READ_ONLY_BODY } from './http';
+import { setTeamsRoot } from './control/mailbox';
+import type { InboxEntry } from '../shared/mailbox';
+import type { TeamState } from '../shared/domain';
+
+const FIXTURES = path.resolve(process.cwd(), 'fixtures');
+const TEAM = 'session-98b0b4a7';
+
+let dir: string;
+let store: Store;
+let permits: Permits;
+let hub: StreamHub;
+let state: TeamState;
+
+function emptyState(readOnly: boolean): TeamState {
+  return {
+    teamName: TEAM,
+    leadSessionId: '98b0b4a7-3206-455b-aaf6-a5a81ad1e283',
+    startedAt: 1787798107581,
+    totalTokens: 734808,
+    totalCostUsd: 0.898893,
+    agents: [],
+    tasks: [],
+    mail: [],
+    needsYou: [
+      { id: 'plan-1', kind: 'plan', agent: 'probe-alpha', reason: 'plan approval', detail: '4 steps' },
+    ],
+    readOnly,
+  };
+}
+
+async function boot(readOnly: boolean): Promise<{ server: Server; url: string }> {
+  state = emptyState(readOnly);
+  hub = createStream(() => state, 50);
+  const server = createHttpServer({
+    permits,
+    hooks: createHookHandlers({ store, permits }),
+    stream: hub,
+    state: () => state,
+    readOnly,
+  });
+  const port = await listen(server, 0);
+  return { server, url: `http://127.0.0.1:${port}` };
+}
+
+function shutdown(server: Server): Promise<void> {
+  hub.close();
+  return new Promise((r) => server.close(() => r()));
+}
+
+beforeEach(async () => {
+  dir = await fs.mkdtemp(path.join(os.tmpdir(), 'http-'));
+  await fs.mkdir(path.join(dir, TEAM, 'inboxes'), { recursive: true });
+  await fs.copyFile(path.join(FIXTURES, 'config-4-members.json'), path.join(dir, TEAM, 'config.json'));
+  setTeamsRoot(dir);
+  store = openStore(path.join(dir, 'events.db'));
+  permits = createPermits();
+});
+
+afterEach(async () => {
+  store.close();
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
+describe('GET /stream', () => {
+  it('emits a snapshot event first, then coalesced state events', async () => {
+    const { server, url } = await boot(false);
+    try {
+      const res = await fetch(`${url}/stream`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toBe('text/event-stream');
+
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      const first = decoder.decode((await reader.read()).value);
+      expect(first).toContain('event: snapshot');
+      expect(first).toContain('"teamName":"session-98b0b4a7"');
+
+      hub.publish();
+      hub.publish();
+      const second = decoder.decode((await reader.read()).value);
+      expect(second).toContain('event: state');
+      expect(second.match(/event: state/g)).toHaveLength(1);
+
+      await reader.cancel();
+    } finally {
+      await shutdown(server);
+    }
+  });
+});
+
+describe('control routes', () => {
+  it('POST /api/agents/:name/message writes the inbox and returns the msgId', async () => {
+    const { server, url } = await boot(false);
+    try {
+      const res = await fetch(`${url}/api/agents/probe-charlie/message`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: 'stand down', summary: 'stand down' }),
+      });
+      expect(res.status).toBe(200);
+      const { msgId } = (await res.json()) as { msgId: string };
+
+      const entries = JSON.parse(
+        await fs.readFile(path.join(dir, TEAM, 'inboxes', 'probe-charlie.json'), 'utf8'),
+      ) as InboxEntry[];
+      expect(entries).toHaveLength(1);
+      expect(entries[0].msg_id).toBe(msgId);
+      expect(entries[0].from).toBe('team-lead');
+      expect(entries[0].text).toBe('stand down');
+    } finally {
+      await shutdown(server);
+    }
+  });
+
+  it('POST /api/plans/:requestId/approve writes a plan_approval_response frame', async () => {
+    const { server, url } = await boot(false);
+    try {
+      const res = await fetch(`${url}/api/plans/plan-1/approve`, { method: 'POST' });
+      expect(res.status).toBe(200);
+      const entries = JSON.parse(
+        await fs.readFile(path.join(dir, TEAM, 'inboxes', 'probe-alpha.json'), 'utf8'),
+      ) as InboxEntry[];
+      const frame = JSON.parse(entries[0].text) as Record<string, unknown>;
+      expect(frame.type).toBe('plan_approval_response');
+      expect(frame.requestId).toBe('plan-1');
+      expect(frame.approved).toBe(true);
+    } finally {
+      await shutdown(server);
+    }
+  });
+
+  it('POST /api/plans/:requestId/reject carries the feedback', async () => {
+    const { server, url } = await boot(false);
+    try {
+      await fetch(`${url}/api/plans/plan-1/reject`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ feedback: 'do not drop migrations/legacy' }),
+      });
+      const entries = JSON.parse(
+        await fs.readFile(path.join(dir, TEAM, 'inboxes', 'probe-alpha.json'), 'utf8'),
+      ) as InboxEntry[];
+      const frame = JSON.parse(entries[0].text) as Record<string, unknown>;
+      expect(frame.approved).toBe(false);
+      expect(frame.feedback).toBe('do not drop migrations/legacy');
+    } finally {
+      await shutdown(server);
+    }
+  });
+
+  it('404s a plan id that is not on the needs-you strip', async () => {
+    const { server, url } = await boot(false);
+    try {
+      const res = await fetch(`${url}/api/plans/nope/approve`, { method: 'POST' });
+      expect(res.status).toBe(404);
+    } finally {
+      await shutdown(server);
+    }
+  });
+
+  it('POST /api/permits/:id/allow releases the held hook', async () => {
+    const { server, url } = await boot(false);
+    try {
+      const held = permits.hold('probe-bravo', 'Bash', {}, 600000);
+      const res = await fetch(`${url}/api/permits/${held.id}/allow`, { method: 'POST' });
+      expect(res.status).toBe(200);
+      expect(await held.promise).toEqual({ decision: 'allow', reason: undefined });
+
+      const missing = await fetch(`${url}/api/permits/${held.id}/deny`, { method: 'POST' });
+      expect(missing.status).toBe(404);
+    } finally {
+      await shutdown(server);
+    }
+  });
+
+  it('POST /api/agents/:name/stop writes a shutdown_request frame', async () => {
+    const { server, url } = await boot(false);
+    try {
+      await fetch(`${url}/api/agents/probe-bravo/stop`, { method: 'POST' });
+      const entries = JSON.parse(
+        await fs.readFile(path.join(dir, TEAM, 'inboxes', 'probe-bravo.json'), 'utf8'),
+      ) as InboxEntry[];
+      const frame = JSON.parse(entries[0].text) as Record<string, unknown>;
+      expect(frame.type).toBe('shutdown_request');
+      expect(frame.reason).toBe('stop');
+    } finally {
+      await shutdown(server);
+    }
+  });
+
+  it('POST /api/agents/:name/respawn asks the lead, not the dead teammate', async () => {
+    const { server, url } = await boot(false);
+    try {
+      await fetch(`${url}/api/agents/probe-charlie/respawn`, { method: 'POST' });
+      const entries = JSON.parse(
+        await fs.readFile(path.join(dir, TEAM, 'inboxes', 'team-lead.json'), 'utf8'),
+      ) as InboxEntry[];
+      expect(entries[0].text).toContain('probe-charlie');
+      expect(entries[0].summary).toBe('respawn probe-charlie');
+    } finally {
+      await shutdown(server);
+    }
+  });
+});
+
+describe('--read-only', () => {
+  it('409s every control route with an explanatory body', async () => {
+    const { server, url } = await boot(true);
+    try {
+      const routes: Array<[string, unknown]> = [
+        ['/api/agents/probe-alpha/message', { text: 'hi' }],
+        ['/api/plans/plan-1/approve', {}],
+        ['/api/plans/plan-1/reject', { feedback: 'no' }],
+        ['/api/permits/x/allow', {}],
+        ['/api/agents/probe-alpha/interrupt', {}],
+        ['/api/agents/probe-alpha/stop', {}],
+        ['/api/agents/probe-alpha/respawn', {}],
+      ];
+      for (const [route, body] of routes) {
+        const res = await fetch(url + route, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        expect(res.status).toBe(409);
+        expect(await res.json()).toEqual(READ_ONLY_BODY);
+      }
+      await expect(fs.stat(path.join(dir, TEAM, 'inboxes', 'probe-alpha.json'))).rejects.toThrow();
+    } finally {
+      await shutdown(server);
+    }
+  });
+
+  it('leaves the observer routes working', async () => {
+    const { server, url } = await boot(true);
+    try {
+      const res = await fetch(`${url}/hook`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Bash' }),
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({});
+      expect(store.replay().filter((e) => e.kind === 'hook')).toHaveLength(1);
+    } finally {
+      await shutdown(server);
+    }
+  });
+});
