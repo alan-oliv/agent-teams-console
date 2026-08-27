@@ -145,3 +145,7 @@ button {
 .btn-neutral:not(:disabled):hover {
   background: var(--color-neutral-900);
 }
+
+.chip:hover {
+  border-color: var(--color-accent-700);
+}

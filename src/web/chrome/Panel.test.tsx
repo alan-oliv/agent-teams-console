@@ -1,0 +1,115 @@
+// @vitest-environment jsdom
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, expect, it, vi } from 'vitest';
+import type { Agent, AgentStatus } from '../../shared/domain';
+import { Panel } from './Panel';
+
+// This suite renders once per `it`; without explicit cleanup the un-unmounted
+// nodes from one test leak into the next and getByRole/getByText start
+// matching more than one element.
+afterEach(cleanup);
+
+function agent(name: string, status: AgentStatus, contextTokens: number): Agent {
+  return {
+    name,
+    agentId: `${name}@session-98b0b4a7`,
+    isLead: name === 'team-lead',
+    agentType: 'general-purpose',
+    model: 'claude-opus-5',
+    role: `Spike ${name}`,
+    status,
+    contextTokens,
+    contextLimit: 1_000_000,
+    compactAt: 967_000,
+    costUsd: 0.42,
+    startedAt: 1_787_843_382_976,
+    transcript: [],
+    unread: 0,
+  };
+}
+
+it('shows one chip per agent while three or fewer are idle', () => {
+  render(
+    <Panel
+      agents={[
+        agent('probe-alpha', 'idle', 120_000),
+        agent('probe-bravo', 'idle', 500_000),
+        agent('probe-charlie', 'idle', 156_000),
+      ]}
+      focusedAgent={null}
+      onFocusAgent={vi.fn()}
+    />,
+  );
+  expect(screen.getAllByTestId('agent-chip')).toHaveLength(3);
+  expect(screen.queryByTestId('idle-chip')).toBeNull();
+});
+
+it('collapses the surplus into a dashed chip once four agents are idle', () => {
+  render(
+    <Panel
+      agents={[
+        agent('team-lead', 'idle', 53_100),
+        agent('probe-alpha', 'idle', 120_000),
+        agent('probe-bravo', 'idle', 500_000),
+        agent('probe-charlie', 'idle', 156_000),
+      ]}
+      focusedAgent={null}
+      onFocusAgent={vi.fn()}
+    />,
+  );
+  expect(screen.queryAllByTestId('agent-chip')).toHaveLength(0);
+  const idleChip = screen.getByTestId('idle-chip');
+  expect(idleChip.textContent).toBe('4 idle agents');
+  expect(idleChip.style.border).toBe('1px dashed var(--color-neutral-800)');
+
+  fireEvent.click(idleChip);
+  expect(screen.getAllByTestId('agent-chip')).toHaveLength(4);
+  expect(screen.queryByTestId('idle-chip')).toBeNull();
+});
+
+it('keeps busy agents visible while the idle ones are collapsed', () => {
+  render(
+    <Panel
+      agents={[
+        agent('team-lead', 'working', 53_100),
+        agent('probe-alpha', 'idle', 120_000),
+        agent('probe-bravo', 'idle', 500_000),
+        agent('probe-charlie', 'idle', 156_000),
+        agent('probe-delta', 'idle', 40_000),
+      ]}
+      focusedAgent={null}
+      onFocusAgent={vi.fn()}
+    />,
+  );
+  expect(screen.getAllByTestId('agent-chip')).toHaveLength(1);
+  expect(screen.getByTestId('idle-chip').textContent).toBe('4 idle agents');
+});
+
+it('shows the glyph, name and context percent on each chip and focuses on click', () => {
+  const onFocusAgent = vi.fn();
+  render(
+    <Panel
+      agents={[agent('probe-alpha', 'working', 120_000)]}
+      focusedAgent="probe-alpha"
+      onFocusAgent={onFocusAgent}
+    />,
+  );
+  const chip = screen.getByTestId('agent-chip');
+  expect(chip.getAttribute('aria-pressed')).toBe('true');
+  expect(chip.style.padding).toBe('2px 7px');
+  expect(chip.style.border).toBe('1px solid var(--color-neutral-900)');
+  expect(screen.getByTestId('status-glyph').textContent).toBe('●');
+  expect(screen.getByText('probe-alpha')).toBeTruthy();
+  expect(screen.getByText('12%')).toBeTruthy();
+
+  fireEvent.click(chip);
+  expect(onFocusAgent).toHaveBeenCalledWith('probe-alpha');
+});
+
+it('renders the PANEL label and the key legend', () => {
+  render(<Panel agents={[]} focusedAgent={null} onFocusAgent={vi.fn()} />);
+  const label = screen.getByText('PANEL');
+  expect(label.style.color).toBe('var(--color-neutral-700)');
+  expect(label.style.letterSpacing).toBe('.12em');
+  expect(screen.getByText('↑↓ select · ⏎ open · esc interrupt · x stop · ⌃T tasks')).toBeTruthy();
+});
