@@ -1,0 +1,33 @@
+{
+  "name": "agent-teams-console",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server/index.ts & vite",
+    "build": "vite build",
+    "start": "tsx src/server/index.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "proper-lockfile": "^4.1.2",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.2.0",
+    "@types/node": "^22.13.1",
+    "@types/proper-lockfile": "^4.1.4",
+    "@types/react": "^19.0.8",
+    "@types/react-dom": "^19.0.3",
+    "@vitejs/plugin-react": "^6.1.0",
+    "jsdom": "^25.0.1",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2",
+    "vite": "^8.0.0",
+    "vitest": "^4.0.0"
+  }
+}
