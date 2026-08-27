@@ -475,9 +475,9 @@ Rendered as **inline SVG**, one `<path>` per colour with `shape-rendering="crisp
 
 The prototype keys sprites off literal names (`lead`, `security`, …) that real teammates never have. Mapping:
 
-1. lead → crown.
-2. `agentType` keyword match: `security|review` → hard hat; `perf` → headphones; `test` → cap; `architect|plan` → hat + glasses; `repro|debug` → messy hair.
-3. Otherwise a stable hash of `name` picks one of the six.
+1. The lead → crown. **Only** the lead ever gets the crown.
+2. Keyword match against `agentType` **and `name`, in that order**: `security|review` → hard hat; `perf` → headphones; `test` → cap; `architect|plan` → hat + glasses; `repro|debug` → messy hair. Matching `name` as well as `agentType` is load-bearing: real teammates spawn with `agentType: "general-purpose"` and carry their role in the name (`security-reviewer`, `perf-probe`), so matching `agentType` alone leaves nearly every real teammate on the hash fallback.
+3. Otherwise a stable hash of `name` picks from the five **non-lead** portraits.
 
 Skin index comes from the same hash, so a teammate always looks the same. Note the repro sprite bakes the failure rose into its shirt; status-driven recolouring is a separate concern and is **not** applied on top.
 
