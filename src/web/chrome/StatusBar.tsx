@@ -11,7 +11,11 @@ export interface StatusBarProps {
 
 export function StatusBar({ state, view, onViewChange, now }: StatusBarProps) {
   const done = state.tasks.filter((t) => t.state === 'completed').length;
+  // Team context occupancy — what the meter has always looked like it meant.
+  // It used to divide the CUMULATIVE token total by a capacity, which pins it
+  // solid full on any real session and carries no information.
   const totalLimit = state.agents.reduce((n, a) => n + a.contextLimit, 0);
+  const occupied = state.agents.reduce((n, a) => n + a.contextTokens, 0);
 
   return (
     <div
@@ -93,7 +97,7 @@ export function StatusBar({ state, view, onViewChange, now }: StatusBarProps) {
         data-testid="aggregate-meter"
         style={{ color: 'var(--color-accent-500)', letterSpacing: '-.5px' }}
       >
-        {meterCells(totalLimit > 0 ? state.totalTokens / totalLimit : 0)}
+        {meterCells(totalLimit > 0 ? occupied / totalLimit : 0)}
       </span>
       <span style={{ color: 'var(--color-neutral-500)' }}>{formatElapsed(now - state.startedAt)}</span>
       <span style={{ color: 'var(--color-neutral-500)' }}>

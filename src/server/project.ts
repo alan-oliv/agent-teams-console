@@ -90,13 +90,19 @@ function usageRecordsOf(records: TranscriptRecord[]): UsageRecord[] {
   return out;
 }
 
+/**
+ * Tokens the team actually put through the model. `cache_read_input_tokens` is
+ * the whole prefix re-read on every turn, so summing it counts the same tokens
+ * once per message — on a real session that reached 1.8 billion, which is not a
+ * number anyone can act on. Context occupancy is a separate measure and lives
+ * on each Agent as `contextTokens`.
+ */
 function tokensOf(records: UsageRecord[]): number {
   let sum = 0;
   for (const r of records) {
     sum +=
       (r.usage.input_tokens ?? 0) +
       (r.usage.output_tokens ?? 0) +
-      (r.usage.cache_read_input_tokens ?? 0) +
       (r.usage.cache_creation_input_tokens ?? 0);
   }
   return sum;

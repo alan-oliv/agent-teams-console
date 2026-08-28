@@ -50,11 +50,22 @@ it('renders the wordmark, team name and experimental pill', () => {
   expect(screen.getByText('experimental')).toBeTruthy();
 });
 
+it('does not pin the meter full when the cumulative token count is large', () => {
+  // The meter used to be `totalTokens / sum(contextLimit)`. totalTokens is
+  // cumulative, so on a real session it exceeded capacity by three orders of
+  // magnitude and clamped to 16/16 forever.
+  const state = sampleTeamState();
+  state.totalTokens = 1_833_968_297;
+  render(<StatusBar state={state} view="wall" onViewChange={vi.fn()} now={FIXTURE_NOW} />);
+  expect(screen.getByTestId('aggregate-meter').textContent).toBe('████░░░░░░░░░░░░');
+});
+
 it('renders the right-hand readouts from the fixture team', () => {
   renderBar();
   expect(screen.getByText('tasks 1/2')).toBeTruthy();
   expect(screen.getByText('4 windows')).toBeTruthy();
   expect(screen.getByText('829k')).toBeTruthy();
+  // The meter is team context occupancy: sum(contextTokens) / sum(contextLimit).
   expect(screen.getByTestId('aggregate-meter').textContent).toBe('████░░░░░░░░░░░░');
   expect(screen.getByTestId('aggregate-meter').style.color).toBe('var(--color-accent-500)');
   expect(screen.getByText('45m 12s')).toBeTruthy();

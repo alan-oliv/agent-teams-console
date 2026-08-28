@@ -92,7 +92,9 @@ describe('project', () => {
       9,
     );
     expect(state.totalCostUsd).toBeGreaterThan(0);
-    expect(state.totalTokens).toBe(734808);
+    // Throughput, not cumulative cache reads: summing cache_read counts the
+    // whole re-read prefix once per message, which reached 1.8B in the wild.
+    expect(state.totalTokens).toBe(118353);
   });
 
   it('prefers substatus tokenCount and falls back to transcript occupancy', () => {

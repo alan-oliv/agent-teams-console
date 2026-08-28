@@ -3,6 +3,13 @@ import type { ViewId } from '../../shared/domain';
 
 const VIEW_ORDER: ViewId[] = ['wall', 'overview', 'tasks', 'rail', 'grid'];
 
+const STEP: Record<string, number | undefined> = {
+  ArrowUp: -1,
+  ArrowDown: 1,
+  h: -1,
+  l: 1,
+};
+
 export interface KeyboardActions {
   agents: string[];
   view: ViewId;
@@ -46,19 +53,29 @@ export function useKeyboard(actions: KeyboardActions): void {
 
       if (e.altKey) return;
 
-      if (e.key === 'h' || e.key === 'l') {
+      // A view that handled the key itself — the rail's own listbox — calls
+      // preventDefault, so selection is not applied twice.
+      if (e.defaultPrevented) return;
+
+      // The panel legend advertises ↑↓ and ⏎ (spec §6); h/l stay as vim aliases.
+      const step = STEP[e.key];
+      if (step !== undefined) {
         if (actions.agents.length === 0) return;
         e.preventDefault();
         const at = actions.focused ? actions.agents.indexOf(actions.focused) : 0;
         const from = at < 0 ? 0 : at;
-        const next = Math.min(actions.agents.length - 1, Math.max(0, from + (e.key === 'l' ? 1 : -1)));
+        const next = Math.min(actions.agents.length - 1, Math.max(0, from + step));
         actions.setFocused(actions.agents[next]);
         return;
       }
 
       if (!actions.focused) return;
 
-      if (e.key === 'Escape') {
+      if (e.key === 'Enter') {
+        // "open" the focused agent: the rail is the single-agent detail view.
+        e.preventDefault();
+        actions.setView('rail');
+      } else if (e.key === 'Escape') {
         actions.interrupt(actions.focused);
       } else if (e.key === 'x') {
         actions.stop(actions.focused);

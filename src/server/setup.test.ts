@@ -2,7 +2,9 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import catalog from '../shared/catalog.json';
 import {
+  backupPathFor,
   HOOK_EVENTS,
   HOOK_TIMEOUT_MS,
   PERMISSION_HOOK_TIMEOUT_MS,
@@ -77,11 +79,20 @@ describe('hookBlock', () => {
     expect(other.statusLine.command).toContain(':4400/statusline');
   });
 
+  it('propagates the port to the launcher, which otherwise defaults to 4823', () => {
+    const entry = hookBlock(5000).hooks.PostToolUse.find((e) => e.matcher === 'Agent')!;
+    expect((entry.hooks[0] as CommandHook).command).toMatch(/^OCTO_PORT=5000 /);
+  });
+
+  it('pins the same claude version as the model catalog', () => {
+    expect(catalog.version).toBe(PINNED_CLAUDE_VERSION);
+  });
+
   it('registers the launcher as a PostToolUse:Agent command hook with an explicit timeout', () => {
     const entry = block.hooks.PostToolUse.find((e) => e.matcher === 'Agent');
     expect(entry).toBeDefined();
     expect(entry!.hooks[0]).toMatchObject({ type: 'command', timeout: 5000 });
-    expect((entry!.hooks[0] as CommandHook).command).toMatch(/console-launch\.sh$/);
+    expect((entry!.hooks[0] as CommandHook).command).toMatch(/^OCTO_PORT=4823 '.*console-launch\.sh'$/);
   });
 
   it('does not register a SubagentStart hook — systemMessage is stripped there', () => {
@@ -167,6 +178,53 @@ describe('runSetup', () => {
 
     await runSetup({ settingsPath, port: 4823, confirm: true, uninstall: true });
     expect(JSON.parse(await fs.readFile(settingsPath, 'utf8'))).toEqual({ model: 'opus' });
+  });
+
+  it("preserves the user's status line and restores it on uninstall", async () => {
+    // The installed status line ends in `printf ''`, so clobbering the user's
+    // also blanks their terminal status line for as long as it is installed.
+    const settingsPath = path.join(dir, 'settings.json');
+    const mine = { type: 'command', command: '~/bin/my-fancy-statusline.sh' };
+    await fs.writeFile(settingsPath, JSON.stringify({ statusLine: mine }, null, 2));
+
+    await runSetup({ settingsPath, port: 4823, confirm: true });
+    const installed = JSON.parse(await fs.readFile(settingsPath, 'utf8')) as Record<string, unknown>;
+    expect(installed.statusLine).not.toEqual(mine);
+
+    // A second install must not stash the console's own line as "the user's".
+    await runSetup({ settingsPath, port: 4823, confirm: true });
+
+    await runSetup({ settingsPath, port: 4823, confirm: true, uninstall: true });
+    const restored = JSON.parse(await fs.readFile(settingsPath, 'utf8')) as Record<string, unknown>;
+    expect(restored.statusLine).toEqual(mine);
+    await expect(fs.stat(backupPathFor(settingsPath))).rejects.toThrow();
+  });
+
+  it("leaves no status line behind when the user never had one", async () => {
+    const settingsPath = path.join(dir, 'settings.json');
+    await runSetup({ settingsPath, port: 4823, confirm: true });
+    await runSetup({ settingsPath, port: 4823, confirm: true, uninstall: true });
+    const after = JSON.parse(await fs.readFile(settingsPath, 'utf8')) as Record<string, unknown>;
+    expect(after.statusLine).toBeUndefined();
+    expect(after.subagentStatusLine).toBeUndefined();
+  });
+
+  it("preserves the user's own hooks across install and uninstall", async () => {
+    const settingsPath = path.join(dir, 'settings.json');
+    const guard = { hooks: [{ type: 'command', command: 'my-guard.sh' }] };
+    await fs.writeFile(settingsPath, JSON.stringify({ hooks: { PreToolUse: [guard] } }, null, 2));
+
+    await runSetup({ settingsPath, port: 4823, confirm: true });
+    const installed = JSON.parse(await fs.readFile(settingsPath, 'utf8')) as {
+      hooks: Record<string, unknown[]>;
+    };
+    expect(installed.hooks.PreToolUse[0]).toEqual(guard);
+
+    await runSetup({ settingsPath, port: 4823, confirm: true, uninstall: true });
+    const after = JSON.parse(await fs.readFile(settingsPath, 'utf8')) as {
+      hooks: Record<string, unknown[]>;
+    };
+    expect(after.hooks.PreToolUse).toEqual([guard]);
   });
 
   it('creates a settings file that does not exist yet', async () => {

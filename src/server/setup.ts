@@ -3,13 +3,19 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { LAUNCH_SCRIPT } from './lifecycle';
+import { atomicWrite } from './control/mailbox';
+import { DEFAULT_PERMISSION_TIMEOUT_MS } from './ingest/hooks';
+import { readJsonSafe } from './watch/jsonfile';
 
 const run = promisify(execFile);
 
 export const PINNED_CLAUDE_VERSION = '2.1.231';
 export const HOOK_TIMEOUT_MS = 5000;
-export const PERMISSION_HOOK_TIMEOUT_MS = 600_000;
+/** The hook's timeout has to be the hold window the handler actually uses. */
+export const PERMISSION_HOOK_TIMEOUT_MS = DEFAULT_PERMISSION_TIMEOUT_MS;
 export const LAUNCH_HOOK_TIMEOUT_MS = 5000;
+/** Where the user's own status lines are stashed while the console owns them. */
+export const BACKUP_FILE = 'agent-teams-console.backup.json';
 
 export const HOOK_EVENTS = [
   'PreToolUse',
@@ -84,7 +90,16 @@ export function hookBlock(port: number): HookBlock {
     ...(hooks.PostToolUse ?? []),
     {
       matcher: 'Agent',
-      hooks: [{ type: 'command', command: LAUNCH_SCRIPT, timeout: LAUNCH_HOOK_TIMEOUT_MS }],
+      hooks: [
+        {
+          type: 'command',
+          // The launcher defaults OCTO_PORT to 4823, so `setup --port 5000`
+          // used to write hooks pointing at 5000 while the launcher started
+          // the server on 4823. Carry the port across the language boundary.
+          command: `OCTO_PORT=${port} '${LAUNCH_SCRIPT}'`,
+          timeout: LAUNCH_HOOK_TIMEOUT_MS,
+        },
+      ],
     },
   ];
 
@@ -101,7 +116,7 @@ function isConsoleEntry(entry: unknown): boolean {
   return hooks.some(
     (h) =>
       (h?.type === 'http' && typeof h.url === 'string' && CONSOLE_HOOK_URL.test(h.url)) ||
-      (h?.type === 'command' && typeof h.command === 'string' && h.command.endsWith('console-launch.sh')),
+      (h?.type === 'command' && typeof h.command === 'string' && h.command.includes('console-launch.sh')),
   );
 }
 
@@ -174,6 +189,15 @@ export async function readClaudeVersion(): Promise<string | null> {
   }
 }
 
+interface StatusLineBackup {
+  statusLine: unknown;
+  subagentStatusLine: unknown;
+}
+
+export function backupPathFor(settingsPath: string): string {
+  return path.join(path.dirname(settingsPath), BACKUP_FILE);
+}
+
 export async function runSetup(opts: {
   settingsPath: string;
   port: number;
@@ -203,7 +227,37 @@ export async function runSetup(opts: {
 
   const next = opts.uninstall ? removeHookBlock(current) : mergeHookBlock(current, opts.port);
   await fs.mkdir(path.dirname(opts.settingsPath), { recursive: true });
-  await fs.writeFile(opts.settingsPath, `${JSON.stringify(next, null, 2)}\n`, 'utf8');
+
+  // The console takes both status lines over while it is installed, and the one
+  // it installs ends in `printf ''` — so an unstashed original leaves the user's
+  // terminal status line permanently blank with no way back.
+  const backupPath = backupPathFor(opts.settingsPath);
+  if (opts.uninstall) {
+    const saved = await readJsonSafe<StatusLineBackup>(backupPath);
+    if (saved?.statusLine) next.statusLine = saved.statusLine;
+    if (saved?.subagentStatusLine) next.subagentStatusLine = saved.subagentStatusLine;
+    await fs.rm(backupPath, { force: true });
+    if (saved?.statusLine || saved?.subagentStatusLine) lines.push('restored your status line.');
+  } else if ((await readJsonSafe<StatusLineBackup>(backupPath)) === null) {
+    // Stash once: a second install would otherwise record the console's own
+    // status line as if it were the user's.
+    await atomicWrite(
+      backupPath,
+      `${JSON.stringify(
+        {
+          statusLine: current.statusLine ?? null,
+          subagentStatusLine: current.subagentStatusLine ?? null,
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    if (current.statusLine) lines.push(`your status line is stashed in ${backupPath}.`);
+  }
+
+  // settings.json is the most important config file on the machine and Claude
+  // Code may be reading it; a rename is the only write that cannot tear it.
+  await atomicWrite(opts.settingsPath, `${JSON.stringify(next, null, 2)}\n`);
   lines.push(opts.uninstall ? 'removed.' : 'written.');
   return lines.join('\n');
 }

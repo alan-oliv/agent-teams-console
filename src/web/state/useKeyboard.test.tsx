@@ -13,7 +13,13 @@ let actions: KeyboardActions;
 
 function Harness({ actions: a }: { actions: KeyboardActions }) {
   useKeyboard(a);
-  return <textarea data-testid="composer" />;
+  return (
+    <>
+      <textarea data-testid="composer" />
+      {/* Stands in for the rail's listbox, which handles ↑↓⏎ itself. */}
+      <div data-testid="listbox" tabIndex={0} onKeyDown={(e) => e.preventDefault()} />
+    </>
+  );
 }
 
 function mount(overrides: Partial<KeyboardActions> = {}) {
@@ -44,6 +50,31 @@ describe('useKeyboard — wall navigation', () => {
     mount();
     fireEvent.keyDown(document.body, { key: 'h' });
     expect(actions.setFocused).toHaveBeenCalledWith('team-lead');
+  });
+
+  it('↑ and ↓ select, which is what the panel legend advertises', () => {
+    // The legend said "↑↓ select · ⏎ open" while only h/l were bound, so the
+    // two gestures a new operator tries first did nothing in four of five views.
+    mount();
+    fireEvent.keyDown(document.body, { key: 'ArrowDown' });
+    expect(actions.setFocused).toHaveBeenCalledWith('probe-bravo');
+
+    fireEvent.keyDown(document.body, { key: 'ArrowUp' });
+    expect(actions.setFocused).toHaveBeenCalledWith('team-lead');
+  });
+
+  it('⏎ opens the focused agent in the rail, the single-agent detail view', () => {
+    mount();
+    fireEvent.keyDown(document.body, { key: 'Enter' });
+    expect(actions.setView).toHaveBeenCalledWith('rail');
+  });
+
+  it('leaves a key a view already handled alone', () => {
+    // The rail's own listbox handles ↑↓⏎ and calls preventDefault; without this
+    // the cursor and the focus would both move on one press.
+    mount();
+    fireEvent.keyDown(screen.getByTestId('listbox'), { key: 'ArrowDown' });
+    expect(actions.setFocused).not.toHaveBeenCalled();
   });
 
   it('clamps at both ends of the wall', () => {
