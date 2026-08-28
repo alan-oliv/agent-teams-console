@@ -2613,7 +2613,7 @@ function startFileIngest(store, config) {
     if (!file.endsWith(".meta.json")) return;
     const meta = await readJsonSafe(file);
     if (!meta) return;
-    if (meta.taskKind !== "in_process_teammate" || teamName && meta.teamName !== teamName) {
+    if (meta.taskKind !== "in_process_teammate" || !teamName || meta.teamName !== teamName) {
       if (meta.name) pending.delete(meta.name);
       return;
     }
@@ -3582,13 +3582,20 @@ async function isSessionLive(sessionsRoot, sessionId) {
 async function discoverTeam(teamsRoot2, sessionsRoot, explicitTeam) {
   if (explicitTeam) {
     const config = await readJsonSafe(path9.join(teamsRoot2, explicitTeam, "config.json"));
-    if (config) return toDiscovered(config);
+    return config ? toDiscovered(config) : null;
   }
-  let dirs;
+  let entries;
   try {
-    dirs = (await fs8.readdir(teamsRoot2, { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name);
+    entries = await fs8.readdir(teamsRoot2);
   } catch {
     return null;
+  }
+  const dirs = [];
+  for (const name of entries) {
+    try {
+      if ((await fs8.stat(path9.join(teamsRoot2, name))).isDirectory()) dirs.push(name);
+    } catch {
+    }
   }
   const configs = [];
   for (const name of dirs) {
@@ -3633,8 +3640,9 @@ async function main(argv) {
   const sessionsRoot = path9.join(cli.claudeHome, "sessions");
   setTeamsRoot(teamsRoot2);
   const discovered = await discoverTeam(teamsRoot2, sessionsRoot, cli.team);
+  const teamName = discovered?.teamName ?? cli.team;
   let leadSessionId = discovered?.leadSessionId;
-  const store = openStore(cli.dbPath, discovered?.teamName ?? "");
+  const store = openStore(cli.dbPath, teamName ?? "");
   const permits = createPermits();
   const hub = createStream(() => project(store.replay(), cli.readOnly));
   const live = {
@@ -3654,7 +3662,7 @@ async function main(argv) {
       tasks: path9.join(cli.claudeHome, "tasks"),
       sessions: path9.join(cli.claudeHome, "sessions")
     },
-    teamName: discovered?.teamName,
+    teamName,
     leadSessionId: discovered?.leadSessionId,
     onTeam: (info) => {
       store.setTeam(info.teamName);

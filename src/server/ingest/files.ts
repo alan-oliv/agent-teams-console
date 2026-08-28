@@ -188,7 +188,12 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
     if (!file.endsWith('.meta.json')) return;
     const meta = await readJsonSafe<Sidecar>(file);
     if (!meta) return;
-    if (meta.taskKind !== 'in_process_teammate' || (teamName && meta.teamName !== teamName)) {
+    // Fail CLOSED while the team is unresolved: `teamName` unset must reject
+    // every sidecar, not admit them all — otherwise a console started before
+    // its team's config.json exists shows every in-process teammate on the
+    // machine, including other sessions' (seen live: three agents from an
+    // unrelated session, with the real teammates all shown as 'departed').
+    if (meta.taskKind !== 'in_process_teammate' || !teamName || meta.teamName !== teamName) {
       // Proven NOT a teammate — discard anything buffered under that name.
       if (meta.name) pending.delete(meta.name);
       return;

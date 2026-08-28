@@ -1,6 +1,18 @@
 {
-  "description": "Starts the agent teams console the first time a session spawns a real team, and prints its URL once.",
+  "description": "Starts the agent teams console the moment a session spawns a real teammate, and prints its URL once — before the spawn when possible, falling back to just after it.",
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/console-launch.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Agent",

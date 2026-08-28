@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { openStore, type Store, type StoredEvent } from '../store';
 import { startFileIngest, agentOfTranscript, type IngestPaths, type FileIngest } from './files';
+import { project } from '../project';
 import type { RosterPayload, TranscriptPayload, TaskPayload, MailPayload } from '../project';
 
 const FIXTURES = path.resolve(process.cwd(), 'fixtures');
@@ -144,7 +145,16 @@ describe('scope rule: agent teams only', () => {
       // FSEvents on macOS can drop or coalesce the event for that fresh nested
       // path. sweepIntervalMs: 0 would leave these tests with no recovery path
       // at all inside waitFor's budget; 200ms keeps the sweep well inside it.
-      ingest = startFileIngest(store, { paths, leadSessionId: LEAD, leadName: 'team-lead', sweepIntervalMs: 200 });
+      // teamName matches the sidecars these tests write below — the ingest
+      // must know the team to admit them at all now that an unresolved team
+      // fails closed (see the cross-team leak test at the bottom of this file).
+      ingest = startFileIngest(store, {
+        paths,
+        teamName: TEAM,
+        leadSessionId: LEAD,
+        leadName: 'team-lead',
+        sweepIntervalMs: 200,
+      });
     });
 
     afterEach(() => {
@@ -355,5 +365,53 @@ describe('startFileIngest', () => {
     } finally {
       ingest.close();
     }
+  });
+
+  it('fails CLOSED on sidecars while the team is unresolved — no cross-team leak', async () => {
+    // No config.json anywhere under paths.teams: the team is genuinely
+    // unknown, exactly the window between the launcher announcing a team and
+    // that team's config.json being written. Two sidecars from two different
+    // teams sit under paths.projects, as they would if another session's
+    // teammates happened to be running on the same machine.
+    const ourDir = path.join(paths.projects, SLUG, LEAD_SESSION, 'subagents');
+    await fs.mkdir(ourDir, { recursive: true });
+    await fs.writeFile(
+      path.join(ourDir, 'agent-aprobe-alpha-1111111111111111.meta.json'),
+      JSON.stringify({
+        agentType: 'probe-alpha',
+        description: 'ours',
+        name: 'probe-alpha',
+        spawnDepth: 0,
+        model: 'claude-opus-5',
+        taskKind: 'in_process_teammate',
+        teamName: TEAM,
+      }),
+    );
+    const otherDir = path.join(paths.projects, `${SLUG}-other`, 'other-session', 'subagents');
+    await fs.mkdir(otherDir, { recursive: true });
+    await fs.writeFile(
+      path.join(otherDir, 'agent-astray-agent-2222222222222222.meta.json'),
+      JSON.stringify({
+        agentType: 'stray-agent',
+        description: 'a different session entirely',
+        name: 'stray-agent',
+        spawnDepth: 0,
+        model: 'claude-opus-5',
+        taskKind: 'in_process_teammate',
+        teamName: 'session-5cd370e5',
+      }),
+    );
+
+    const ingest = startFileIngest(store, { paths, sweepIntervalMs: 0 });
+    try {
+      await settle();
+      await ingest.sweep();
+    } finally {
+      ingest.close();
+    }
+
+    const roster = of(store.replay(), 'roster').at(-1)?.payload as RosterPayload | undefined;
+    expect(roster?.sidecars ?? []).toHaveLength(0);
+    expect(project(store.replay(), false).agents).toHaveLength(0);
   });
 });

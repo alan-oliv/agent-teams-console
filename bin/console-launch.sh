@@ -1,14 +1,19 @@
 #!/bin/sh
-# PostToolUse(Agent) launcher for the Agent Teams Console.
+# Pre/PostToolUse(Agent) launcher for the Agent Teams Console.
 #
-# CONTRACT: this runs inside a hook that BLOCKS the turn. It must
-# always print valid JSON on stdout and always exit 0. A broken console must
-# never fail a spawn.
+# CONTRACT: PreToolUse BLOCKS the tool call, so this must never emit a
+# permissionDecision and must always exit 0 — a broken console must never
+# stop a teammate from spawning. On every path stdout is either `{}` or
+# `{"systemMessage": ...}`, nothing else.
 #
-# It wakes the console only when a real team exists — that is, when the team's
-# config.json carries two or more members. Ordinary Agent-tool subagents and
-# workflow fan-outs do not appear in members[], so they cost one shell spawn
-# and nothing else.
+# PreToolUse fires before the teammate exists, so config.json cannot yet
+# carry it — the member-count gate used to require a spawn that already
+# happened. Instead this wakes on PreToolUse only when tool_input.name is a
+# non-empty string, which the Agent tool sets only when routing to the
+# teammate path (verified empirically: ordinary subagents and workflow
+# fan-outs pass no name). PostToolUse keeps the old member-count gate as a
+# safety net for when the Pre path fails to fire or fails to parse; the
+# once-per-team marker file below makes sure only one of the two announces.
 set -u
 
 PORT="${OCTO_PORT:-4823}"
@@ -24,6 +29,10 @@ bail() { echo '{}'; exit 0; }
 payload=$(cat 2>/dev/null) || bail
 [ -n "$payload" ] || bail
 
+event=$(printf '%s' "$payload" \
+  | sed -n 's/.*"hook_event_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+  | head -1)
+
 session=$(printf '%s' "$payload" \
   | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
   | head -1)
@@ -34,12 +43,40 @@ short=$(printf '%s' "$session" | cut -c1-8)
 [ ${#short} -eq 8 ] || bail
 team="session-$short"
 
-config="$CLAUDE_DIR/teams/$team/config.json"
-[ -f "$config" ] || bail
-
-# Count members without a JSON parser: one "agentId" key per member.
-members=$(tr -d ' \n' < "$config" 2>/dev/null | grep -o '"agentId"' | wc -l | tr -d ' ')
-[ "${members:-0}" -ge 2 ] 2>/dev/null || bail
+case "$event" in
+  PreToolUse)
+    # tool_input is a nested object whose description/prompt fields can hold
+    # arbitrary text (quotes, braces), so a sed scalar-match is not safe here.
+    # node is already a hard dependency of this script (it runs the server
+    # below), so ask it to parse — and fail closed to {} on any error, same
+    # as an absent name.
+    name=$(printf '%s' "$payload" | node -e '
+      let raw = "";
+      process.stdin.setEncoding("utf8");
+      process.stdin.on("data", (d) => { raw += d; });
+      process.stdin.on("end", () => {
+        try {
+          const doc = JSON.parse(raw);
+          const n = doc && doc.tool_input && doc.tool_input.name;
+          if (typeof n === "string" && n.length > 0) process.stdout.write(n);
+        } catch {
+          // malformed JSON — print nothing, caller bails.
+        }
+      });
+    ' 2>/dev/null)
+    [ -n "$name" ] || bail
+    ;;
+  PostToolUse)
+    config="$CLAUDE_DIR/teams/$team/config.json"
+    [ -f "$config" ] || bail
+    # Count members without a JSON parser: one "agentId" key per member.
+    members=$(tr -d ' \n' < "$config" 2>/dev/null | grep -o '"agentId"' | wc -l | tr -d ' ')
+    [ "${members:-0}" -ge 2 ] 2>/dev/null || bail
+    ;;
+  *)
+    bail
+    ;;
+esac
 
 # Start the server if it is not already answering.
 if ! curl -sf -m 1 "$HEALTH" >/dev/null 2>&1; then
@@ -62,9 +99,13 @@ if ! curl -sf -m 1 "$HEALTH" >/dev/null 2>&1; then
   fi
 fi
 
-# Announce once per team, not once per teammate.
-marker="$CLAUDE_DIR/teams/$team/.console-announced"
+# Announce once per team, not once per teammate, and not twice for the same
+# team across a PreToolUse/PostToolUse pair. At PreToolUse time the team
+# directory may not exist yet at all, so make sure it does before marking.
+teamdir="$CLAUDE_DIR/teams/$team"
+marker="$teamdir/.console-announced"
 [ -f "$marker" ] && bail
+mkdir -p "$teamdir" 2>/dev/null
 : > "$marker" 2>/dev/null || bail
 
 printf '{"systemMessage":"Agent teams console → http://127.0.0.1:%s/?team=%s"}\n' "$PORT" "$team"

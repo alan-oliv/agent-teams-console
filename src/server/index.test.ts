@@ -198,6 +198,33 @@ describe('discoverTeam', () => {
     expect(found.teamName).toBe('session-older-lead-only');
   });
 
+  it('an explicit --team with no config.json yet reports unknown rather than a different team', async () => {
+    // PreToolUse can announce a team before the spawn that creates its
+    // directory. Falling back to whatever else exists would latch the server
+    // onto the wrong team and never let go once the real config.json lands.
+    await writeTeam('session-existing', {
+      createdAt: 2000,
+      leadSessionId: 'existing-session',
+      memberCount: 2,
+    });
+
+    expect(await discoverTeam(teams(), sessions(), 'session-not-yet-created')).toBeNull();
+  });
+
+  it('finds a team directory reached through a symlink', async () => {
+    const real = path.join(dir, 'real-team-location');
+    await fs.mkdir(real, { recursive: true });
+    await fs.copyFile(
+      path.join(FIXTURES, 'config-4-members.json'),
+      path.join(real, 'config.json'),
+    );
+    await fs.mkdir(teams(), { recursive: true });
+    await fs.symlink(real, path.join(teams(), 'session-98b0b4a7'), 'dir');
+
+    const found = (await discoverTeam(teams(), sessions()))!;
+    expect(found.teamName).toBe('session-98b0b4a7');
+  });
+
   it('falls back to the newest team when none has >=2 members, as today', async () => {
     await writeTeam('session-newer-lead-only', {
       createdAt: 2000,

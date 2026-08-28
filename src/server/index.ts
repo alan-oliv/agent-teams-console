@@ -109,17 +109,29 @@ export async function discoverTeam(
   explicitTeam?: string,
 ): Promise<DiscoveredTeam | null> {
   if (explicitTeam) {
+    // The launcher can name a team before its directory exists at all (it
+    // announces before the spawn that creates config.json). Falling through
+    // to the scan below would let discovery latch onto a different,
+    // already-existing team and never let go — worse than reporting unknown.
     const config = await readJsonSafe<TeamConfig>(path.join(teamsRoot, explicitTeam, 'config.json'));
-    if (config) return toDiscovered(config);
+    return config ? toDiscovered(config) : null;
   }
 
-  let dirs: string[];
+  let entries: string[];
   try {
-    dirs = (await fs.readdir(teamsRoot, { withFileTypes: true }))
-      .filter((e) => e.isDirectory())
-      .map((e) => e.name);
+    entries = await fs.readdir(teamsRoot);
   } catch {
     return null;
+  }
+  // Dirent.isDirectory() reflects the entry's own type, which is false for a
+  // symlink even when it points at a directory — fs.stat follows the link.
+  const dirs: string[] = [];
+  for (const name of entries) {
+    try {
+      if ((await fs.stat(path.join(teamsRoot, name))).isDirectory()) dirs.push(name);
+    } catch {
+      // Vanished between readdir and stat, or a broken symlink — skip it.
+    }
   }
 
   const configs: TeamConfig[] = [];
@@ -178,9 +190,14 @@ export async function main(argv: string[]): Promise<number> {
   setTeamsRoot(teamsRoot);
 
   const discovered = await discoverTeam(teamsRoot, sessionsRoot, cli.team);
+  // --team can name a team whose config.json has not been written yet (the
+  // launcher announces before the spawn that creates it); discoverTeam then
+  // reports unknown rather than guessing, so fall back to the name itself —
+  // the ingest below picks up the directory once it appears.
+  const teamName = discovered?.teamName ?? cli.team;
   let leadSessionId = discovered?.leadSessionId;
 
-  const store = openStore(cli.dbPath, discovered?.teamName ?? '');
+  const store = openStore(cli.dbPath, teamName ?? '');
   const permits = createPermits();
   const hub = createStream(() => project(store.replay(), cli.readOnly));
 
@@ -205,7 +222,7 @@ export async function main(argv: string[]): Promise<number> {
       tasks: path.join(cli.claudeHome, 'tasks'),
       sessions: path.join(cli.claudeHome, 'sessions'),
     },
-    teamName: discovered?.teamName,
+    teamName,
     leadSessionId: discovered?.leadSessionId,
     onTeam: (info) => {
       store.setTeam(info.teamName);

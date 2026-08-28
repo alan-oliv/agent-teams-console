@@ -219,6 +219,123 @@ describe('bin/console-launch.sh', () => {
     );
     expect(stdout.trim()).toBe('{}');
   });
+
+  it('announces on PreToolUse when tool_input.name is present — the teammate signal', async () => {
+    // No team directory needs to exist yet: PreToolUse fires before the spawn
+    // that would create config.json.
+    const out = await launch(
+      {
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Agent',
+        session_id: '98b0b4a7-3206-455b-aaf6-a5a81ad1e283',
+        tool_input: {
+          description: 'x',
+          prompt: 'y',
+          subagent_type: 'general-purpose',
+          run_in_background: true,
+          name: 'probe-x',
+        },
+      },
+      dir,
+    );
+    expect(JSON.parse(out).systemMessage).toBe(
+      'Agent teams console → http://127.0.0.1:4899/?team=session-98b0b4a7',
+    );
+  });
+
+  it('prints {} on PreToolUse for an ordinary subagent — tool_input carries no name', async () => {
+    const pluginRoot = path.join(dir, 'plugin-no-name');
+    await fs.mkdir(path.join(pluginRoot, 'dist', 'server'), { recursive: true });
+    const marker = path.join(dir, 'started-no-name');
+    await fs.writeFile(
+      path.join(pluginRoot, 'dist', 'server', 'index.js'),
+      `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'yes');\n`,
+    );
+
+    const { stdout } = await run(
+      script,
+      { ...process.env, CLAUDE_CONFIG_DIR: dir, CLAUDE_PLUGIN_ROOT: pluginRoot, OCTO_PORT: '4895', OCTO_ROOT: '' },
+      JSON.stringify({
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Agent',
+        session_id: '98b0b4a7-3206-455b-aaf6-a5a81ad1e283',
+        tool_input: { description: 'x', prompt: 'y', subagent_type: 'general-purpose' },
+      }),
+      os.tmpdir(),
+    );
+
+    expect(stdout.trim()).toBe('{}');
+    await expect(fs.access(marker)).rejects.toThrow();
+  });
+
+  it('prints {} on PreToolUse when tool_input is missing entirely', async () => {
+    const out = await launch(
+      {
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Agent',
+        session_id: '98b0b4a7-3206-455b-aaf6-a5a81ad1e283',
+      },
+      dir,
+    );
+    expect(out).toBe('{}');
+  });
+
+  it('never emits a permissionDecision, on any path', async () => {
+    await fs.mkdir(path.join(dir, 'teams'), { recursive: true });
+    await writeTeamUnder(path.join(dir, 'teams'), 'session-98b0b4a7', ['team-lead', 'probe-alpha']);
+    const payloads = [
+      {
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Agent',
+        session_id: '98b0b4a7-3206-455b-aaf6-a5a81ad1e283',
+        tool_input: { name: 'probe-x' },
+      },
+      {
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Agent',
+        session_id: '98b0b4a7-3206-455b-aaf6-a5a81ad1e283',
+        tool_input: {},
+      },
+      { hook_event_name: 'PostToolUse', tool_name: 'Agent', session_id: '98b0b4a7-3206-455b-aaf6-a5a81ad1e283' },
+    ];
+    for (const payload of payloads) {
+      const out = await launch(payload, dir);
+      expect(out).not.toContain('permissionDecision');
+    }
+    const { stdout: garbage } = await run(
+      script,
+      { ...process.env, CLAUDE_CONFIG_DIR: dir, OCTO_PORT: '4899', OCTO_NO_SPAWN: '1' },
+      'not json at all',
+    );
+    expect(garbage).not.toContain('permissionDecision');
+  });
+
+  it('announces once per team across a PreToolUse/PostToolUse pair', async () => {
+    await fs.mkdir(path.join(dir, 'teams'), { recursive: true });
+    await writeTeamUnder(path.join(dir, 'teams'), 'session-98b0b4a7', ['team-lead', 'probe-alpha']);
+
+    const pre = await launch(
+      {
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Agent',
+        session_id: '98b0b4a7-3206-455b-aaf6-a5a81ad1e283',
+        tool_input: { name: 'probe-alpha' },
+      },
+      dir,
+    );
+    const post = await launch(
+      {
+        hook_event_name: 'PostToolUse',
+        tool_name: 'Agent',
+        session_id: '98b0b4a7-3206-455b-aaf6-a5a81ad1e283',
+        agent_id: 'probe-alpha@session-98b0b4a7',
+      },
+      dir,
+    );
+
+    expect(JSON.parse(pre).systemMessage).toContain('http://127.0.0.1:4899');
+    expect(post).toBe('{}');
+  });
 });
 
 async function writeTeamUnder(root: string, name: string, memberNames: string[]) {
