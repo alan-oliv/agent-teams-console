@@ -99,6 +99,35 @@ describe('drain', () => {
     const out = await drain(path.join(dir, 'nope.jsonl'), emptyTailState());
     expect(out.lines).toEqual([]);
   });
+
+  // The ingest marks the first batch of a from-byte-0 read so the fold can clear
+  // what it already holds for that agent. Without it a re-read of a file whose
+  // older records the store has trimmed leaves the projection stuck in the past,
+  // because the uuid dedupe keeps the FIRST copy of every record it sees.
+  it('says when the lines it returns start at the first byte', async () => {
+    const file = path.join(dir, 'from-start.jsonl');
+    await fs.writeFile(file, '{"i":1}\n{"i":2}\n');
+
+    const first = await drain(file, emptyTailState());
+    expect(first.fromStart).toBe(true);
+
+    await fs.appendFile(file, '{"i":3}\n');
+    const second = await drain(file, first.state);
+    expect(second.lines).toEqual(['{"i":3}']);
+    expect(second.fromStart).toBe(false);
+
+    await fs.truncate(file, 0);
+    await fs.writeFile(file, '{"i":9}\n');
+    const truncated = await drain(file, second.state);
+    expect(truncated.lines).toEqual(['{"i":9}']);
+    expect(truncated.fromStart).toBe(true);
+
+    await fs.rm(file);
+    await fs.writeFile(file, '{"i":7}\n');
+    const replaced = await drain(file, truncated.state);
+    expect(replaced.lines).toEqual(['{"i":7}']);
+    expect(replaced.fromStart).toBe(true);
+  });
 });
 
 describe('watchAppendOnly', () => {
@@ -171,6 +200,26 @@ describe('pump', () => {
   // — watchRoot degrades to a no-op and there is no fs.watch at all.
   const deadWatcher = (onLines: (p: string, lines: string[]) => void) =>
     watchAppendOnly(path.join(dir, 'never-created'), onLines);
+
+  it('passes the from-byte-0 flag through to onLines', async () => {
+    const got: Array<{ lines: string[]; fromStart: boolean }> = [];
+    const w = watchAppendOnly(path.join(dir, 'never-created'), (_p, lines, fromStart) =>
+      got.push({ lines, fromStart }),
+    );
+    try {
+      const file = path.join(dir, 'flagged.jsonl');
+      await fs.writeFile(file, '{"i":1}\n');
+      await w.pump(file);
+      await fs.appendFile(file, '{"i":2}\n');
+      await w.pump(file);
+      expect(got).toEqual([
+        { lines: ['{"i":1}'], fromStart: true },
+        { lines: ['{"i":2}'], fromStart: false },
+      ]);
+    } finally {
+      w.close();
+    }
+  });
 
   it('reads a file the watcher never reported', async () => {
     const got: string[] = [];

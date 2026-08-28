@@ -2,10 +2,10 @@ import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { project, PROJECTED_TRANSCRIPT_LINES } from './project';
-import type { StoredEvent, EventKind } from './store';
+import { TRANSCRIPT_RECORDS_PER_AGENT, type StoredEvent, type EventKind } from './store';
 import type { TeamConfig, Sidecar } from '../shared/roster';
 import { parseLine, TRANSCRIPT_TEXT_CAP, type TranscriptRecord } from '../shared/transcript';
-import { contextOccupancy } from '../shared/usage';
+import { contextOccupancy, dedupeUsage, totalCost, tokensOf, usageRecordsOf } from '../shared/usage';
 import type { InboxEntry } from '../shared/mailbox';
 
 // Counts every real derivation the fold performs, so the tests below can assert
@@ -521,5 +521,286 @@ describe('departed status', () => {
     const state = project(buildLog(null), false);
     expect(state.agents.length).toBeGreaterThan(0);
     expect(state.agents.every((a) => a.status === 'departed')).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The store now bounds transcript history per agent by RECORD count, so the
+// fold can no longer see every record an agent ever wrote. Cost and tokens ride
+// along on the payload as a cumulative snapshot; a from-byte-0 re-read says so
+// rather than colliding with what the log already holds.
+// ---------------------------------------------------------------------------
+describe('bounded transcript history', () => {
+  const rosterFor = (names: string[]): StoredEvent => ({
+    seq: 1,
+    ts: 0,
+    kind: 'roster',
+    payload: {
+      config: {
+        name: 'session-bounded',
+        createdAt: 0,
+        leadAgentId: names[0],
+        leadSessionId: names[0],
+        members: names.map((n) => ({
+          agentId: n,
+          name: n,
+          joinedAt: 0,
+          tmuxPaneId: '',
+          subscriptions: [],
+        })),
+      },
+      sidecars: [],
+    },
+  });
+
+  const assistant = (agent: string, i: number): TranscriptRecord => ({
+    type: 'assistant',
+    uuid: `${agent}-a${i}`,
+    timestamp: new Date(1787843400000 + i * 1000).toISOString(),
+    message: {
+      id: `msg_${agent}_${i}`,
+      model: 'claude-sonnet-4-5-20250929',
+      role: 'assistant',
+      usage: {
+        input_tokens: 4,
+        output_tokens: 100 + (i % 37),
+        cache_read_input_tokens: 20000 + i,
+        cache_creation_input_tokens: 500,
+      },
+      content: [{ type: 'text', text: `assistant turn ${i}` }],
+    },
+  });
+
+  const toolResult = (agent: string, i: number): TranscriptRecord => ({
+    type: 'user',
+    uuid: `${agent}-u${i}`,
+    timestamp: new Date(1787843400000 + i * 1000 + 500).toISOString(),
+    toolUseResult: { ok: true },
+    message: {
+      role: 'user',
+      content: [{ type: 'tool_result', content: `result of step ${i}`, is_error: false }],
+    },
+  });
+
+  const historyOf = (agent: string, count: number): TranscriptRecord[] =>
+    Array.from({ length: count }, (_, i) => (i % 2 === 0 ? assistant(agent, i) : toolResult(agent, i)));
+
+  it('takes cost and tokens from a totals snapshot instead of walking the records', () => {
+    const records = historyOf('solo', 6);
+    const walked = project(
+      [rosterFor(['solo']), { seq: 2, ts: 0, kind: 'transcript', agent: 'solo', payload: { agent: 'solo', records } }],
+      false,
+    );
+    expect(walked.agents[0].costUsd).toBeGreaterThan(0);
+
+    const snapshot = project(
+      [
+        rosterFor(['solo']),
+        {
+          seq: 2,
+          ts: 0,
+          kind: 'transcript',
+          agent: 'solo',
+          payload: { agent: 'solo', records, totals: { costUsd: 12.5, tokens: 777 } },
+        },
+      ],
+      false,
+    );
+    // The snapshot covers records the store has already dropped, so it REPLACES
+    // the walk rather than being reconciled against it.
+    expect(snapshot.agents[0].costUsd).toBe(12.5);
+    expect(snapshot.totalCostUsd).toBe(12.5);
+    expect(snapshot.totalTokens).toBe(777);
+    expect(snapshot.agents[0].costUsd).not.toBeCloseTo(walked.agents[0].costUsd, 6);
+    expect(snapshot.totalTokens).not.toBe(walked.totalTokens);
+  });
+
+  // The anti-double-count property. A snapshot is cumulative and total, so two
+  // of them for one agent can never be summed across an eviction boundary — the
+  // measured failure of the "aggregate the dropped prefix, add the live tail"
+  // shape was +37.7% on a real fixture, because a duplicate message-id group
+  // straddled the cut.
+  it('lets the later totals snapshot replace the earlier one, never add to it', () => {
+    const records = historyOf('solo', 4);
+    const state = project(
+      [
+        rosterFor(['solo']),
+        {
+          seq: 2,
+          ts: 0,
+          kind: 'transcript',
+          agent: 'solo',
+          payload: { agent: 'solo', records: records.slice(0, 2), totals: { costUsd: 1.25, tokens: 100 } },
+        },
+        {
+          seq: 3,
+          ts: 0,
+          kind: 'transcript',
+          agent: 'solo',
+          payload: { agent: 'solo', records: records.slice(2), totals: { costUsd: 3, tokens: 260 } },
+        },
+      ],
+      false,
+    );
+    expect(state.agents[0].costUsd).toBe(3);
+    expect(state.totalTokens).toBe(260);
+  });
+
+  it('still computes cost from the records when no snapshot rides along', () => {
+    const records = historyOf('solo', 6);
+    const state = project(
+      [rosterFor(['solo']), { seq: 2, ts: 0, kind: 'transcript', agent: 'solo', payload: { agent: 'solo', records } }],
+      false,
+    );
+    expect(state.agents[0].costUsd).toBeGreaterThan(0);
+    expect(state.totalTokens).toBeGreaterThan(0);
+  });
+
+  // A per-agent record bound makes this routine: boot 1 leaves the newest 200
+  // records in the log, boot 2 re-reads the whole 400-record file. The uuid
+  // dedupe keeps the FIRST copy it sees, so without the marker the fold's list
+  // is [201..400, 1..200] and the console shows a transcript 200 records in the
+  // past with a stale context number.
+  it('rebuilds an agent from the file when a batch says it starts at byte 0', () => {
+    const records = historyOf('probe', 400);
+    const chunk = (recs: TranscriptRecord[], from: number, seq0: number, fromStart: boolean): StoredEvent[] => {
+      const out: StoredEvent[] = [];
+      for (let i = 0; i < recs.length; i += 100) {
+        out.push({
+          seq: seq0 + i,
+          ts: 0,
+          kind: 'transcript',
+          agent: 'probe',
+          payload: {
+            agent: 'probe',
+            records: recs.slice(i, i + 100),
+            ...(fromStart && i === 0 ? { fromStart: true } : {}),
+          },
+        });
+      }
+      return out;
+    };
+    const truth = project(
+      [rosterFor(['probe']), { seq: 2, ts: 0, kind: 'transcript', agent: 'probe', payload: { agent: 'probe', records } }],
+      false,
+    ).agents[0];
+
+    const trimmed = chunk(records.slice(200), 200, 1000, false);
+    const stale = project([rosterFor(['probe']), ...trimmed, ...chunk(records, 0, 2000, false)], false).agents[0];
+    const rebuilt = project([rosterFor(['probe']), ...trimmed, ...chunk(records, 0, 2000, true)], false).agents[0];
+
+    expect(stale.transcript.at(-1)!.text).toBe('result of step 199');
+    expect(stale.contextTokens).not.toBe(truth.contextTokens);
+    expect(rebuilt.transcript.at(-1)!.text).toBe('result of step 399');
+    expect(rebuilt.transcript).toEqual(truth.transcript);
+    expect(rebuilt.contextTokens).toBe(truth.contextTokens);
+  });
+
+  // If the marker cleared the record list but not the uuid set, every record of
+  // the re-read would be deduped away against a list that was just emptied.
+  it('clears the agent uuid set too, so the re-read is admitted', () => {
+    const records = historyOf('probe', 8);
+    const state = project(
+      [
+        rosterFor(['probe']),
+        { seq: 2, ts: 0, kind: 'transcript', agent: 'probe', payload: { agent: 'probe', records } },
+        {
+          seq: 3,
+          ts: 0,
+          kind: 'transcript',
+          agent: 'probe',
+          payload: { agent: 'probe', records, fromStart: true },
+        },
+      ],
+      false,
+    );
+    const once = project(
+      [rosterFor(['probe']), { seq: 2, ts: 0, kind: 'transcript', agent: 'probe', payload: { agent: 'probe', records } }],
+      false,
+    ).agents[0];
+    expect(state.agents[0].transcript).toEqual(once.transcript);
+    expect(state.agents[0].transcript.length).toBeGreaterThan(0);
+    expect(state.agents[0].contextTokens).toBe(once.contextTokens);
+  });
+
+  // A log written before snapshots existed carries none, so the fold can only
+  // report the spend of the records the bound still holds. That window is the
+  // boot itself — the sweep re-reads every transcript and the first drain writes
+  // a snapshot — but it is real, so both halves are pinned here.
+  it('under-reports a snapshot-less bounded log only until the next drain', () => {
+    const records = historyOf('solo', 400);
+    const truth = project(
+      [rosterFor(['solo']), { seq: 2, ts: 0, kind: 'transcript', agent: 'solo', payload: { agent: 'solo', records } }],
+      false,
+    );
+
+    const bounded: StoredEvent[] = [
+      rosterFor(['solo']),
+      { seq: 2, ts: 0, kind: 'transcript', agent: 'solo', payload: { agent: 'solo', records: records.slice(-100) } },
+    ];
+    const stale = project(bounded, false);
+    expect(stale.totalCostUsd).toBeLessThan(truth.totalCostUsd);
+
+    const usage = dedupeUsage(usageRecordsOf(records));
+    bounded.push({
+      seq: 3,
+      ts: 0,
+      kind: 'transcript',
+      agent: 'solo',
+      payload: {
+        agent: 'solo',
+        records,
+        fromStart: true,
+        totals: { costUsd: totalCost(usage), tokens: tokensOf(usage) },
+      },
+    });
+    const healed = project(bounded, false);
+    expect(healed.totalCostUsd).toBeCloseTo(truth.totalCostUsd, 9);
+    expect(healed.totalTokens).toBe(truth.totalTokens);
+  });
+
+  // The headline: an 11-agent team whose history has been bounded to the newest
+  // TRANSCRIPT_RECORDS_PER_AGENT projects the same money, the same lines and the
+  // same context as the unbounded fold. The three fixture transcripts are 21-27
+  // records, far too small to reach the cap on their own.
+  it('projects the same cost, lines and context from a log bounded at the cap', () => {
+    const names = Array.from({ length: 11 }, (_, i) => `agent-${i}`);
+    const roster = rosterFor(names);
+    const perAgent = new Map(names.map((n) => [n, historyOf(n, 2000)]));
+
+    const unbounded: StoredEvent[] = [roster];
+    let seq = 1;
+    for (const [agent, records] of perAgent) {
+      unbounded.push({ seq: ++seq, ts: 0, kind: 'transcript', agent, payload: { agent, records } });
+    }
+
+    const bounded: StoredEvent[] = [roster];
+    for (const [agent, records] of perAgent) {
+      const usage = dedupeUsage(usageRecordsOf(records));
+      const totals = { costUsd: totalCost(usage), tokens: tokensOf(usage) };
+      const kept = records.slice(-TRANSCRIPT_RECORDS_PER_AGENT);
+      for (let i = 0; i < kept.length; i += 200) {
+        const last = i + 200 >= kept.length;
+        bounded.push({
+          seq: ++seq,
+          ts: 0,
+          kind: 'transcript',
+          agent,
+          payload: { agent, records: kept.slice(i, i + 200), ...(last ? { totals } : {}) },
+        });
+      }
+    }
+
+    const truth = project(unbounded, false);
+    const capped = project(bounded, false);
+    expect(capped.totalCostUsd).toBeCloseTo(truth.totalCostUsd, 9);
+    expect(capped.totalTokens).toBe(truth.totalTokens);
+    for (let i = 0; i < truth.agents.length; i++) {
+      expect(capped.agents[i].costUsd).toBeCloseTo(truth.agents[i].costUsd, 9);
+      expect(capped.agents[i].transcript).toEqual(truth.agents[i].transcript);
+      expect(capped.agents[i].contextTokens).toBe(truth.agents[i].contextTokens);
+      expect(capped.agents[i].currentTool).toBe(truth.agents[i].currentTool);
+      expect(capped.agents[i].status).toBe(truth.agents[i].status);
+    }
   });
 });

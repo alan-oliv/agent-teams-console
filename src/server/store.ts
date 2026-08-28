@@ -53,9 +53,13 @@ export interface Store {
  * row yet, so nothing here can tell "old" from "still relevant" by count alone.
  * `needsyou-resolved` gets a cap below, but `trim()` gives it paired handling
  * — see there — so a dropped resolution can never resurrect the card it closed.
+ *
+ * `transcript` is NOT here: what the publish walks is records, not events, and
+ * one event holds anything from 1 record (a steady-state drain) to 2,630 (a boot
+ * re-read of the largest real transcript), so no event count is a record bound.
+ * See TRANSCRIPT_RECORDS_PER_AGENT.
  */
 export const KIND_RETENTION: Partial<Record<EventKind, number>> = {
-  transcript: 5_000,
   task: 5_000,
   mail: 2_000,
   hook: 2_000,
@@ -68,6 +72,21 @@ export const KIND_RETENTION: Partial<Record<EventKind, number>> = {
   // `needsyou` create alongside it, so nothing here is ever left dangling.
   'needsyou-resolved': 500,
 };
+
+/**
+ * How many transcript records the log keeps PER AGENT. project() is linear in
+ * stored records (measured 0.64 us/record) and runs on every publish, up to 4 Hz,
+ * against a 5 ms budget at 11 agents — 11,710 records team-wide once the totals
+ * snapshot takes the usage pipeline out of the walk, so 1,064 per agent. 1,000
+ * is 5x the 200-record window at which the projected 60 lines are still exact on
+ * every real transcript, and 91x the worst duplicate-message-id span (11).
+ * Per agent, not team-wide, so a chatty agent cannot evict a quiet one's history
+ * — and tuned for 11 agents, so a much larger team wants a smaller number.
+ */
+export const TRANSCRIPT_RECORDS_PER_AGENT = 1_000;
+
+/** Backstop, so a flood of record-less transcript rows is still bounded. */
+export const TRANSCRIPT_EVENTS_PER_AGENT = 1_200;
 
 export const PRUNE_EVERY = 250;
 
@@ -155,7 +174,63 @@ function needsYouId(payload: unknown): string | undefined {
   return typeof id === 'string' ? id : undefined;
 }
 
-/** Drops the oldest events of any kind that is over its retention cap. */
+// Two scalars off a TranscriptPayload (project.ts owns the shape). The store
+// cannot rewrite a payload without forcing a whole-file compaction, but it can
+// read one to decide whether to keep the row — the same exception needsYouId is.
+function recordCount(payload: unknown): number {
+  const recs =
+    payload && typeof payload === 'object' ? (payload as { records?: unknown }).records : undefined;
+  return Array.isArray(recs) ? recs.length : 0;
+}
+
+function readsFromStart(payload: unknown): boolean {
+  return (
+    payload !== null &&
+    typeof payload === 'object' &&
+    (payload as { fromStart?: unknown }).fromStart === true
+  );
+}
+
+/**
+ * Per agent, newest first, the transcript rows to drop. Two reasons to drop one:
+ * the agent's record (or event) budget is already spent, or the row is older
+ * than that agent's newest from-byte-0 batch — the fold clears the agent when it
+ * reaches that batch, so nothing before it can ever be read again. The second
+ * clause is what stops the log growing by one whole transcript per console
+ * restart: measured over five successive boots against 11 unchanged 2,000-record
+ * transcripts, the log reaches a fixed point (105 rows, 6.9 MB) instead of
+ * gaining a whole copy of every transcript on each boot, forever.
+ */
+function transcriptDrops(events: StoredEvent[]): Set<StoredEvent> {
+  const drop = new Set<StoredEvent>();
+  const keptRecords = new Map<string, number>();
+  const keptEvents = new Map<string, number>();
+  const pastReset = new Set<string>();
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e.kind !== 'transcript') continue;
+    const agent = e.agent ?? '';
+    if (pastReset.has(agent)) {
+      drop.add(e);
+      continue;
+    }
+    if (readsFromStart(e.payload)) pastReset.add(agent);
+    const records = keptRecords.get(agent) ?? 0;
+    const count = keptEvents.get(agent) ?? 0;
+    if (records >= TRANSCRIPT_RECORDS_PER_AGENT || count >= TRANSCRIPT_EVENTS_PER_AGENT) {
+      drop.add(e);
+      continue;
+    }
+    keptRecords.set(agent, records + recordCount(e.payload));
+    keptEvents.set(agent, count + 1);
+  }
+  return drop;
+}
+
+/**
+ * Drops the oldest events of any kind that is over its retention cap, plus the
+ * transcript rows the per-agent record bound has made unreadable.
+ */
 function trim(events: StoredEvent[]): StoredEvent[] {
   const counts = new Map<string, number>();
   for (const e of events) counts.set(e.kind, (counts.get(e.kind) ?? 0) + 1);
@@ -165,7 +240,8 @@ function trim(events: StoredEvent[]): StoredEvent[] {
     const over = (counts.get(kind) ?? 0) - keep;
     if (over > 0) excess.set(kind, over);
   }
-  if (excess.size === 0) return events;
+  const transcripts = transcriptDrops(events);
+  if (excess.size === 0 && transcripts.size === 0) return events;
 
   // The ids of the `needsyou-resolved` rows this pass is about to drop. Their
   // matching `needsyou` create rows must go with them (below) — a card with no
@@ -182,6 +258,7 @@ function trim(events: StoredEvent[]): StoredEvent[] {
 
   // Ascending seq order, so the first `over` events of a kind are its oldest.
   return events.filter((e) => {
+    if (transcripts.has(e)) return false;
     if (e.kind === 'needsyou') {
       const id = needsYouId(e.payload);
       if (id && closedIds.has(id)) return false;

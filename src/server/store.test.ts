@@ -9,6 +9,8 @@ import {
   KIND_RETENTION,
   PRUNE_EVERY,
   STALE_LOG_MS,
+  TRANSCRIPT_EVENTS_PER_AGENT,
+  TRANSCRIPT_RECORDS_PER_AGENT,
 } from './store';
 import { project } from './project';
 import type { NeedsYouItem } from '../shared/domain';
@@ -129,15 +131,104 @@ describe('team scoping', () => {
   });
 
   it('caps a high-volume kind so a long-lived install cannot degrade forever', () => {
-    const cap = KIND_RETENTION.transcript!;
+    const cap = KIND_RETENTION.task!;
     const store = openStore(path.join(dir, 'cap.db'), 'session-cap00000');
     try {
-      for (let i = 0; i < cap + 600; i++) store.append('transcript', { agent: 'a', records: [] }, 'a');
+      for (let i = 0; i < cap + 600; i++) store.append('task', { id: `t-${i}` });
       const kept = store.replay();
       expect(kept.length).toBeLessThanOrEqual(cap + 250);
       expect(kept.length).toBeGreaterThan(cap - 1);
       // The newest survive; the oldest are the ones dropped.
       expect(kept[kept.length - 1].seq).toBe(cap + 600);
+    } finally {
+      store.close();
+    }
+  });
+});
+
+// project() walks every stored record on every publish, so what has to be
+// bounded is RECORDS, not events: the ingest's own shape puts a whole file in
+// one event at boot, which a flat event cap cannot see.
+describe('transcript retention', () => {
+  const batch = (agent: string, tag: string, n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      type: 'assistant',
+      uuid: `${agent}-${tag}-${i}`,
+      timestamp: '2026-08-27T15:20:00.000Z',
+    }));
+
+  const recordsIn = (events: Array<{ kind: string; payload: unknown }>, agent?: string) =>
+    events
+      .filter((e) => e.kind === 'transcript')
+      .filter((e) => !agent || (e.payload as { agent: string }).agent === agent)
+      .reduce((n, e) => n + (e.payload as { records: unknown[] }).records.length, 0);
+
+  it('keeps at most the newest TRANSCRIPT_RECORDS_PER_AGENT records of an agent', () => {
+    const store = openStore(path.join(dir, 'records.db'), 'session-rec00000');
+    try {
+      for (let i = 0; i < PRUNE_EVERY; i++) {
+        store.append('transcript', { agent: 'a', records: batch('a', `b${i}`, 200) }, 'a');
+      }
+      const kept = store.replay();
+      expect(recordsIn(kept)).toBeLessThanOrEqual(TRANSCRIPT_RECORDS_PER_AGENT);
+      // The newest survive: the last batch appended is still the last one held.
+      expect(kept.at(-1)!.seq).toBe(PRUNE_EVERY);
+      const last = (kept.at(-1)!.payload as { records: Array<{ uuid: string }> }).records;
+      expect(last[0].uuid).toBe(`a-b${PRUNE_EVERY - 1}-0`);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("does not evict a quiet agent's records to make room for a chatty one's", () => {
+    const store = openStore(path.join(dir, 'quiet.db'), 'session-qui00000');
+    try {
+      store.append('transcript', { agent: 'quiet', records: batch('quiet', 'only', 3) }, 'quiet');
+      for (let i = 0; i < PRUNE_EVERY - 1; i++) {
+        store.append('transcript', { agent: 'chatty', records: batch('chatty', `b${i}`, 200) }, 'chatty');
+      }
+      const kept = store.replay();
+      expect(recordsIn(kept, 'quiet')).toBe(3);
+      expect(recordsIn(kept, 'chatty')).toBeLessThanOrEqual(TRANSCRIPT_RECORDS_PER_AGENT);
+    } finally {
+      store.close();
+    }
+  });
+
+  // A console restart re-reads every transcript from byte 0, and the fold clears
+  // the agent when it reaches that marker — so every row of that agent older
+  // than the marker can never be read again. Dropping them is what stops the log
+  // growing by one whole transcript per boot, forever.
+  it('drops every transcript row older than an agent\'s newest from-byte-0 batch', () => {
+    const store = openStore(path.join(dir, 'reset.db'), 'session-res00000');
+    try {
+      for (let i = 0; i < 200; i++) {
+        store.append('transcript', { agent: 'a', records: batch('a', `old${i}`, 1) }, 'a');
+      }
+      store.append('transcript', { agent: 'a', records: batch('a', 'boot', 1), fromStart: true }, 'a');
+      for (let i = 0; i < PRUNE_EVERY - 201; i++) {
+        store.append('transcript', { agent: 'a', records: batch('a', `new${i}`, 1) }, 'a');
+      }
+      const kept = store.replay();
+      expect(kept).toHaveLength(PRUNE_EVERY - 200);
+      expect((kept[0].payload as { fromStart?: boolean }).fromStart).toBe(true);
+      expect(recordsIn(kept)).toBe(PRUNE_EVERY - 200);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('still bounds a flood of transcript rows that carry no records at all', () => {
+    const store = openStore(path.join(dir, 'flood.db'), 'session-flo00000');
+    try {
+      // Rounded up to a prune boundary so the last append is the one that trims.
+      const appends = Math.ceil((TRANSCRIPT_EVENTS_PER_AGENT + 1) / PRUNE_EVERY) * PRUNE_EVERY;
+      for (let i = 0; i < appends; i++) {
+        store.append('transcript', { agent: 'a', records: [] }, 'a');
+      }
+      const kept = store.replay();
+      expect(kept.length).toBe(TRANSCRIPT_EVENTS_PER_AGENT);
+      expect(kept.at(-1)!.seq).toBe(appends);
     } finally {
       store.close();
     }

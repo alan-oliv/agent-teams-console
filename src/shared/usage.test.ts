@@ -2,7 +2,15 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { resolveModel } from './catalog';
 import type { TranscriptRecord } from './transcript';
-import { contextOccupancy, costOf, dedupeUsage, totalCost, type UsageRecord } from './usage';
+import {
+  contextOccupancy,
+  costOf,
+  dedupeUsage,
+  totalCost,
+  tokensOf,
+  usageRecordsOf,
+  type UsageRecord,
+} from './usage';
 
 interface FixtureRecord {
   agent: string;
@@ -175,5 +183,51 @@ describe('contextOccupancy', () => {
 
   it('returns 0 for an empty record list', () => {
     expect(contextOccupancy([])).toBe(0);
+  });
+});
+
+// These two moved here from project.ts so the ingest and the fold can share one
+// implementation of "what did this agent spend". The move must not change what
+// they return, so their behaviour is pinned against the same fixture the fold
+// reads.
+describe('usageRecordsOf', () => {
+  it('takes one record per usage-bearing assistant line, keyed on the message id', () => {
+    const records = usageRecordsOf(alphaTranscript);
+    expect(alphaTranscript).toHaveLength(27);
+    expect(records).toHaveLength(13);
+    expect(records[0].messageId).toBe('msg_011CeTTwecxfqFMr8UmnzxZN');
+    expect(records[0].model).toBe('claude-opus-5');
+    // Deliberately NOT deduped: dedupeUsage is what collapses the repeats.
+    expect(dedupeUsage(records)).toHaveLength(9);
+  });
+
+  it('skips user records and assistant records with no usage', () => {
+    expect(
+      usageRecordsOf([
+        { type: 'user', uuid: 'u1', message: { role: 'user' } },
+        { type: 'assistant', uuid: 'a1', message: { id: 'm1', model: 'x' } },
+      ]),
+    ).toEqual([]);
+  });
+
+  it('falls back to the record uuid when the message carries no id', () => {
+    const records = usageRecordsOf([
+      { type: 'assistant', uuid: 'no-message-id', message: { usage: { input_tokens: 1, output_tokens: 2 } } },
+    ]);
+    expect(records).toEqual([
+      { messageId: 'no-message-id', model: '', usage: { input_tokens: 1, output_tokens: 2 } },
+    ]);
+  });
+});
+
+describe('tokensOf', () => {
+  it('sums input, output and cache creation — never cache reads', () => {
+    const records = usageRecordsOf(alphaTranscript);
+    expect(tokensOf(records)).toBe(129853);
+    expect(tokensOf(dedupeUsage(records))).toBe(54065);
+  });
+
+  it('is zero for no records', () => {
+    expect(tokensOf([])).toBe(0);
   });
 });

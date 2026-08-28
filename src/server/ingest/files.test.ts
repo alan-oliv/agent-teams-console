@@ -3,7 +3,15 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { openStore, type Store, type StoredEvent } from '../store';
-import { startFileIngest, agentOfTranscript, type IngestPaths, type FileIngest } from './files';
+import {
+  startFileIngest,
+  agentOfTranscript,
+  INGEST_BATCH_RECORDS,
+  type IngestPaths,
+  type FileIngest,
+} from './files';
+import { dedupeUsage, tokensOf, totalCost, usageRecordsOf } from '../../shared/usage';
+import type { TranscriptRecord } from '../../shared/transcript';
 import { project } from '../project';
 import type { RosterPayload, TranscriptPayload, TaskPayload, MailPayload } from '../project';
 
@@ -608,5 +616,148 @@ describe('transcript latency', () => {
     await write(leadTranscript(), 'after-close');
     await settle(500);
     expect(store.replay()).toHaveLength(after);
+  });
+});
+
+// A boot re-reads a whole transcript in one drain — measured at 2,630 records
+// for the largest real file — so the ingest splits it into events the store can
+// bound by record count, and carries the agent's cumulative spend on the last
+// one so trimming records can never move the money.
+describe('transcript batching', () => {
+  const leadTranscript = () => path.join(paths.projects, SLUG, `${LEAD_SESSION}.jsonl`);
+
+  const assistant = (i: number) => ({
+    type: 'assistant',
+    uuid: `rec-${i}`,
+    timestamp: new Date(1787843400000 + i * 1000).toISOString(),
+    message: {
+      id: `msg_${i}`,
+      model: 'claude-sonnet-4-5-20250929',
+      role: 'assistant',
+      usage: {
+        input_tokens: 4,
+        output_tokens: 100 + (i % 37),
+        cache_read_input_tokens: 20000 + i,
+        cache_creation_input_tokens: 500,
+      },
+      content: [{ type: 'text', text: `turn ${i}` }],
+    },
+  });
+
+  const startLead = () =>
+    startFileIngest(store, {
+      paths,
+      teamName: TEAM,
+      leadSessionId: LEAD_SESSION,
+      leadName: 'team-lead',
+      sweepIntervalMs: 0,
+      tailPollMs: 0,
+    });
+
+  it('splits one drain into batches, marking only the first and only the last', async () => {
+    const records = Array.from({ length: 450 }, (_, i) => assistant(i));
+    await fs.mkdir(path.join(paths.projects, SLUG), { recursive: true });
+    await fs.writeFile(leadTranscript(), records.map((r) => JSON.stringify(r)).join('\n') + '\n');
+
+    const ingest = startLead();
+    try {
+      await ingest.sweep();
+    } finally {
+      ingest.close();
+    }
+
+    const events = of(store.replay(), 'transcript');
+    expect(events).toHaveLength(Math.ceil(450 / INGEST_BATCH_RECORDS));
+    const payloads = events.map((e) => e.payload as TranscriptPayload);
+    expect(payloads.map((p) => p.records.length)).toEqual([200, 200, 50]);
+    expect(payloads.map((p) => p.fromStart === true)).toEqual([true, false, false]);
+    expect(payloads.map((p) => p.totals !== undefined)).toEqual([false, false, true]);
+    // Reassembled, the batches are the file, in file order.
+    expect(payloads.flatMap((p) => p.records.map((r) => r.uuid))).toEqual(records.map((r) => r.uuid));
+
+    const expected = dedupeUsage(usageRecordsOf(records));
+    expect(payloads.at(-1)!.totals!.costUsd).toBeCloseTo(totalCost(expected), 12);
+    expect(payloads.at(-1)!.totals!.tokens).toBe(tokensOf(expected));
+  });
+
+  // The pending buffer is capped, so a teammate whose sidecar lands late loses
+  // the front of its transcript. The records are gone from the store either way
+  // — but the money must not be, or a slow sidecar silently discounts the team.
+  it("keeps an agent's whole spend when the pending buffer drops the front of it", async () => {
+    const records = Array.from({ length: 600 }, (_, i) => assistant(i));
+    const agentDir = path.join(paths.projects, SLUG, LEAD_SESSION, 'subagents');
+    await fs.mkdir(agentDir, { recursive: true });
+    const stem = 'agent-alate-3333333333333333';
+    await fs.writeFile(
+      path.join(agentDir, `${stem}.jsonl`),
+      records.map((r) => JSON.stringify(r)).join('\n') + '\n',
+    );
+
+    const ingest = startLead();
+    try {
+      await ingest.sweep();
+      expect(of(store.replay(), 'transcript')).toHaveLength(0);
+
+      await fs.writeFile(
+        path.join(agentDir, `${stem}.meta.json`),
+        JSON.stringify({
+          name: 'late',
+          agentType: 'late',
+          description: 'a teammate whose sidecar was slow',
+          spawnDepth: 0,
+          model: 'claude-opus-5',
+          taskKind: 'in_process_teammate',
+          teamName: TEAM,
+        }),
+      );
+      await ingest.sweep();
+
+      const stored = of(store.replay(), 'transcript').map((e) => e.payload as TranscriptPayload);
+      expect(stored.length).toBeGreaterThan(0);
+      const kept = stored.reduce((n, p) => n + p.records.length, 0);
+      expect(kept).toBeLessThan(records.length);
+      expect(stored.at(-1)!.totals!.costUsd).toBeCloseTo(
+        totalCost(dedupeUsage(usageRecordsOf(records))),
+        12,
+      );
+    } finally {
+      ingest.close();
+    }
+  });
+
+  it('reports the same cumulative spend when the same file is read again from byte 0', async () => {
+    const raw = await fs.readFile(
+      path.join(FIXTURES, 'transcript-agent-aprobe-alpha-84fd551b27de6433.jsonl'),
+      'utf8',
+    );
+    const records = raw
+      .split('\n')
+      .filter((l) => l.trim().length > 0)
+      .map((l) => JSON.parse(l) as TranscriptRecord);
+    await fs.mkdir(path.join(paths.projects, SLUG), { recursive: true });
+    await fs.writeFile(leadTranscript(), raw);
+
+    const ingest = startLead();
+    try {
+      await ingest.sweep();
+      const first = of(store.replay(), 'transcript');
+      expect(first).toHaveLength(1);
+      const truth = totalCost(dedupeUsage(usageRecordsOf(records)));
+      expect((first[0].payload as TranscriptPayload).totals!.costUsd).toBeCloseTo(truth, 12);
+
+      // A console restart loses the tail offset, so the whole file is read
+      // again. The snapshot is cumulative, so it must not double.
+      await fs.rm(leadTranscript());
+      await fs.writeFile(leadTranscript(), raw);
+      await ingest.drainAgent('team-lead');
+
+      const all = of(store.replay(), 'transcript');
+      expect(all.length).toBeGreaterThan(1);
+      const reread = all.at(-1)!.payload as TranscriptPayload;
+      expect(reread.fromStart).toBe(true);
+      expect(reread.totals!.costUsd).toBeCloseTo(truth, 12);
+    } finally {
+      ingest.close();
+    }
   });
 });

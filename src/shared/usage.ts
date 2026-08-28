@@ -9,6 +9,39 @@ export interface Usage {
 }
 export interface UsageRecord { messageId: string; model: string; usage: Usage }
 
+export function usageRecordsOf(records: TranscriptRecord[]): UsageRecord[] {
+  const out: UsageRecord[] = [];
+  for (const r of records) {
+    if (r.type !== 'assistant') continue;
+    const usage = r.message?.usage;
+    if (!usage) continue;
+    out.push({
+      messageId: r.message?.id ?? r.uuid ?? '',
+      model: r.message?.model ?? '',
+      usage,
+    });
+  }
+  return out;
+}
+
+/**
+ * Tokens the team actually put through the model. `cache_read_input_tokens` is
+ * the whole prefix re-read on every turn, so summing it counts the same tokens
+ * once per message — on a real session that reached 1.8 billion, which is not a
+ * number anyone can act on. Context occupancy is a separate measure and lives
+ * on each Agent as `contextTokens`.
+ */
+export function tokensOf(records: UsageRecord[]): number {
+  let sum = 0;
+  for (const r of records) {
+    sum +=
+      (r.usage.input_tokens ?? 0) +
+      (r.usage.output_tokens ?? 0) +
+      (r.usage.cache_creation_input_tokens ?? 0);
+  }
+  return sum;
+}
+
 export function dedupeUsage(records: UsageRecord[]): UsageRecord[] {
   const best = new Map<string, UsageRecord>();
   for (const record of records) {

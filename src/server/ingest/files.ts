@@ -3,8 +3,9 @@ import path from 'node:path';
 import { watchAppendOnly } from '../watch/tail';
 import { readJsonSafe, watchJsonTree } from '../watch/jsonfile';
 import type { Store } from '../store';
-import type { TaskPayload } from '../project';
+import type { AgentUsageTotals, TaskPayload, TranscriptPayload } from '../project';
 import { parseLine, type TranscriptRecord } from '../../shared/transcript';
+import { tokensOf, totalCost, usageRecordsOf, type UsageRecord } from '../../shared/usage';
 import type { TeamConfig, Sidecar } from '../../shared/roster';
 import type { InboxEntry } from '../../shared/mailbox';
 import { logError } from '../log';
@@ -20,6 +21,15 @@ export const DEFAULT_SWEEP_MS = 5000;
  * faster poll cannot produce a faster frame.
  */
 export const TAIL_POLL_MS = 250;
+/**
+ * Records per stored transcript event. The store bounds transcript history by
+ * RECORD count per agent, and it can only drop whole events, so without a split
+ * the tightest bound it could reach would be one whole file per agent — 2,630
+ * records on the largest real transcript, ~10 ms a publish at 11 agents.
+ * 200 is the window at which the projected 60 lines are still exact on every
+ * real transcript, so the store's overshoot can never cut into what is drawn.
+ */
+export const INGEST_BATCH_RECORDS = 200;
 const SUBAGENT_FILE = /^agent-a(.+)-[0-9a-f]{16}\.jsonl$/;
 
 export interface IngestPaths {
@@ -155,13 +165,77 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
   const pending = new Map<string, TranscriptRecord[]>();
   const PENDING_CAP = 500;
 
+  /**
+   * Per agent, the best usage record seen for each message id — the same rule
+   * `dedupeUsage` applies, kept incrementally so the snapshot below is exact
+   * however the file arrived: in one drain, in chunks, or read whole again after
+   * a restart. Measured at ~21% of record count, which is ~100x cheaper than
+   * holding the records themselves, but it does grow with the session.
+   */
+  const usageLedger = new Map<string, Map<string, UsageRecord>>();
+
+  // Fed as lines are READ, not as they are stored, so nothing that drops records
+  // downstream can discount an agent: PENDING_CAP truncates a late-sidecar
+  // teammate's buffer, and the store bounds records per agent.
+  const noteUsage = (agent: string, records: TranscriptRecord[]) => {
+    const ledger = usageLedger.get(agent) ?? new Map<string, UsageRecord>();
+    for (const u of usageRecordsOf(records)) {
+      const best = ledger.get(u.messageId);
+      if (!best || u.usage.output_tokens > best.usage.output_tokens) ledger.set(u.messageId, u);
+    }
+    usageLedger.set(agent, ledger);
+  };
+
+  /**
+   * What the agent has spent over everything this ingest has read — cumulative,
+   * so the fold takes the newest snapshot whole and never adds two together.
+   * Re-totalled from the live `usage` objects every time rather than cached, so
+   * a catalog.json price edit takes effect on the next drain.
+   */
+  const totalsFor = (agent: string): AgentUsageTotals => {
+    const all = [...(usageLedger.get(agent) ?? new Map<string, UsageRecord>()).values()];
+    return { costUsd: totalCost(all), tokens: tokensOf(all) };
+  };
+
+  // A name this run has proven is not a teammate of ours keeps nothing.
+  const forget = (agent: string) => {
+    pending.delete(agent);
+    usageLedger.delete(agent);
+  };
+
+  /**
+   * SYNCHRONOUS ON PURPOSE. `fromStart` makes the fold drop everything it holds
+   * for the agent, so between the first chunk and the last the projected
+   * transcript is a truncated rebuild of the file. That is invisible only
+   * because every chunk lands inside one call, well inside stream.ts's 250 ms
+   * coalesce — an `await` in this loop would put a visibly-truncated transcript
+   * on the wire. (At boot there is no client at all: index.ts awaits the sweep
+   * before it creates the HTTP server.)
+   */
+  const appendTranscript = (agent: string, records: TranscriptRecord[], fromStart: boolean) => {
+    const totals = totalsFor(agent);
+    for (let i = 0; i < records.length; i += INGEST_BATCH_RECORDS) {
+      const payload: TranscriptPayload = {
+        agent,
+        records: records.slice(i, i + INGEST_BATCH_RECORDS),
+      };
+      if (fromStart && i === 0) payload.fromStart = true;
+      // Only the last chunk carries the snapshot, so a partial read of a drain
+      // can never publish a partial total.
+      if (i + INGEST_BATCH_RECORDS >= records.length) payload.totals = totals;
+      store.append('transcript', payload, agent);
+    }
+  };
+
   const flushPending = (agent: string) => {
     const buf = pending.get(agent);
     pending.delete(agent);
-    if (buf && buf.length > 0) store.append('transcript', { agent, records: buf }, agent);
+    // Never `fromStart`: PENDING_CAP may already have dropped the front of the
+    // buffer, so this is not provably the file from its first byte.
+    if (buf && buf.length > 0) appendTranscript(agent, buf, false);
   };
 
-  const handleLines = (file: string, lines: string[]) => {
+  const handleLines = (file: string, lines: string[], fromStart: boolean) => {
     const agent = agentOfTranscript(file, leadSessionId, leadName);
     if (!agent) return;
     transcriptPaths.set(agent, file);
@@ -171,10 +245,11 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
       if (rec) records.push(rec);
     }
     if (records.length === 0) return;
+    noteUsage(agent, records);
 
     if (agent === leadName || sidecars.has(agent)) {
       flushPending(agent);
-      store.append('transcript', { agent, records }, agent);
+      appendTranscript(agent, records, fromStart);
       return;
     }
     const buf = pending.get(agent) ?? [];
@@ -209,7 +284,7 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
   const acceptSidecar = (file: string, meta: Sidecar): boolean => {
     if (meta.teamName !== teamName) {
       // Not ours — discard anything buffered under that name.
-      if (meta.name) pending.delete(meta.name);
+      if (meta.name) forget(meta.name);
       return false;
     }
     const transcriptPath = file.replace(/\.meta\.json$/, '.jsonl');
@@ -225,7 +300,7 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
     if (!meta) return;
     if (meta.taskKind !== 'in_process_teammate') {
       // Proven NOT a teammate — discard anything buffered under that name.
-      if (meta.name) pending.delete(meta.name);
+      if (meta.name) forget(meta.name);
       return;
     }
     // Fail CLOSED while the team is unresolved: `teamName` unset must reject
@@ -268,9 +343,9 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
     else if (root === paths.sessions) await handleSessionJson(file);
   };
 
-  const transcripts = watchAppendOnly(paths.projects, (file, lines) => {
+  const transcripts = watchAppendOnly(paths.projects, (file, lines, fromStart) => {
     try {
-      handleLines(file, lines);
+      handleLines(file, lines, fromStart);
     } catch (err) {
       logError(`ingest ${file}`, err);
     }

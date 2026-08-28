@@ -11,7 +11,13 @@ import type {
 } from '../shared/domain';
 import { buildRoster, type Sidecar, type TeamConfig } from '../shared/roster';
 import { resolveModel } from '../shared/catalog';
-import { contextOccupancy, dedupeUsage, totalCost, type UsageRecord } from '../shared/usage';
+import {
+  contextOccupancy,
+  dedupeUsage,
+  tokensOf,
+  totalCost,
+  usageRecordsOf,
+} from '../shared/usage';
 import { currentToolOf, toTranscriptLines, type TranscriptRecord } from '../shared/transcript';
 import {
   mergeMail,
@@ -41,9 +47,27 @@ export interface RosterPayload {
   config: TeamConfig | null;
   sidecars: Array<{ meta: Sidecar; transcriptPath: string }>;
 }
+/**
+ * What the agent has spent over its WHOLE transcript, not over the records this
+ * payload carries: cumulative and total, never incremental. The store bounds
+ * stored records per agent, so the fold can no longer add up a full history —
+ * and an additive aggregate is not a substitute, because `dedupeUsage` groups by
+ * message id and an eviction cut can split a group. Measured on a real fixture:
+ * aggregate(dropped prefix) + cost(kept tail) inflates by 37.7%, while a
+ * cumulative last-wins snapshot is exact. Nothing is summed across the boundary,
+ * so no message id can be counted twice.
+ */
+export interface AgentUsageTotals {
+  costUsd: number;
+  tokens: number;
+}
 export interface TranscriptPayload {
   agent: string;
   records: TranscriptRecord[];
+  /** This batch begins at the transcript file's first byte — see watch/tail.ts. */
+  fromStart?: boolean;
+  /** Only on the LAST batch of a drain, so a partial read never publishes a partial total. */
+  totals?: AgentUsageTotals;
 }
 export interface TaskPayload {
   id: string;
@@ -83,39 +107,6 @@ export interface SubstatusPayload {
 }
 export interface NeedsYouResolvedPayload {
   id: string;
-}
-
-function usageRecordsOf(records: TranscriptRecord[]): UsageRecord[] {
-  const out: UsageRecord[] = [];
-  for (const r of records) {
-    if (r.type !== 'assistant') continue;
-    const usage = r.message?.usage;
-    if (!usage) continue;
-    out.push({
-      messageId: r.message?.id ?? r.uuid ?? '',
-      model: r.message?.model ?? '',
-      usage,
-    });
-  }
-  return out;
-}
-
-/**
- * Tokens the team actually put through the model. `cache_read_input_tokens` is
- * the whole prefix re-read on every turn, so summing it counts the same tokens
- * once per message — on a real session that reached 1.8 billion, which is not a
- * number anyone can act on. Context occupancy is a separate measure and lives
- * on each Agent as `contextTokens`.
- */
-function tokensOf(records: UsageRecord[]): number {
-  let sum = 0;
-  for (const r of records) {
-    sum +=
-      (r.usage.input_tokens ?? 0) +
-      (r.usage.output_tokens ?? 0) +
-      (r.usage.cache_creation_input_tokens ?? 0);
-  }
-  return sum;
 }
 
 function lastAssistantModel(records: TranscriptRecord[]): string | undefined {
@@ -189,6 +180,7 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
   const errors = new Map<string, string>();
   const lastActivity = new Map<string, number>();
   const needsYou = new Map<string, NeedsYouItem>();
+  const usageTotals = new Map<string, AgentUsageTotals>();
   let mail: MailMessage[] = [];
 
   const bump = (agent: string, ts: number) => {
@@ -205,6 +197,17 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
       }
       case 'transcript': {
         const p = ev.payload as TranscriptPayload;
+        // Cumulative, so the newest snapshot REPLACES the last one. Summing them
+        // would double-count every message id both cover.
+        if (p.totals) usageTotals.set(p.agent, p.totals);
+        // The file is being read again from its first byte, so everything held
+        // for this agent is about to arrive again. Clearing the uuid set matters
+        // as much as clearing the list: without it every re-read record would be
+        // deduped away against a list that was just emptied.
+        if (p.fromStart) {
+          records.set(p.agent, []);
+          seenRecords.set(p.agent, new Set<string>());
+        }
         const list = records.get(p.agent) ?? [];
         const seen = seenRecords.get(p.agent) ?? new Set<string>();
         for (const rec of p.records) {
@@ -311,8 +314,11 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
     const recs = records.get(id.name) ?? [];
     const sub = substatus.get(id.name);
     const resolved = resolveModel(lastAssistantModel(recs) ?? sub?.model ?? id.rawModel);
-    const usage = dedupeUsage(usageRecordsOf(recs));
-    totalTokens += tokensOf(usage);
+    // No snapshot means an old log, or a test log the ingest did not write: fall
+    // back to the records, which is exactly what this did before they existed.
+    const carried = usageTotals.get(id.name);
+    const usage = carried ? [] : dedupeUsage(usageRecordsOf(recs));
+    totalTokens += carried ? carried.tokens : tokensOf(usage);
 
     // Only the last PROJECTED_TRANSCRIPT_LINES survive the slice below, so walk
     // backwards and stop once there are enough: an agent with 9,000 records
@@ -353,7 +359,7 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
       contextTokens: sub?.tokenCount ?? contextOccupancy(recs),
       contextLimit: resolved.window,
       compactAt: resolved.compactAt,
-      costUsd: totalCost(usage),
+      costUsd: carried ? carried.costUsd : totalCost(usage),
       startedAt: id.joinedAt,
       transcript: lines.slice(-PROJECTED_TRANSCRIPT_LINES),
       unread: unread.get(id.name) ?? 0,

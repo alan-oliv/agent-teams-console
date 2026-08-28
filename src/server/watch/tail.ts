@@ -13,15 +13,23 @@ export function emptyTailState(): TailState {
   return { inode: 0, offset: 0, partial: '' };
 }
 
+/**
+ * `fromStart` says the lines returned begin at the file's first byte — a first
+ * read, an inode change or a truncation. The ingest marks that batch so the
+ * fold can clear what it already holds for the agent instead of colliding with
+ * it: the uuid dedupe keeps the FIRST copy of a record, so a re-read landing
+ * behind an already-trimmed prefix would otherwise leave the projection stuck
+ * at whatever the log still happened to hold.
+ */
 export async function drain(
   filePath: string,
   state: TailState,
-): Promise<{ lines: string[]; state: TailState }> {
+): Promise<{ lines: string[]; state: TailState; fromStart: boolean }> {
   let st;
   try {
     st = await fs.stat(filePath);
   } catch {
-    return { lines: [], state };
+    return { lines: [], state, fromStart: false };
   }
 
   // Inode change means the file was replaced; size below our offset means it was
@@ -31,8 +39,9 @@ export async function drain(
     next = { inode: st.ino, offset: 0, partial: '' };
   }
 
+  const fromStart = next.offset === 0;
   const length = st.size - next.offset;
-  if (length <= 0) return { lines: [], state: next };
+  if (length <= 0) return { lines: [], state: next, fromStart: false };
 
   const buf = Buffer.alloc(length);
   let read = 0;
@@ -52,7 +61,7 @@ export async function drain(
   const offset = next.offset + read;
 
   if (cut === -1) {
-    return { lines: [], state: { inode: next.inode, offset, partial: chunk } };
+    return { lines: [], state: { inode: next.inode, offset, partial: chunk }, fromStart };
   }
 
   const lines = chunk
@@ -60,7 +69,7 @@ export async function drain(
     .split('\n')
     .filter((l) => l.length > 0);
 
-  return { lines, state: { inode: next.inode, offset, partial: chunk.slice(cut + 1) } };
+  return { lines, state: { inode: next.inode, offset, partial: chunk.slice(cut + 1) }, fromStart };
 }
 
 export interface AppendOnlyWatcher {
@@ -76,7 +85,7 @@ export interface AppendOnlyWatcher {
 
 export function watchAppendOnly(
   root: string,
-  onLines: (path: string, lines: string[]) => void,
+  onLines: (path: string, lines: string[], fromStart: boolean) => void,
 ): AppendOnlyWatcher {
   const states = new Map<string, TailState>();
   const queues = new Map<string, Promise<void>>();
@@ -98,7 +107,7 @@ export function watchAppendOnly(
         if (closed) return;
         const out = await drain(file, states.get(file) ?? emptyTailState());
         states.set(file, out.state);
-        if (out.lines.length > 0) onLines(file, out.lines);
+        if (out.lines.length > 0) onLines(file, out.lines, out.fromStart);
       })
       .catch((err: unknown) => logError(`tail ${file}`, err));
     queues.set(file, next);
