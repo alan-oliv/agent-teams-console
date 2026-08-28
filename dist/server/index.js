@@ -1618,184 +1618,100 @@ import path9 from "node:path";
 import { promises as fs8 } from "node:fs";
 
 // src/server/store.ts
-import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync
+} from "node:fs";
+import { randomUUID } from "node:crypto";
+import path2 from "node:path";
+
+// src/server/lifecycle.ts
+import { promises as fs } from "node:fs";
 import path from "node:path";
-var KIND_RETENTION = {
-  transcript: 5e3,
-  task: 5e3,
-  mail: 2e3,
-  hook: 2e3,
-  substatus: 500,
-  roster: 200,
-  statusline: 200,
-  // A resolution is a human action (approve/deny/dismiss a card), not a
-  // background event, so 500 is many days of them even on a busy console —
-  // and safe regardless: trim() always drops a resolution's matching
-  // `needsyou` create alongside it, so nothing here is ever left dangling.
-  "needsyou-resolved": 500
-};
-var PRUNE_EVERY = 250;
-function encode(event, team) {
-  return `${JSON.stringify({ ...event, team })}
-`;
-}
-function decode(line) {
-  let raw;
+import { fileURLToPath } from "node:url";
+var LAUNCH_SCRIPT = fileURLToPath(new URL("../../bin/console-launch.sh", import.meta.url));
+function isPidAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
-    raw = JSON.parse(line);
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err.code === "EPERM";
+  }
+}
+async function hasLiveTeam(teamsRoot2, teamName) {
+  if (!teamName) return false;
+  const configPath = path.join(teamsRoot2, teamName, "config.json");
+  try {
+    const raw = await fs.readFile(configPath, "utf8");
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed.members) && parsed.members.length >= 2;
   } catch {
-    return null;
-  }
-  if (typeof raw?.seq !== "number" || typeof raw.ts !== "number" || typeof raw.kind !== "string") {
-    return null;
-  }
-  return {
-    // A log written before the log was team-scoped has no `team`.
-    team: typeof raw.team === "string" ? raw.team : "",
-    event: {
-      seq: raw.seq,
-      ts: raw.ts,
-      kind: raw.kind,
-      agent: typeof raw.agent === "string" ? raw.agent : void 0,
-      payload: raw.payload ?? null
-    }
-  };
-}
-function needsYouId(payload) {
-  const id = payload && typeof payload === "object" ? payload.id : void 0;
-  return typeof id === "string" ? id : void 0;
-}
-function trim(events) {
-  const counts = /* @__PURE__ */ new Map();
-  for (const e of events) counts.set(e.kind, (counts.get(e.kind) ?? 0) + 1);
-  const excess = /* @__PURE__ */ new Map();
-  for (const [kind, keep] of Object.entries(KIND_RETENTION)) {
-    const over = (counts.get(kind) ?? 0) - keep;
-    if (over > 0) excess.set(kind, over);
-  }
-  if (excess.size === 0) return events;
-  const closedIds = /* @__PURE__ */ new Set();
-  let closedOver = excess.get("needsyou-resolved") ?? 0;
-  for (const e of events) {
-    if (closedOver <= 0) break;
-    if (e.kind !== "needsyou-resolved") continue;
-    const id = needsYouId(e.payload);
-    if (id) closedIds.add(id);
-    closedOver--;
-  }
-  return events.filter((e) => {
-    if (e.kind === "needsyou") {
-      const id = needsYouId(e.payload);
-      if (id && closedIds.has(id)) return false;
-    }
-    const over = excess.get(e.kind);
-    if (!over) return true;
-    excess.set(e.kind, over - 1);
     return false;
-  });
+  }
 }
-function openStore(dbPath, team = "") {
-  mkdirSync(path.dirname(dbPath), { recursive: true });
-  let current = team;
-  let sincePrune = 0;
-  let nextSeq = 1;
-  let events = [];
-  let contents = "";
-  try {
-    contents = readFileSync(dbPath, "utf8");
-  } catch {
-    contents = "";
-  }
-  for (const line of contents.split("\n")) {
-    if (!line) continue;
-    const record = decode(line);
-    if (!record) continue;
-    if (record.event.seq >= nextSeq) nextSeq = record.event.seq + 1;
-    if (record.team === current) events.push(record.event);
-  }
-  const rewrite = () => {
-    const tmp = `${dbPath}.tmp`;
-    writeFileSync(tmp, events.map((e) => encode(e, current)).join(""));
-    renameSync(tmp, dbPath);
-  };
-  events = trim(events);
-  rewrite();
-  return {
-    append(kind, payload, agent) {
-      const ts = Date.now();
-      const seq = nextSeq++;
-      const event = { seq, ts, kind, agent, payload: payload ?? null };
-      events.push(event);
-      appendFileSync(dbPath, encode(event, current));
-      if (++sincePrune >= PRUNE_EVERY) {
-        sincePrune = 0;
-        const before = events.length;
-        events = trim(events);
-        if (events.length !== before) rewrite();
+function startIdleReaper(opts) {
+  let idleSince = null;
+  const timer = setInterval(async () => {
+    let any = false;
+    try {
+      for (const entry of await fs.readdir(opts.teamsRoot)) {
+        if (await hasLiveTeam(opts.teamsRoot, entry)) {
+          any = true;
+          break;
+        }
       }
-      return { seq, ts, kind, agent, payload };
-    },
-    replay() {
-      return events.slice();
-    },
-    setTeam(next) {
-      if (next === current || next === "") return;
-      if (current !== "") events = [];
-      current = next;
-      events = trim(events);
-      rewrite();
-    },
-    close() {
+    } catch {
+      any = false;
+    }
+    if (any) {
+      idleSince = null;
+      return;
+    }
+    idleSince ??= Date.now();
+    if (Date.now() - idleSince >= opts.graceMs) {
+      clearInterval(timer);
+      opts.onIdle();
+    }
+  }, 3e4);
+  timer.unref();
+  return {
+    stop() {
+      clearInterval(timer);
     }
   };
 }
 
-// src/shared/roster.ts
-var ROLE_MAX = 80;
-function typeFromSidecar(meta) {
-  if (!meta) return "";
-  return meta.agentType && meta.agentType !== meta.name ? meta.agentType : "";
+// src/server/log.ts
+var DEBUG_ON = process.env.OCTO_DEBUG === "1" || process.env.OCTO_DEBUG === "true";
+function describe(err) {
+  if (err instanceof Error) return err.stack ?? `${err.name}: ${err.message}`;
+  return String(err);
 }
-function roleOf(meta, prompt) {
-  const described = meta?.description?.trim();
-  if (described) return described;
-  const flat = (prompt ?? "").replace(/\s+/g, " ").trim();
-  return flat.length > ROLE_MAX ? `${flat.slice(0, ROLE_MAX)}\u2026` : flat;
+function logError(scope, err) {
+  try {
+    console.error(`[octo] ${scope}: ${describe(err)}`);
+  } catch {
+  }
 }
-function buildRoster(config, sidecars) {
-  const byName = new Map(sidecars.map((s) => [s.meta.name, s]));
-  const roster = [];
-  const claimed = /* @__PURE__ */ new Set();
-  for (const member of config?.members ?? []) {
-    const sidecar = byName.get(member.name);
-    roster.push({
-      name: member.name,
-      agentId: member.agentId,
-      isLead: member.agentId === config?.leadAgentId,
-      agentType: member.agentType ?? typeFromSidecar(sidecar?.meta),
-      rawModel: member.model ?? sidecar?.meta.model,
-      role: roleOf(sidecar?.meta, member.prompt),
-      color: member.color ?? sidecar?.meta.color,
-      joinedAt: member.joinedAt,
-      transcriptPath: sidecar?.transcriptPath
-    });
-    claimed.add(member.name);
+function logInfo(message) {
+  try {
+    console.error(`[octo] ${message}`);
+  } catch {
   }
-  for (const sidecar of sidecars) {
-    if (claimed.has(sidecar.meta.name)) continue;
-    roster.push({
-      name: sidecar.meta.name,
-      agentId: `${sidecar.meta.name}@${sidecar.meta.teamName}`,
-      isLead: false,
-      agentType: typeFromSidecar(sidecar.meta),
-      rawModel: sidecar.meta.model,
-      role: roleOf(sidecar.meta, void 0),
-      color: sidecar.meta.color,
-      joinedAt: 0,
-      transcriptPath: sidecar.transcriptPath
-    });
+}
+function debug(scope, message) {
+  if (!DEBUG_ON) return;
+  try {
+    console.error(`[octo:debug] ${scope}: ${message}`);
+  } catch {
   }
-  return roster;
 }
 
 // src/shared/catalog.json
@@ -1859,6 +1775,27 @@ function resolveModel(raw) {
 }
 
 // src/shared/usage.ts
+function usageRecordsOf(records) {
+  const out = [];
+  for (const r of records) {
+    if (r.type !== "assistant") continue;
+    const usage = r.message?.usage;
+    if (!usage) continue;
+    out.push({
+      messageId: r.message?.id ?? r.uuid ?? "",
+      model: r.message?.model ?? "",
+      usage
+    });
+  }
+  return out;
+}
+function tokensOf(records) {
+  let sum = 0;
+  for (const r of records) {
+    sum += (r.usage.input_tokens ?? 0) + (r.usage.output_tokens ?? 0) + (r.usage.cache_creation_input_tokens ?? 0);
+  }
+  return sum;
+}
 function dedupeUsage(records) {
   const best = /* @__PURE__ */ new Map();
   for (const record of records) {
@@ -1901,7 +1838,498 @@ function contextOccupancy(records) {
   return usage.input_tokens + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0);
 }
 
+// src/server/store.ts
+var KIND_RETENTION = {
+  task: 5e3,
+  mail: 2e3,
+  hook: 2e3,
+  substatus: 500,
+  roster: 200,
+  statusline: 200,
+  // A resolution is a human action (approve/deny/dismiss a card), not a
+  // background event, so 500 is many days of them even on a busy console —
+  // and safe regardless: trim() always drops a resolution's matching
+  // `needsyou` create alongside it, so nothing here is ever left dangling.
+  "needsyou-resolved": 500
+};
+var TRANSCRIPT_RECORDS_PER_AGENT = 1e3;
+var TRANSCRIPT_EVENTS_PER_AGENT = 1200;
+var PRUNE_EVERY = 250;
+var TEAM_NAME = /^[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}$/;
+function isTeamName(team) {
+  return TEAM_NAME.test(team);
+}
+function logPathFor(dbPath, team) {
+  const name = isTeamName(team) ? team : "unknown";
+  return path2.join(path2.dirname(dbPath), "logs", `${name}.jsonl`);
+}
+function runsDirFor(dbPath) {
+  return path2.join(path2.dirname(dbPath), "logs", "runs");
+}
+function scratchLogPath(dbPath, runId) {
+  return path2.join(runsDirFor(dbPath), `${runId}.jsonl`);
+}
+var STALE_LOG_MS = 7 * 24 * 60 * 60 * 1e3;
+function encode(event, team) {
+  return `${JSON.stringify({ ...event, team })}
+`;
+}
+function decode(line) {
+  let raw;
+  try {
+    raw = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  if (typeof raw?.seq !== "number" || typeof raw.ts !== "number" || typeof raw.kind !== "string") {
+    return null;
+  }
+  return {
+    // A log written before the log was team-scoped has no `team`.
+    team: typeof raw.team === "string" ? raw.team : "",
+    event: {
+      seq: raw.seq,
+      ts: raw.ts,
+      kind: raw.kind,
+      agent: typeof raw.agent === "string" ? raw.agent : void 0,
+      payload: raw.payload ?? null
+    }
+  };
+}
+function needsYouId(payload) {
+  const id = payload && typeof payload === "object" ? payload.id : void 0;
+  return typeof id === "string" ? id : void 0;
+}
+function recordCount(payload) {
+  const recs = payload && typeof payload === "object" ? payload.records : void 0;
+  return Array.isArray(recs) ? recs.length : 0;
+}
+function readsFromStart(payload) {
+  return payload !== null && typeof payload === "object" && payload.fromStart === true;
+}
+function carriesTotals(payload) {
+  return payload !== null && typeof payload === "object" && payload.totals != null;
+}
+function totalsOf(payload) {
+  const totals = payload && typeof payload === "object" ? payload.totals : void 0;
+  return totals != null && typeof totals === "object" ? totals : void 0;
+}
+function recordsOf(payload) {
+  const recs = payload && typeof payload === "object" ? payload.records : void 0;
+  return Array.isArray(recs) ? recs : [];
+}
+function usageFrom(rows) {
+  const recs = [];
+  for (const e of rows) for (const r of recordsOf(e.payload)) if (r != null) recs.push(r);
+  const usage = dedupeUsage(usageRecordsOf(recs));
+  return { costUsd: totalCost(usage), tokens: tokensOf(usage) };
+}
+function withTotals(e, totals) {
+  return { ...e, payload: { ...e.payload, totals } };
+}
+function withNewestRecords(e, keep) {
+  const payload = e.payload;
+  const records = payload.records;
+  return { ...e, payload: { ...payload, records: records.slice(records.length - keep) } };
+}
+function readableRows(events, agent) {
+  const rows = [];
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e.kind !== "transcript" || (e.agent ?? "") !== agent) continue;
+    rows.push(e);
+    if (readsFromStart(e.payload)) break;
+  }
+  return rows.reverse();
+}
+function transcriptDrops(events) {
+  const drop = /* @__PURE__ */ new Set();
+  const trimmed = /* @__PURE__ */ new Map();
+  const keptRecords = /* @__PURE__ */ new Map();
+  const keptEvents = /* @__PURE__ */ new Map();
+  const pastReset = /* @__PURE__ */ new Set();
+  const newestKept = /* @__PURE__ */ new Map();
+  const newestTotals = /* @__PURE__ */ new Map();
+  const losing = /* @__PURE__ */ new Set();
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e.kind !== "transcript") continue;
+    const agent = e.agent ?? "";
+    if (!newestTotals.has(agent) && carriesTotals(e.payload)) newestTotals.set(agent, e);
+    if (pastReset.has(agent)) {
+      drop.add(e);
+      losing.add(agent);
+      continue;
+    }
+    if (readsFromStart(e.payload)) pastReset.add(agent);
+    const records = keptRecords.get(agent) ?? 0;
+    const count = keptEvents.get(agent) ?? 0;
+    if (records >= TRANSCRIPT_RECORDS_PER_AGENT || count >= TRANSCRIPT_EVENTS_PER_AGENT) {
+      drop.add(e);
+      losing.add(agent);
+      continue;
+    }
+    const held = recordCount(e.payload);
+    const room = TRANSCRIPT_RECORDS_PER_AGENT - records;
+    if (held > room) {
+      trimmed.set(e, withNewestRecords(e, room));
+      keptRecords.set(agent, TRANSCRIPT_RECORDS_PER_AGENT);
+      losing.add(agent);
+    } else {
+      keptRecords.set(agent, records + held);
+    }
+    keptEvents.set(agent, count + 1);
+    if (!newestKept.has(agent) && e.payload !== null && typeof e.payload === "object") {
+      newestKept.set(agent, e);
+    }
+  }
+  for (const agent of losing) {
+    const survivor = newestKept.get(agent);
+    if (!survivor) continue;
+    const winner = newestTotals.get(agent);
+    if (winner && !drop.has(winner)) continue;
+    const carried = winner && totalsOf(winner.payload) || usageFrom(readableRows(events, agent));
+    trimmed.set(survivor, withTotals(trimmed.get(survivor) ?? survivor, carried));
+  }
+  return { drop, trimmed };
+}
+function trim(events) {
+  const counts = /* @__PURE__ */ new Map();
+  for (const e of events) counts.set(e.kind, (counts.get(e.kind) ?? 0) + 1);
+  const excess = /* @__PURE__ */ new Map();
+  for (const [kind, keep] of Object.entries(KIND_RETENTION)) {
+    const over = (counts.get(kind) ?? 0) - keep;
+    if (over > 0) excess.set(kind, over);
+  }
+  const { drop: transcripts, trimmed } = transcriptDrops(events);
+  if (excess.size === 0 && transcripts.size === 0 && trimmed.size === 0) return events;
+  const closedIds = /* @__PURE__ */ new Set();
+  let closedOver = excess.get("needsyou-resolved") ?? 0;
+  for (const e of events) {
+    if (closedOver <= 0) break;
+    if (e.kind !== "needsyou-resolved") continue;
+    const id = needsYouId(e.payload);
+    if (id) closedIds.add(id);
+    closedOver--;
+  }
+  const kept = events.filter((e) => {
+    if (transcripts.has(e)) return false;
+    if (e.kind === "needsyou") {
+      const id = needsYouId(e.payload);
+      if (id && closedIds.has(id)) return false;
+    }
+    const over = excess.get(e.kind);
+    if (!over) return true;
+    excess.set(e.kind, over - 1);
+    return false;
+  });
+  return trimmed.size === 0 ? kept : kept.map((e) => trimmed.get(e) ?? e);
+}
+function gcStaleLogs(dir, keep) {
+  const cutoff = Date.now() - STALE_LOG_MS;
+  let names;
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    if (!name.endsWith(".jsonl") && !name.endsWith(".tmp")) continue;
+    const candidate = path2.join(dir, name);
+    if (candidate === keep) continue;
+    try {
+      if (statSync(candidate).mtimeMs < cutoff) unlinkSync(candidate);
+    } catch {
+    }
+  }
+}
+function sizeOf(file) {
+  try {
+    return statSync(file).size;
+  } catch {
+    return 0;
+  }
+}
+function rowKey(e) {
+  return `${e.ts} ${e.kind} ${e.agent ?? ""} ${JSON.stringify(e.payload)}`;
+}
+function migrateLegacyLog(dbPath, runId) {
+  let contents;
+  try {
+    contents = readFileSync(dbPath, "utf8");
+  } catch {
+    return;
+  }
+  const byTeam = /* @__PURE__ */ new Map();
+  for (const line of contents.split("\n")) {
+    if (!line) continue;
+    const record = decode(line);
+    if (!record || !isTeamName(record.team)) continue;
+    const rows = byTeam.get(record.team) ?? [];
+    rows.push(record.event);
+    byTeam.set(record.team, rows);
+  }
+  let recovered = 0;
+  let touched = 0;
+  let deferred = 0;
+  for (const [team, legacy] of byTeam) {
+    const file = logPathFor(dbPath, team);
+    const before = sizeOf(file);
+    const tmp = `${file}.${runId}.tmp`;
+    try {
+      const existing = [];
+      if (before > 0) {
+        for (const line of readFileSync(file, "utf8").split("\n")) {
+          if (!line) continue;
+          const record = decode(line);
+          if (record) existing.push(record.event);
+        }
+      }
+      const have = new Set(existing.map(rowKey));
+      const fresh = legacy.filter((e) => !have.has(rowKey(e)));
+      if (fresh.length === 0) continue;
+      const out = [];
+      let l = 0;
+      let n = 0;
+      while (l < fresh.length || n < existing.length) {
+        const takeLegacy = n >= existing.length || l < fresh.length && fresh[l].ts <= existing[n].ts;
+        out.push(takeLegacy ? fresh[l++] : existing[n++]);
+      }
+      writeFileSync(tmp, out.map((e, i) => encode({ ...e, seq: i + 1 }, team)).join(""));
+      if (sizeOf(file) !== before) {
+        unlinkSync(tmp);
+        deferred++;
+        continue;
+      }
+      renameSync(tmp, file);
+      recovered += fresh.length;
+      touched++;
+    } catch (err) {
+      logError(`migrating ${team}`, err);
+      deferred++;
+    }
+  }
+  const base = path2.basename(dbPath);
+  if (deferred > 0) {
+    logInfo(
+      `recovered ${recovered} row(s) from ${base} into ${touched} team log(s); ${deferred} team log(s) are open in another console, so ${base} is left in place and the next start retries`
+    );
+    return;
+  }
+  const aside = `${dbPath}.migrated-${Date.now()}`;
+  try {
+    renameSync(dbPath, aside);
+  } catch (err) {
+    if (err.code !== "ENOENT") logError(`renaming ${base} aside`, err);
+    return;
+  }
+  logInfo(
+    `recovered ${recovered} row(s) from ${base} into ${touched} team log(s); the original is at ${aside}`
+  );
+}
+function ownerPathFor(file) {
+  return `${file}.owner`;
+}
+function stampOwner(file) {
+  const owner = ownerPathFor(file);
+  try {
+    const prev = JSON.parse(readFileSync(owner, "utf8"));
+    const pid = typeof prev.pid === "number" ? prev.pid : 0;
+    if (pid && pid !== process.pid && isPidAlive(pid)) {
+      logInfo(
+        `${file} is already open in process ${pid} \u2014 two consoles on one team log double every ingested row, and each can only resolve its own permission cards`
+      );
+    }
+  } catch {
+  }
+  try {
+    writeFileSync(owner, `${JSON.stringify({ pid: process.pid, since: Date.now() })}
+`);
+  } catch (err) {
+    logError(`stamping ${owner}`, err);
+  }
+}
+function clearOwner(file) {
+  const owner = ownerPathFor(file);
+  try {
+    const prev = JSON.parse(readFileSync(owner, "utf8"));
+    if (prev.pid !== process.pid) return;
+    unlinkSync(owner);
+  } catch {
+  }
+}
+function openStore(dbPath, team = "") {
+  const runId = `${process.pid}-${randomUUID().slice(0, 8)}`;
+  let current = isTeamName(team) ? team : "";
+  let file = current === "" ? scratchLogPath(dbPath, runId) : logPathFor(dbPath, current);
+  const logsDir = path2.join(path2.dirname(dbPath), "logs");
+  const runsDir = runsDirFor(dbPath);
+  mkdirSync(runsDir, { recursive: true });
+  migrateLegacyLog(dbPath, runId);
+  gcStaleLogs(logsDir, file);
+  gcStaleLogs(runsDir, file);
+  if (current !== "") stampOwner(file);
+  let sincePrune = 0;
+  let nextSeq = 1;
+  let events = [];
+  let dirty = false;
+  let accounted = 0;
+  let warnedShared = false;
+  const load = () => {
+    events = [];
+    nextSeq = 1;
+    let buf;
+    try {
+      buf = readFileSync(file);
+    } catch {
+      buf = Buffer.alloc(0);
+    }
+    accounted = buf.length;
+    for (const line of buf.toString("utf8").split("\n")) {
+      if (!line) continue;
+      const record = decode(line);
+      if (!record) {
+        dirty = true;
+        continue;
+      }
+      if (record.event.seq >= nextSeq) nextSeq = record.event.seq + 1;
+      if (record.team === current) events.push(record.event);
+    }
+  };
+  const rewrite = () => {
+    const size = sizeOf(file);
+    if (size !== accounted) {
+      if (!warnedShared) {
+        warnedShared = true;
+        logInfo(
+          `${file} holds ${size - accounted} bytes this run did not write \u2014 another console is writing the same team log, so this one will stop compacting it`
+        );
+      }
+      return false;
+    }
+    const body = events.map((e) => encode(e, current)).join("");
+    const tmp = `${file}.${runId}.tmp`;
+    writeFileSync(tmp, body);
+    renameSync(tmp, file);
+    accounted = Buffer.byteLength(body);
+    return true;
+  };
+  const discardScratch = (scratch) => {
+    try {
+      unlinkSync(scratch);
+    } catch {
+    }
+  };
+  load();
+  const loaded = events;
+  events = trim(events);
+  if (dirty || events !== loaded) {
+    if (rewrite()) dirty = false;
+  }
+  return {
+    append(kind, payload, agent) {
+      const ts = Date.now();
+      const seq = nextSeq++;
+      const event = { seq, ts, kind, agent, payload: payload ?? null };
+      events.push(event);
+      const encoded = encode(event, current);
+      appendFileSync(file, encoded);
+      accounted += Buffer.byteLength(encoded);
+      if (++sincePrune >= PRUNE_EVERY) {
+        sincePrune = 0;
+        const before = events;
+        events = trim(events);
+        if (events !== before) rewrite();
+      }
+      return { seq, ts, kind, agent, payload };
+    },
+    // The array is a copy; the rows in it are not. project() memoises each
+    // record's derived lines on the record object, so handing back copies here
+    // would leave the console correct and silently 18x slower.
+    replay() {
+      return events.slice();
+    },
+    setTeam(next) {
+      if (next === current || !isTeamName(next)) return;
+      const wasScratch = current === "";
+      const adopted = wasScratch ? events : [];
+      const scratch = file;
+      current = next;
+      file = logPathFor(dbPath, current);
+      stampOwner(file);
+      load();
+      for (const e of adopted) {
+        const moved = { ...e, seq: nextSeq++ };
+        events.push(moved);
+        const encoded = encode(moved, current);
+        appendFileSync(file, encoded);
+        accounted += Buffer.byteLength(encoded);
+      }
+      const before = events;
+      events = trim(events);
+      if (dirty || events !== before) {
+        if (rewrite()) dirty = false;
+      }
+      if (wasScratch) discardScratch(scratch);
+      else clearOwner(scratch);
+    },
+    close() {
+      if (current === "") discardScratch(file);
+      else clearOwner(file);
+    }
+  };
+}
+
+// src/shared/roster.ts
+var ROLE_MAX = 80;
+function typeFromSidecar(meta) {
+  if (!meta) return "";
+  return meta.agentType && meta.agentType !== meta.name ? meta.agentType : "";
+}
+function roleOf(meta, prompt) {
+  const described = meta?.description?.trim();
+  if (described) return described;
+  const flat = (prompt ?? "").replace(/\s+/g, " ").trim();
+  return flat.length > ROLE_MAX ? `${flat.slice(0, ROLE_MAX)}\u2026` : flat;
+}
+function buildRoster(config, sidecars) {
+  const byName = new Map(sidecars.map((s) => [s.meta.name, s]));
+  const roster = [];
+  const claimed = /* @__PURE__ */ new Set();
+  for (const member of config?.members ?? []) {
+    const sidecar = byName.get(member.name);
+    roster.push({
+      name: member.name,
+      agentId: member.agentId,
+      isLead: member.agentId === config?.leadAgentId,
+      agentType: member.agentType ?? typeFromSidecar(sidecar?.meta),
+      rawModel: member.model ?? sidecar?.meta.model,
+      role: roleOf(sidecar?.meta, member.prompt),
+      color: member.color ?? sidecar?.meta.color,
+      joinedAt: member.joinedAt,
+      transcriptPath: sidecar?.transcriptPath
+    });
+    claimed.add(member.name);
+  }
+  for (const sidecar of sidecars) {
+    if (claimed.has(sidecar.meta.name)) continue;
+    roster.push({
+      name: sidecar.meta.name,
+      agentId: `${sidecar.meta.name}@${sidecar.meta.teamName}`,
+      isLead: false,
+      agentType: typeFromSidecar(sidecar.meta),
+      rawModel: sidecar.meta.model,
+      role: roleOf(sidecar.meta, void 0),
+      color: sidecar.meta.color,
+      joinedAt: 0,
+      transcriptPath: sidecar.transcriptPath
+    });
+  }
+  return roster;
+}
+
 // src/shared/transcript.ts
+var TRANSCRIPT_TEXT_CAP = 1e3;
 var TEAMMATE_OPEN = /^<teammate-message\s[^>]*>\r?\n?/;
 var TEAMMATE_CLOSE = /\r?\n?<\/teammate-message>\s*$/;
 var TOOL_INPUT_KEYS = [
@@ -1920,6 +2348,10 @@ var TOOL_INPUT_KEYS = [
 function flatten(s) {
   return s.replace(/\s+/g, " ").trim();
 }
+function capText(s) {
+  if (s.length <= TRANSCRIPT_TEXT_CAP) return s;
+  return `${s.slice(0, TRANSCRIPT_TEXT_CAP - 1).replace(/[\uD800-\uDBFF]$/, "")}\u2026`;
+}
 function parseLine(raw) {
   const trimmed = raw.trim();
   if (!trimmed) return null;
@@ -1937,7 +2369,7 @@ function describeTool(name, input) {
   const fields = input;
   for (const key of TOOL_INPUT_KEYS) {
     const value = fields[key];
-    if (typeof value === "string" && value.trim()) return `${name}(${flatten(value)})`;
+    if (typeof value === "string" && value.trim()) return capText(`${name}(${flatten(value)})`);
   }
   return name;
 }
@@ -2014,7 +2446,7 @@ function toTranscriptLines(rec) {
   return drafts.map((draft, i) => ({
     id: `${rec.uuid}#${i}`,
     marker: draft.marker,
-    text: draft.text,
+    text: capText(draft.text),
     ts
   }));
 }
@@ -2148,33 +2580,35 @@ function deriveTaskState(raw, task, agents) {
 
 // src/server/project.ts
 var PROJECTED_TRANSCRIPT_LINES = 60;
-function usageRecordsOf(records) {
-  const out = [];
-  for (const r of records) {
-    if (r.type !== "assistant") continue;
-    const usage = r.message?.usage;
-    if (!usage) continue;
-    out.push({
-      messageId: r.message?.id ?? r.uuid ?? "",
-      model: r.message?.model ?? "",
-      usage
-    });
-  }
-  return out;
-}
-function tokensOf(records) {
-  let sum = 0;
-  for (const r of records) {
-    sum += (r.usage.input_tokens ?? 0) + (r.usage.output_tokens ?? 0) + (r.usage.cache_creation_input_tokens ?? 0);
-  }
-  return sum;
-}
 function lastAssistantModel(records) {
   for (let i = records.length - 1; i >= 0; i--) {
     const m = records[i].message?.model;
     if (records[i].type === "assistant" && m) return m;
   }
   return void 0;
+}
+function memoisable(rec) {
+  return rec !== null && typeof rec === "object";
+}
+var lineMemo = /* @__PURE__ */ new WeakMap();
+function linesOf(rec) {
+  if (!memoisable(rec)) return toTranscriptLines(rec);
+  let lines = lineMemo.get(rec);
+  if (!lines) {
+    lines = toTranscriptLines(rec);
+    lineMemo.set(rec, lines);
+  }
+  return lines;
+}
+var NO_TOOL = /* @__PURE__ */ Symbol("no tool");
+var toolMemo = /* @__PURE__ */ new WeakMap();
+function toolOf(rec) {
+  if (!memoisable(rec)) return currentToolOf(rec);
+  const hit = toolMemo.get(rec);
+  if (hit !== void 0) return hit === NO_TOOL ? void 0 : hit;
+  const tool = currentToolOf(rec);
+  toolMemo.set(rec, tool ?? NO_TOOL);
+  return tool;
 }
 function project(events, readOnly) {
   let config = null;
@@ -2190,6 +2624,7 @@ function project(events, readOnly) {
   const errors = /* @__PURE__ */ new Map();
   const lastActivity = /* @__PURE__ */ new Map();
   const needsYou = /* @__PURE__ */ new Map();
+  const usageTotals = /* @__PURE__ */ new Map();
   let mail = [];
   const bump = (agent, ts) => {
     if (ts > (lastActivity.get(agent) ?? -1)) lastActivity.set(agent, ts);
@@ -2204,6 +2639,11 @@ function project(events, readOnly) {
       }
       case "transcript": {
         const p = ev.payload;
+        if (p.totals) usageTotals.set(p.agent, p.totals);
+        if (p.fromStart) {
+          records.set(p.agent, []);
+          seenRecords.set(p.agent, /* @__PURE__ */ new Set());
+        }
         const list = records.get(p.agent) ?? [];
         const seen = seenRecords.get(p.agent) ?? /* @__PURE__ */ new Set();
         for (const rec of p.records) {
@@ -2211,14 +2651,14 @@ function project(events, readOnly) {
           if (key && seen.has(key)) continue;
           if (key) seen.add(key);
           list.push(rec);
-          const tool = currentToolOf(rec);
+          const tool = toolOf(rec);
           if (tool) currentTool.set(p.agent, tool);
           else if (rec.type === "user" && rec.toolUseResult !== void 0) {
             currentTool.set(p.agent, void 0);
           }
           if (rec.type === "assistant") {
             if (rec.isApiErrorMessage) {
-              errors.set(p.agent, toTranscriptLines(rec)[0]?.text ?? "api error");
+              errors.set(p.agent, linesOf(rec)[0]?.text ?? "api error");
             } else {
               errors.delete(p.agent);
             }
@@ -2296,10 +2736,19 @@ function project(events, readOnly) {
     const recs = records.get(id.name) ?? [];
     const sub = substatus.get(id.name);
     const resolved = resolveModel(lastAssistantModel(recs) ?? sub?.model ?? id.rawModel);
-    const usage = dedupeUsage(usageRecordsOf(recs));
-    totalTokens += tokensOf(usage);
+    const carried = usageTotals.get(id.name);
+    const usage = carried ? [] : dedupeUsage(usageRecordsOf(recs));
+    totalTokens += carried ? carried.tokens : tokensOf(usage);
+    const tail = [];
+    let have = 0;
+    for (let i = recs.length - 1; i >= 0 && have < PROJECTED_TRANSCRIPT_LINES; i--) {
+      const some = linesOf(recs[i]);
+      if (some.length === 0) continue;
+      tail.push(some);
+      have += some.length;
+    }
     const lines = [];
-    for (const rec of recs) for (const l of toTranscriptLines(rec)) lines.push(l);
+    for (let i = tail.length - 1; i >= 0; i--) for (const line of tail[i]) lines.push(line);
     let status = "working";
     if (!liveMembers || !liveMembers.has(id.name)) status = "departed";
     else if (errors.has(id.name)) status = "failed";
@@ -2322,7 +2771,7 @@ function project(events, readOnly) {
       contextTokens: sub?.tokenCount ?? contextOccupancy(recs),
       contextLimit: resolved.window,
       compactAt: resolved.compactAt,
-      costUsd: totalCost(usage),
+      costUsd: carried ? carried.costUsd : totalCost(usage),
       startedAt: id.joinedAt,
       transcript: lines.slice(-PROJECTED_TRANSCRIPT_LINES),
       unread: unread.get(id.name) ?? 0,
@@ -2360,38 +2809,12 @@ function project(events, readOnly) {
 }
 
 // src/server/ingest/files.ts
-import { promises as fs3 } from "node:fs";
-import path4 from "node:path";
+import { promises as fs4 } from "node:fs";
+import path5 from "node:path";
 
 // src/server/watch/tail.ts
-import { promises as fs } from "node:fs";
-import path2 from "node:path";
-
-// src/server/log.ts
-var DEBUG_ON = process.env.OCTO_DEBUG === "1" || process.env.OCTO_DEBUG === "true";
-function describe(err) {
-  if (err instanceof Error) return err.stack ?? `${err.name}: ${err.message}`;
-  return String(err);
-}
-function logError(scope, err) {
-  try {
-    console.error(`[octo] ${scope}: ${describe(err)}`);
-  } catch {
-  }
-}
-function logInfo(message) {
-  try {
-    console.error(`[octo] ${message}`);
-  } catch {
-  }
-}
-function debug(scope, message) {
-  if (!DEBUG_ON) return;
-  try {
-    console.error(`[octo:debug] ${scope}: ${message}`);
-  } catch {
-  }
-}
+import { promises as fs2 } from "node:fs";
+import path3 from "node:path";
 
 // src/server/watch/root.ts
 import { watch } from "node:fs";
@@ -2428,19 +2851,20 @@ function emptyTailState() {
 async function drain(filePath, state) {
   let st;
   try {
-    st = await fs.stat(filePath);
+    st = await fs2.stat(filePath);
   } catch {
-    return { lines: [], state };
+    return { lines: [], state, fromStart: false };
   }
   let next = state;
   if (st.ino !== state.inode || st.size < state.offset) {
     next = { inode: st.ino, offset: 0, partial: "" };
   }
+  const fromStart = next.offset === 0;
   const length = st.size - next.offset;
-  if (length <= 0) return { lines: [], state: next };
+  if (length <= 0) return { lines: [], state: next, fromStart: false };
   const buf = Buffer.alloc(length);
   let read = 0;
-  const fh = await fs.open(filePath, "r");
+  const fh = await fs2.open(filePath, "r");
   try {
     while (read < length) {
       const r = await fh.read(buf, read, length - read, next.offset + read);
@@ -2454,30 +2878,36 @@ async function drain(filePath, state) {
   const cut = chunk.lastIndexOf("\n");
   const offset = next.offset + read;
   if (cut === -1) {
-    return { lines: [], state: { inode: next.inode, offset, partial: chunk } };
+    return { lines: [], state: { inode: next.inode, offset, partial: chunk }, fromStart };
   }
   const lines = chunk.slice(0, cut).split("\n").filter((l) => l.length > 0);
-  return { lines, state: { inode: next.inode, offset, partial: chunk.slice(cut + 1) } };
+  return { lines, state: { inode: next.inode, offset, partial: chunk.slice(cut + 1) }, fromStart };
 }
 function watchAppendOnly(root, onLines) {
   const states = /* @__PURE__ */ new Map();
   const queues = /* @__PURE__ */ new Map();
+  const queued = /* @__PURE__ */ new Set();
   let closed = false;
   const pump = (file) => {
-    const prev = queues.get(file) ?? Promise.resolve();
-    const next = prev.then(async () => {
+    const tail = queues.get(file);
+    if (tail && queued.has(file)) return tail;
+    if (tail) queued.add(file);
+    const next = (tail ?? Promise.resolve()).then(async () => {
+      queued.delete(file);
       if (closed) return;
       const out = await drain(file, states.get(file) ?? emptyTailState());
       states.set(file, out.state);
-      if (out.lines.length > 0) onLines(file, out.lines);
+      if (out.lines.length > 0) onLines(file, out.lines, out.fromStart);
     }).catch((err) => logError(`tail ${file}`, err));
     queues.set(file, next);
+    return next;
   };
   const watcher = watchRoot(root, (filename) => {
     if (!filename.endsWith(".jsonl")) return;
-    pump(path2.join(root, filename));
+    void pump(path3.join(root, filename));
   });
   return {
+    pump,
     close() {
       closed = true;
       watcher.close();
@@ -2486,8 +2916,8 @@ function watchAppendOnly(root, onLines) {
 }
 
 // src/server/watch/jsonfile.ts
-import { promises as fs2 } from "node:fs";
-import path3 from "node:path";
+import { promises as fs3 } from "node:fs";
+import path4 from "node:path";
 var RETRY_DELAY_MS = 20;
 var DEBOUNCE_MS = 15;
 function delay(ms) {
@@ -2496,7 +2926,7 @@ function delay(ms) {
 async function readJsonSafe(filePath) {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      return JSON.parse(await fs2.readFile(filePath, "utf8"));
+      return JSON.parse(await fs3.readFile(filePath, "utf8"));
     } catch {
       if (attempt === 0) await delay(RETRY_DELAY_MS);
     }
@@ -2508,7 +2938,7 @@ function watchJsonTree(root, onChange) {
   let closed = false;
   const watcher = watchRoot(root, (filename) => {
     if (!filename.endsWith(".json")) return;
-    const full = path3.join(root, filename);
+    const full = path4.join(root, filename);
     const pending = timers.get(full);
     if (pending) clearTimeout(pending);
     timers.set(
@@ -2531,18 +2961,20 @@ function watchJsonTree(root, onChange) {
 
 // src/server/ingest/files.ts
 var DEFAULT_SWEEP_MS = 5e3;
+var TAIL_POLL_MS = 250;
+var INGEST_BATCH_RECORDS = 200;
+var PENDING_RECORDS = 6e3;
 var SUBAGENT_FILE = /^agent-a(.+)-[0-9a-f]{16}\.jsonl$/;
-var WORKFLOW_SEGMENT = `${path4.sep}workflows${path4.sep}`;
-function agentOfTranscript(file, leadSessionId, leadName) {
+var WORKFLOW_SEGMENT = `${path5.sep}workflows${path5.sep}`;
+function claimOfTranscript(file, leadSessionId, leadName) {
   if (file.includes(WORKFLOW_SEGMENT)) return null;
-  const base = path4.basename(file);
-  if (leadSessionId && base === `${leadSessionId}.jsonl`) return leadName;
+  const base = path5.basename(file);
+  if (leadSessionId && base === `${leadSessionId}.jsonl`) return { agent: leadName, scoped: true };
   const m = SUBAGENT_FILE.exec(base);
   if (!m) return null;
-  if (leadSessionId && path4.basename(path4.dirname(path4.dirname(file))) !== leadSessionId) {
-    return null;
-  }
-  return m[1];
+  if (!leadSessionId) return { agent: m[1], scoped: false };
+  if (path5.basename(path5.dirname(path5.dirname(file))) !== leadSessionId) return null;
+  return { agent: m[1], scoped: true };
 }
 async function walk(root) {
   const out = [];
@@ -2551,18 +2983,18 @@ async function walk(root) {
     const dir = stack.pop();
     let entries;
     try {
-      entries = await fs3.readdir(dir, { withFileTypes: true });
+      entries = await fs4.readdir(dir, { withFileTypes: true });
     } catch {
       continue;
     }
     for (const e of entries) {
-      const full = path4.join(dir, e.name);
+      const full = path5.join(dir, e.name);
       if (e.isDirectory()) stack.push(full);
       else if (e.isFile()) out.push(full);
     }
   }
   return out.sort(
-    (a, b) => (path4.basename(a) === "config.json" ? 0 : 1) - (path4.basename(b) === "config.json" ? 0 : 1) || a.localeCompare(b)
+    (a, b) => (path5.basename(a) === "config.json" ? 0 : 1) - (path5.basename(b) === "config.json" ? 0 : 1) || a.localeCompare(b)
   );
 }
 function startFileIngest(store, config) {
@@ -2572,47 +3004,142 @@ function startFileIngest(store, config) {
   let leadSessionId = config.leadSessionId;
   let lastConfig = null;
   const sidecars = /* @__PURE__ */ new Map();
+  const ownedFiles = /* @__PURE__ */ new Map();
   const marks = /* @__PURE__ */ new Map();
-  const sweepTails = /* @__PURE__ */ new Map();
+  const unresolvedSidecars = /* @__PURE__ */ new Map();
+  const transcriptPaths = /* @__PURE__ */ new Map();
+  const notePath = (agent, file) => {
+    const files = transcriptPaths.get(agent) ?? /* @__PURE__ */ new Set();
+    files.add(file);
+    transcriptPaths.set(agent, files);
+  };
+  const own = (agent, file) => {
+    const files = ownedFiles.get(agent) ?? /* @__PURE__ */ new Set();
+    files.add(file);
+    ownedFiles.set(agent, files);
+    notePath(agent, file);
+  };
   let closed = false;
   const mark = async (file) => {
     try {
-      marks.set(file, (await fs3.stat(file)).mtimeMs);
+      marks.set(file, (await fs4.stat(file)).mtimeMs);
     } catch {
     }
   };
   const settle = (file) => (p) => p.then(() => mark(file)).catch((err) => logError(`ingest ${file}`, err));
   const appendRoster = () => {
-    store.append("roster", { config: lastConfig, sidecars: [...sidecars.values()] });
+    store.append("roster", {
+      config: lastConfig,
+      sidecars: [...sidecars].map(([transcriptPath, meta]) => ({ meta, transcriptPath }))
+    });
   };
   const pending = /* @__PURE__ */ new Map();
   const PENDING_CAP = 500;
-  const flushPending = (agent) => {
-    const buf = pending.get(agent);
-    pending.delete(agent);
-    if (buf && buf.length > 0) store.append("transcript", { agent, records: buf }, agent);
+  let pendingRecords = 0;
+  const dropPending = (file) => {
+    const buf = pending.get(file);
+    if (!buf) return;
+    pendingRecords -= buf.records.length;
+    pending.delete(file);
   };
-  const handleLines = (file, lines) => {
-    const agent = agentOfTranscript(file, leadSessionId, leadName);
-    if (!agent) return;
+  const evictPending = () => {
+    while (pendingRecords > PENDING_RECORDS) {
+      const oldest = pending.keys().next();
+      if (oldest.done) return;
+      dropPending(oldest.value);
+    }
+  };
+  const usageLedger = /* @__PURE__ */ new Map();
+  const ledgerFiles = /* @__PURE__ */ new Map();
+  const noteUsage = (file, agent, records) => {
+    const ledger = usageLedger.get(file) ?? /* @__PURE__ */ new Map();
+    for (const u of usageRecordsOf(records)) {
+      const best = ledger.get(u.messageId);
+      if (!best || u.usage.output_tokens > best.usage.output_tokens) ledger.set(u.messageId, u);
+    }
+    usageLedger.set(file, ledger);
+    const files = ledgerFiles.get(agent) ?? /* @__PURE__ */ new Set();
+    files.add(file);
+    ledgerFiles.set(agent, files);
+  };
+  const totalsFor = (agent) => {
+    const candidates = [...ledgerFiles.get(agent) ?? []];
+    const owned = ownedFiles.get(agent);
+    const attributable = candidates.filter((f) => owned?.has(f) === true);
+    const files = attributable.length > 0 ? attributable : candidates;
+    let all;
+    if (files.length === 1) {
+      all = [...(usageLedger.get(files[0]) ?? /* @__PURE__ */ new Map()).values()];
+    } else {
+      const best = /* @__PURE__ */ new Map();
+      for (const f of files) {
+        for (const [id, u] of usageLedger.get(f) ?? []) {
+          const prev = best.get(id);
+          if (!prev || u.usage.output_tokens > prev.usage.output_tokens) best.set(id, u);
+        }
+      }
+      all = [...best.values()];
+    }
+    return { costUsd: totalCost(all), tokens: tokensOf(all) };
+  };
+  const transcriptOfSidecar = (file) => file.replace(/\.meta\.json$/, ".jsonl");
+  const disowned = /* @__PURE__ */ new Set();
+  const forget = (transcript) => {
+    disowned.add(transcript);
+    dropPending(transcript);
+    usageLedger.delete(transcript);
+    for (const files of ledgerFiles.values()) files.delete(transcript);
+    for (const files of transcriptPaths.values()) files.delete(transcript);
+  };
+  const appendTranscript = (agent, records, fromStart) => {
+    const totals = totalsFor(agent);
+    for (let i = 0; i < records.length; i += INGEST_BATCH_RECORDS) {
+      const payload = {
+        agent,
+        records: records.slice(i, i + INGEST_BATCH_RECORDS)
+      };
+      if (fromStart && i === 0) payload.fromStart = true;
+      if (i + INGEST_BATCH_RECORDS >= records.length) payload.totals = totals;
+      store.append("transcript", payload, agent);
+    }
+  };
+  const flushPending = (agent, transcript) => {
+    const buf = pending.get(transcript);
+    dropPending(transcript);
+    if (buf && buf.records.length > 0) appendTranscript(agent, buf.records, false);
+  };
+  const handleLines = (file, lines, fromStart) => {
+    const claim = claimOfTranscript(file, leadSessionId, leadName);
+    if (!claim) return;
+    if (disowned.has(file)) return;
+    const meta = sidecars.get(file);
+    const agent = meta?.name ?? claim.agent;
+    notePath(agent, file);
     const records = [];
     for (const l of lines) {
       const rec = parseLine(l);
       if (rec) records.push(rec);
     }
     if (records.length === 0) return;
-    if (agent === leadName || sidecars.has(agent)) {
-      flushPending(agent);
-      store.append("transcript", { agent, records }, agent);
+    noteUsage(file, agent, records);
+    const lead = claim.scoped && claim.agent === leadName;
+    if (lead) own(leadName, file);
+    if (meta || lead) {
+      flushPending(agent, file);
+      appendTranscript(agent, records, fromStart && (ownedFiles.get(agent)?.size ?? 1) <= 1);
       return;
     }
-    const buf = pending.get(agent) ?? [];
+    const buf = pending.get(file)?.records ?? [];
+    dropPending(file);
     buf.push(...records);
-    pending.set(agent, buf.slice(-PENDING_CAP));
+    const kept = buf.slice(-PENDING_CAP);
+    pending.set(file, { agent, records: kept });
+    pendingRecords += kept.length;
+    evictPending();
   };
   const handleTeamsJson = async (file) => {
-    const base = path4.basename(file);
-    const dirName = path4.basename(path4.dirname(file));
+    const base = path5.basename(file);
+    const dirName = path5.basename(path5.dirname(file));
     if (base === "config.json") {
       if (teamName && dirName !== teamName) return;
       const cfg = await readJsonSafe(file);
@@ -2622,6 +3149,17 @@ function startFileIngest(store, config) {
       teamName = cfg.name;
       leadSessionId = cfg.leadSessionId;
       if (learned) config.onTeam?.({ teamName: cfg.name, leadSessionId: cfg.leadSessionId });
+      if (learned) {
+        disowned.clear();
+        for (const f of [...pending.keys()]) {
+          if (claimOfTranscript(f, leadSessionId, leadName)?.scoped !== true) forget(f);
+        }
+        for (const f of [...usageLedger.keys()]) {
+          if (claimOfTranscript(f, leadSessionId, leadName)?.scoped !== true) forget(f);
+        }
+      }
+      for (const [f, meta] of unresolvedSidecars) acceptSidecar(f, meta);
+      unresolvedSidecars.clear();
       appendRoster();
       return;
     }
@@ -2631,26 +3169,46 @@ function startFileIngest(store, config) {
     if (!Array.isArray(entries)) return;
     store.append("mail", { source: "inbox", to, entries }, to);
   };
+  const acceptSidecar = (file, meta) => {
+    const transcriptPath = transcriptOfSidecar(file);
+    const claim = claimOfTranscript(transcriptPath, leadSessionId, leadName);
+    if (meta.teamName !== teamName || claim?.scoped !== true) {
+      forget(transcriptPath);
+      return false;
+    }
+    sidecars.set(transcriptPath, meta);
+    disowned.delete(transcriptPath);
+    own(meta.name, transcriptPath);
+    flushPending(meta.name, transcriptPath);
+    return true;
+  };
   const handleProjectsJson = async (file) => {
     if (!file.endsWith(".meta.json")) return;
     const meta = await readJsonSafe(file);
     if (!meta) return;
-    if (meta.taskKind !== "in_process_teammate" || !teamName || meta.teamName !== teamName) {
-      if (meta.name) pending.delete(meta.name);
+    if (meta.taskKind !== "in_process_teammate") {
+      forget(transcriptOfSidecar(file));
       return;
     }
-    sidecars.set(meta.name, { meta, transcriptPath: file.replace(/\.meta\.json$/, ".jsonl") });
-    flushPending(meta.name);
-    appendRoster();
+    if (!teamName || !leadSessionId) {
+      if (teamName && meta.teamName !== teamName) {
+        forget(transcriptOfSidecar(file));
+        return;
+      }
+      unresolvedSidecars.set(file, meta);
+      return;
+    }
+    unresolvedSidecars.delete(file);
+    if (acceptSidecar(file, meta)) appendRoster();
   };
   const handleTaskJson = async (file) => {
-    if (teamName && path4.basename(path4.dirname(file)) !== teamName) return;
+    if (teamName && path5.basename(path5.dirname(file)) !== teamName) return;
     const task = await readJsonSafe(file);
     if (!task || typeof task.id !== "string") return;
     store.append("task", task, task.owner);
   };
   const handleSessionJson = async (file) => {
-    if (leadSessionId && path4.basename(file) !== `${leadSessionId}.json`) return;
+    if (leadSessionId && path5.basename(file) !== `${leadSessionId}.json`) return;
     const doc = await readJsonSafe(file);
     const branch = doc?.gitBranch ?? doc?.branch;
     if (!branch) return;
@@ -2662,47 +3220,56 @@ function startFileIngest(store, config) {
     else if (root === paths.tasks) await handleTaskJson(file);
     else if (root === paths.sessions) await handleSessionJson(file);
   };
+  const transcripts = watchAppendOnly(paths.projects, (file, lines, fromStart) => {
+    try {
+      handleLines(file, lines, fromStart);
+    } catch (err) {
+      logError(`ingest ${file}`, err);
+    }
+    void fs4.stat(file).then(
+      (st) => marks.set(file, st.mtimeMs),
+      () => void 0
+    );
+  });
   const sweepTranscript = async (file) => {
-    const agent = agentOfTranscript(file, leadSessionId, leadName);
-    if (!agent) return;
-    const out = await drain(file, sweepTails.get(file) ?? emptyTailState());
-    sweepTails.set(file, out.state);
-    if (out.lines.length > 0) handleLines(file, out.lines);
+    const claim = claimOfTranscript(file, leadSessionId, leadName);
+    if (!claim || disowned.has(file)) return;
+    notePath(sidecars.get(file)?.name ?? claim.agent, file);
+    await transcripts.pump(file);
+  };
+  const drainAgent = async (agent) => {
+    for (const file of transcriptPaths.get(agent) ?? []) await transcripts.pump(file);
+  };
+  const pollTails = async () => {
+    const files = /* @__PURE__ */ new Set();
+    for (const set of transcriptPaths.values()) for (const file of set) files.add(file);
+    await Promise.all([...files].map((file) => transcripts.pump(file)));
   };
   const sweep = async () => {
     for (const root of [paths.teams, paths.projects, paths.tasks, paths.sessions]) {
+      const drains = [];
       for (const file of await walk(root)) {
         if (closed) return;
         let st;
         try {
-          st = await fs3.stat(file);
+          st = await fs4.stat(file);
         } catch {
           continue;
         }
         if ((marks.get(file) ?? -1) >= st.mtimeMs) continue;
         marks.set(file, st.mtimeMs);
-        if (file.endsWith(".jsonl")) await sweepTranscript(file);
+        if (file.endsWith(".jsonl")) drains.push({ file, mtimeMs: st.mtimeMs });
         else if (file.endsWith(".json")) await dispatchJson(file, root);
+      }
+      drains.sort((a, b) => a.mtimeMs - b.mtimeMs);
+      for (const drain2 of drains) {
+        if (closed) return;
+        await sweepTranscript(drain2.file);
       }
     }
   };
   const watchers = [
-    watchAppendOnly(paths.projects, (file, lines) => {
-      try {
-        handleLines(file, lines);
-      } catch (err) {
-        logError(`ingest ${file}`, err);
-      }
-      void fs3.stat(file).then(
-        (st) => {
-          marks.set(file, st.mtimeMs);
-          if (!sweepTails.has(file)) {
-            sweepTails.set(file, { inode: st.ino, offset: st.size, partial: "" });
-          }
-        },
-        () => void 0
-      );
-    }),
+    transcripts,
     watchJsonTree(paths.projects, (file) => {
       void settle(file)(handleProjectsJson(file));
     }),
@@ -2717,22 +3284,33 @@ function startFileIngest(store, config) {
     })
   ];
   const interval = config.sweepIntervalMs ?? DEFAULT_SWEEP_MS;
+  let sweeping = null;
   const timer = interval > 0 ? setInterval(() => {
-    void sweep().catch((err) => logError("reconciliation sweep", err));
+    if (sweeping) return;
+    sweeping = sweep().catch((err) => logError("reconciliation sweep", err)).finally(() => {
+      sweeping = null;
+    });
   }, interval) : null;
   timer?.unref?.();
+  const pollMs = config.tailPollMs ?? TAIL_POLL_MS;
+  const poll = pollMs > 0 ? setInterval(() => {
+    void pollTails().catch((err) => logError("tail poll", err));
+  }, pollMs) : null;
+  poll?.unref?.();
   return {
     sweep,
+    drainAgent,
     close() {
       closed = true;
       if (timer) clearInterval(timer);
+      if (poll) clearInterval(poll);
       for (const w of watchers) w.close();
     }
   };
 }
 
 // src/server/control/permits.ts
-import { randomUUID } from "node:crypto";
+import { randomUUID as randomUUID2 } from "node:crypto";
 var AUTO_DENY_FACTOR = 0.9;
 function holdMsFor(timeoutMs) {
   return Math.floor(timeoutMs * AUTO_DENY_FACTOR);
@@ -2744,7 +3322,7 @@ function createPermits() {
   const held = /* @__PURE__ */ new Map();
   return {
     hold(agent, toolName, input, timeoutMs) {
-      const id = randomUUID();
+      const id = randomUUID2();
       const holdMs = holdMsFor(timeoutMs);
       let settle;
       const promise = new Promise((res) => {
@@ -2803,6 +3381,13 @@ function resetOf(raw) {
 function createHookHandlers(deps) {
   const { store, permits } = deps;
   const leadName = deps.leadName ?? "team-lead";
+  const touched = (agent) => {
+    try {
+      deps.onAgentActivity?.(agent);
+    } catch (err) {
+      logError("drain on hook", err);
+    }
+  };
   const shutdown = deps.onShutdown ?? (() => {
     logInfo("lead session ended \u2014 exiting");
     process.exit(0);
@@ -2816,6 +3401,7 @@ function createHookHandlers(deps) {
         const toolName = str(b.tool_name);
         const text = str(b.message) ?? str(b.prompt);
         store.append("hook", { event, agent, toolName, text }, agent);
+        touched(agent);
         if (event === "SessionEnd") {
           const ending = str(b.session_id);
           const lead = deps.leadSessionId?.();
@@ -2864,6 +3450,7 @@ function createHookHandlers(deps) {
         const cost = bagOf(b.cost);
         const window = bagOf(b.context_window);
         const limits = bagOf(b.rate_limits);
+        const agent = agentNameFrom(b.agent_id, leadName);
         store.append(
           "statusline",
           {
@@ -2875,8 +3462,9 @@ function createHookHandlers(deps) {
             sevenDayPct: pctOf(limits.seven_day),
             resetsAt: resetOf(limits.five_hour)
           },
-          agentNameFrom(b.agent_id, leadName)
+          agent
         );
+        touched(agent);
       } catch (err) {
         logError("statusline hook", err);
       }
@@ -2901,6 +3489,7 @@ function createHookHandlers(deps) {
             },
             agent
           );
+          touched(agent);
         }
       } catch (err) {
         logError("substatus hook", err);
@@ -2912,21 +3501,21 @@ function createHookHandlers(deps) {
 
 // src/server/control/mailbox.ts
 var import_proper_lockfile = __toESM(require_proper_lockfile(), 1);
-import { promises as fs4 } from "node:fs";
-import { randomUUID as randomUUID2 } from "node:crypto";
+import { promises as fs5 } from "node:fs";
+import { randomUUID as randomUUID3 } from "node:crypto";
 import os from "node:os";
-import path5 from "node:path";
-var teamsRoot = path5.join(os.homedir(), ".claude", "teams");
+import path6 from "node:path";
+var teamsRoot = path6.join(os.homedir(), ".claude", "teams");
 function setTeamsRoot(root) {
   teamsRoot = root;
 }
 async function atomicWrite(filePath, data) {
-  const tmp = `${filePath}.${process.pid}.${randomUUID2()}.tmp`;
-  await fs4.writeFile(tmp, data, "utf8");
-  await fs4.rename(tmp, filePath);
+  const tmp = `${filePath}.${process.pid}.${randomUUID3()}.tmp`;
+  await fs5.writeFile(tmp, data, "utf8");
+  await fs5.rename(tmp, filePath);
 }
 async function colorOf(teamName, agent) {
-  const config = await readJsonSafe(path5.join(teamsRoot, teamName, "config.json"));
+  const config = await readJsonSafe(path6.join(teamsRoot, teamName, "config.json"));
   return config?.members.find((m) => m.name === agent)?.color;
 }
 var SAFE_NAME = /^[A-Za-z0-9_-]+$/;
@@ -2935,14 +3524,14 @@ async function sendToInbox(teamName, toAgent, body) {
     throw new Error(`refusing to write an inbox for ${JSON.stringify(`${teamName}/${toAgent}`)}`);
   }
   const from = body.from ?? "team-lead";
-  const dir = path5.join(teamsRoot, teamName, "inboxes");
-  const file = path5.join(dir, `${toAgent}.json`);
-  if (!path5.resolve(file).startsWith(path5.resolve(dir) + path5.sep)) {
+  const dir = path6.join(teamsRoot, teamName, "inboxes");
+  const file = path6.join(dir, `${toAgent}.json`);
+  if (!path6.resolve(file).startsWith(path6.resolve(dir) + path6.sep)) {
     throw new Error(`refusing to write ${file} outside ${dir}`);
   }
-  await fs4.mkdir(dir, { recursive: true });
+  await fs5.mkdir(dir, { recursive: true });
   const color = await colorOf(teamName, from);
-  const msgId = randomUUID2();
+  const msgId = randomUUID3();
   const release = await import_proper_lockfile.default.lock(file, {
     lockfilePath: `${file}.lock`,
     realpath: false,
@@ -3001,13 +3590,14 @@ function createStream(snapshot, coalesceMs = COALESCE_MS) {
         res.end();
         return;
       }
+      const first = frame("snapshot", snapshot());
       res.writeHead(200, {
         "content-type": "text/event-stream",
         "cache-control": "no-cache, no-transform",
         connection: "keep-alive",
         "x-accel-buffering": "no"
       });
-      res.write(frame("snapshot", snapshot()));
+      res.write(first);
       clients.add(res);
       res.on("close", () => clients.delete(res));
     },
@@ -3036,9 +3626,9 @@ function createStream(snapshot, coalesceMs = COALESCE_MS) {
 
 // src/server/http.ts
 import http from "node:http";
-import { promises as fs5 } from "node:fs";
-import path6 from "node:path";
-import { fileURLToPath } from "node:url";
+import { promises as fs6 } from "node:fs";
+import path7 from "node:path";
+import { fileURLToPath as fileURLToPath2 } from "node:url";
 var READ_ONLY_BODY = {
   error: "read-only",
   message: "the console was started with --read-only; control routes are disabled"
@@ -3059,7 +3649,7 @@ var BAD_SEGMENT_BODY = {
   error: "bad request",
   message: "name must match /^[A-Za-z0-9_-]+$/"
 };
-var DEFAULT_WEB_DIST = fileURLToPath(new URL("../../dist/web", import.meta.url));
+var DEFAULT_WEB_DIST = fileURLToPath2(new URL("../../dist/web", import.meta.url));
 var MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
   ".js": "application/javascript; charset=utf-8",
@@ -3073,17 +3663,17 @@ var MIME_TYPES = {
   ".woff2": "font/woff2"
 };
 function contentTypeFor(file) {
-  return MIME_TYPES[path6.extname(file).toLowerCase()] ?? "application/octet-stream";
+  return MIME_TYPES[path7.extname(file).toLowerCase()] ?? "application/octet-stream";
 }
 async function serveWebBundle(res, webDist, route) {
   const isAsset = route.startsWith("/assets/");
-  const target = path6.join(webDist, isAsset ? route : "index.html");
-  if (!target.startsWith(path6.join(webDist, path6.sep))) {
+  const target = path7.join(webDist, isAsset ? route : "index.html");
+  if (!target.startsWith(path7.join(webDist, path7.sep))) {
     json(res, 404, { error: "not found", message: `no route for GET ${route}` });
     return;
   }
   try {
-    const data = await fs5.readFile(target);
+    const data = await fs6.readFile(target);
     res.writeHead(200, {
       "content-type": contentTypeFor(target),
       "content-length": data.length
@@ -3320,56 +3910,6 @@ import { promises as fs7 } from "node:fs";
 import path8 from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-
-// src/server/lifecycle.ts
-import { promises as fs6 } from "node:fs";
-import path7 from "node:path";
-import { fileURLToPath as fileURLToPath2 } from "node:url";
-var LAUNCH_SCRIPT = fileURLToPath2(new URL("../../bin/console-launch.sh", import.meta.url));
-async function hasLiveTeam(teamsRoot2, teamName) {
-  if (!teamName) return false;
-  const configPath = path7.join(teamsRoot2, teamName, "config.json");
-  try {
-    const raw = await fs6.readFile(configPath, "utf8");
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed.members) && parsed.members.length >= 2;
-  } catch {
-    return false;
-  }
-}
-function startIdleReaper(opts) {
-  let idleSince = null;
-  const timer = setInterval(async () => {
-    let any = false;
-    try {
-      for (const entry of await fs6.readdir(opts.teamsRoot)) {
-        if (await hasLiveTeam(opts.teamsRoot, entry)) {
-          any = true;
-          break;
-        }
-      }
-    } catch {
-      any = false;
-    }
-    if (any) {
-      idleSince = null;
-      return;
-    }
-    idleSince ??= Date.now();
-    if (Date.now() - idleSince >= opts.graceMs) {
-      clearInterval(timer);
-      opts.onIdle();
-    }
-  }, 3e4);
-  timer.unref();
-  return {
-    stop() {
-      clearInterval(timer);
-    }
-  };
-}
-
-// src/server/setup.ts
 var run = promisify(execFile);
 var PINNED_CLAUDE_VERSION = "2.1.231";
 var HOOK_TIMEOUT_MS = 5e3;
@@ -3410,22 +3950,21 @@ function hookBlock(port) {
     if (MATCHER_EVENTS.has(event)) entry.matcher = "*";
     hooks[event] = [entry];
   }
-  hooks.PostToolUse = [
-    ...hooks.PostToolUse ?? [],
-    {
-      matcher: "Agent",
-      hooks: [
-        {
-          type: "command",
-          // The launcher defaults OCTO_PORT to 4823, so `setup --port 5000`
-          // used to write hooks pointing at 5000 while the launcher started
-          // the server on 4823. Carry the port across the language boundary.
-          command: `OCTO_PORT=${port} '${LAUNCH_SCRIPT}'`,
-          timeout: LAUNCH_HOOK_TIMEOUT_MS
-        }
-      ]
-    }
-  ];
+  const launcher = {
+    matcher: "Agent",
+    hooks: [
+      {
+        type: "command",
+        // The launcher defaults OCTO_PORT to 4823, so `setup --port 5000`
+        // used to write hooks pointing at 5000 while the launcher started
+        // the server on 4823. Carry the port across the language boundary.
+        command: `OCTO_PORT=${port} '${LAUNCH_SCRIPT}'`,
+        timeout: LAUNCH_HOOK_TIMEOUT_MS
+      }
+    ]
+  };
+  hooks.PreToolUse = [...hooks.PreToolUse ?? [], launcher];
+  hooks.PostToolUse = [...hooks.PostToolUse ?? [], { ...launcher }];
   return {
     hooks,
     statusLine: { type: "command", command: post(port, "statusline"), refreshInterval: 5 },
@@ -3592,15 +4131,6 @@ function toDiscovered(config) {
     projectSlug: leadCwd.replace(/[^a-zA-Z0-9]/g, "-")
   };
 }
-function isPidAlive(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return err.code === "EPERM";
-  }
-}
 async function isSessionLive(sessionsRoot, sessionId) {
   if (!sessionId) return false;
   const session = await readJsonSafe(
@@ -3718,6 +4248,7 @@ async function main(argv) {
       permits,
       readOnly: cli.readOnly,
       leadSessionId: () => leadSessionId,
+      onAgentActivity: (agent) => void ingest.drainAgent(agent),
       onShutdown: stop
     }),
     stream: hub,
