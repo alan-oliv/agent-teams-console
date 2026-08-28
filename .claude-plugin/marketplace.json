@@ -1,0 +1,15 @@
+{
+  "name": "agent-teams-console",
+  "description": "The agent teams console plugin.",
+  "owner": {
+    "name": "alan-oliv",
+    "email": "alanbruno@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "agent-teams-console",
+      "source": "./",
+      "description": "A live browser console for Claude Code agent teams."
+    }
+  ]
+}
