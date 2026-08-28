@@ -94,11 +94,7 @@ export function App() {
         )}
       </main>
       <NeedsYou items={state.needsYou} readOnly={state.readOnly} now={now} />
-      <Panel
-        agents={state.agents}
-        focusedAgent={store.agent}
-        onFocusAgent={(name) => store.setAgent(name)}
-      />
+      <Panel agents={state.agents} focusedAgent={store.agent} onFocusAgent={store.setAgent} />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Agent, AgentStatus } from '../../shared/domain';
 import { Panel } from './Panel';
 
@@ -8,6 +8,20 @@ import { Panel } from './Panel';
 // nodes from one test leak into the next and getByRole/getByText start
 // matching more than one element.
 afterEach(cleanup);
+
+// Counts per-chip renders: every chip renders exactly one StatusGlyph, and the real one
+// is still rendered so the DOM assertions below are unaffected.
+const chip = vi.hoisted(() => ({ renders: 0 }));
+vi.mock('../components/StatusGlyph', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../components/StatusGlyph')>();
+  return {
+    ...actual,
+    StatusGlyph(props: Parameters<typeof actual.StatusGlyph>[0]) {
+      chip.renders += 1;
+      return <actual.StatusGlyph {...props} />;
+    },
+  };
+});
 
 function agent(name: string, status: AgentStatus, contextTokens: number): Agent {
   return {
@@ -140,4 +154,51 @@ it('renders the PANEL label and the key legend', () => {
   expect(label.style.color).toBe('var(--color-neutral-700)');
   expect(label.style.letterSpacing).toBe('.12em');
   expect(screen.getByText('↑↓ select · ⏎ open · esc interrupt · x stop · ⌃T tasks')).toBeTruthy();
+});
+
+describe('Panel chip memoisation', () => {
+  const agents = [
+    agent('team-lead', 'working', 53_100),
+    agent('probe-alpha', 'working', 120_000),
+    agent('probe-bravo', 'working', 500_000),
+  ];
+
+  it('does not re-render a chip whose agent object did not change', () => {
+    const onFocusAgent = vi.fn();
+    chip.renders = 0;
+    const { rerender } = render(
+      <Panel agents={agents} focusedAgent="probe-alpha" onFocusAgent={onFocusAgent} />,
+    );
+    expect(chip.renders).toBe(3);
+
+    chip.renders = 0;
+    rerender(<Panel agents={agents} focusedAgent="probe-alpha" onFocusAgent={onFocusAgent} />);
+    expect(chip.renders).toBe(0);
+  });
+
+  it('re-renders only the chip whose agent changed', () => {
+    const onFocusAgent = vi.fn();
+    const { rerender } = render(
+      <Panel agents={agents} focusedAgent="probe-alpha" onFocusAgent={onFocusAgent} />,
+    );
+    const changed = agents.map((a) =>
+      a.name === 'probe-bravo' ? { ...a, contextTokens: 600_000 } : a,
+    );
+
+    chip.renders = 0;
+    rerender(<Panel agents={changed} focusedAgent="probe-alpha" onFocusAgent={onFocusAgent} />);
+    expect(chip.renders).toBe(1);
+    expect(screen.getByText('60%')).toBeTruthy();
+  });
+
+  it('re-renders only the two chips whose pressed state moved when focus changes', () => {
+    const onFocusAgent = vi.fn();
+    const { rerender } = render(
+      <Panel agents={agents} focusedAgent="probe-alpha" onFocusAgent={onFocusAgent} />,
+    );
+
+    chip.renders = 0;
+    rerender(<Panel agents={agents} focusedAgent="probe-bravo" onFocusAgent={onFocusAgent} />);
+    expect(chip.renders).toBe(2);
+  });
 });

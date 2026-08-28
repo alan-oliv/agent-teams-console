@@ -18,6 +18,20 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// Counts per-agent renders in the dock: every chip renders exactly one StatusGlyph, and
+// in the tasks view the dock is the only thing on screen that renders one at all.
+const chip = vi.hoisted(() => ({ renders: 0 }));
+vi.mock('./components/StatusGlyph', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./components/StatusGlyph')>();
+  return {
+    ...actual,
+    StatusGlyph(props: Parameters<typeof actual.StatusGlyph>[0]) {
+      chip.renders += 1;
+      return <actual.StatusGlyph {...props} />;
+    },
+  };
+});
+
 it('renders the console shell with a body slot', () => {
   render(<App />);
   expect(screen.getByRole('main')).toBeTruthy();
@@ -132,4 +146,23 @@ it('does not let ⌘2 switch the view while a composer has focus', () => {
 
   expect(screen.getByTestId('wall')).toBeTruthy();
   expect(screen.queryByTestId('overview')).toBeNull();
+});
+
+it('costs the dock no per-agent renders on an identical frame or a clock tick', () => {
+  window.history.replaceState(null, '', '/?view=tasks');
+  vi.useFakeTimers();
+  try {
+    render(<App />);
+    act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+    expect(screen.getAllByTestId('agent-chip')).toHaveLength(4);
+
+    chip.renders = 0;
+    act(() => MockEventSource.last().emit('state', sampleTeamState()));
+    expect(chip.renders).toBe(0);
+
+    act(() => vi.advanceTimersByTime(1000));
+    expect(chip.renders).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
 });
