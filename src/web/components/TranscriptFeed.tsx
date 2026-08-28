@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import { useCallback, useState, type CSSProperties, type MouseEvent } from 'react';
 import type { TranscriptLine } from '../../shared/domain';
 
 export type FeedSize = 'wall' | 'overview' | 'grid' | 'rail';
@@ -41,6 +41,17 @@ const RENDER_LIMIT = 60;
 
 export function TranscriptFeed({ lines, size }: { lines: TranscriptLine[]; size: FeedSize }) {
   const s = FEED[size];
+  const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
+  const toggle = useCallback((e: MouseEvent, id: string) => {
+    // The whole column is a click target that focuses the agent; opening a row
+    // is not that.
+    e.stopPropagation();
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  }, []);
   const container: CSSProperties = {
     flex: 1,
     minHeight: 0,
@@ -54,31 +65,66 @@ export function TranscriptFeed({ lines, size }: { lines: TranscriptLine[]; size:
 
   return (
     <div data-testid="transcript-feed" style={container}>
-      {lines.slice(-RENDER_LIMIT).map((line) => (
-        <div
-          key={line.id}
-          data-testid="transcript-row"
-          style={{ display: 'flex', gap: `${s.gap}px`, alignItems: 'baseline', whiteSpace: 'nowrap' }}
-        >
-          <span
-            data-testid="transcript-marker"
-            style={{ color: s.markerColor, width: s.markerWidth, flex: 'none', fontSize: s.markerSize }}
+      {lines.slice(-RENDER_LIMIT).map((line) => {
+        // The projection keeps the author's line breaks, so a row that has any
+        // is a row with more to show than the column can hold.
+        const more = line.text.includes('\n');
+        const isOpen = more && open.has(line.id);
+        return (
+          <div
+            key={line.id}
+            data-testid="transcript-row"
+            {...(more
+              ? {
+                  'aria-expanded': isOpen,
+                  onClick: (e: MouseEvent) => toggle(e, line.id),
+                  style: {
+                    display: 'flex',
+                    gap: `${s.gap}px`,
+                    alignItems: 'baseline',
+                    whiteSpace: isOpen ? ('pre-wrap' as const) : ('nowrap' as const),
+                    cursor: 'pointer',
+                  },
+                }
+              : {
+                  style: {
+                    display: 'flex',
+                    gap: `${s.gap}px`,
+                    alignItems: 'baseline',
+                    whiteSpace: 'nowrap' as const,
+                  },
+                })}
           >
-            {line.marker}
-          </span>
-          <span
-            data-testid="transcript-text"
-            style={{
-              color: s.textColor,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              ...(s.textSize ? { fontSize: s.textSize } : {}),
-            }}
-          >
-            {line.text}
-          </span>
-        </div>
-      ))}
+            <span
+              data-testid="transcript-marker"
+              style={{ color: s.markerColor, width: s.markerWidth, flex: 'none', fontSize: s.markerSize }}
+            >
+              {line.marker}
+            </span>
+            <span
+              data-testid="transcript-text"
+              style={{
+                color: s.textColor,
+                ...(isOpen
+                  ? { minWidth: 0 }
+                  : { overflow: 'hidden', textOverflow: 'ellipsis' }),
+                ...(s.textSize ? { fontSize: s.textSize } : {}),
+              }}
+            >
+              {line.text}
+            </span>
+            {more && (
+              <span
+                data-testid="transcript-more"
+                aria-hidden
+                style={{ color: s.markerColor, flex: 'none', fontSize: s.markerSize }}
+              >
+                {isOpen ? '▾' : '▸'}
+              </span>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

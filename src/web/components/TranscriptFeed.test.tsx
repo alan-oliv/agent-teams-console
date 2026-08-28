@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import type { TranscriptLine } from '../../shared/domain';
 import { TranscriptFeed } from './TranscriptFeed';
 
@@ -66,5 +66,62 @@ describe('TranscriptFeed', () => {
     expect(marker.style.width).toBe('10px');
     expect(marker.style.fontSize).toBe('11px');
     expect(screen.getAllByTestId('transcript-text')[0].style.fontSize).toBe('');
+  });
+});
+
+describe('expanding a row that has more to show', () => {
+  const MULTI: TranscriptLine[] = [
+    { id: 'one', marker: '⏺', text: 'single line', ts: 1 },
+    { id: 'two', marker: '⏺', text: '## Result\n| what | n |\n| tests | 607 |', ts: 2 },
+  ];
+  const rows = () => screen.getAllByTestId('transcript-row');
+
+  it('marks only the multi-line row as expandable', () => {
+    render(<TranscriptFeed lines={MULTI} size="wall" />);
+    expect(rows()[0].getAttribute('aria-expanded')).toBeNull();
+    expect(rows()[1].getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('collapsed, a multi-line row is still one ellipsised line', () => {
+    render(<TranscriptFeed lines={MULTI} size="wall" />);
+    expect(rows()[1].style.whiteSpace).toBe('nowrap');
+  });
+
+  it('expands on click, showing the structure the author wrote', () => {
+    render(<TranscriptFeed lines={MULTI} size="wall" />);
+    fireEvent.click(rows()[1]);
+    expect(rows()[1].getAttribute('aria-expanded')).toBe('true');
+    expect(rows()[1].style.whiteSpace).toBe('pre-wrap');
+    expect(within(rows()[1]).getByTestId('transcript-text').textContent).toBe(MULTI[1].text);
+  });
+
+  it('collapses again on a second click', () => {
+    render(<TranscriptFeed lines={MULTI} size="wall" />);
+    fireEvent.click(rows()[1]);
+    fireEvent.click(rows()[1]);
+    expect(rows()[1].getAttribute('aria-expanded')).toBe('false');
+    expect(rows()[1].style.whiteSpace).toBe('nowrap');
+  });
+
+  it('does not let the click reach the column behind it', () => {
+    const onParent = vi.fn();
+    render(
+      <div onClick={onParent}>
+        <TranscriptFeed lines={MULTI} size="wall" />
+      </div>,
+    );
+    fireEvent.click(rows()[1]);
+    expect(onParent).not.toHaveBeenCalled();
+  });
+
+  it('leaves a single-line row inert, so the column still takes the click', () => {
+    const onParent = vi.fn();
+    render(
+      <div onClick={onParent}>
+        <TranscriptFeed lines={MULTI} size="wall" />
+      </div>,
+    );
+    fireEvent.click(rows()[0]);
+    expect(onParent).toHaveBeenCalledTimes(1);
   });
 });

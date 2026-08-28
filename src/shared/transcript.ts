@@ -28,9 +28,35 @@ const TOOL_INPUT_KEYS = [
   'prompt', 'message', 'subject', 'description', 'taskId',
 ];
 
-function flatten(s: string): string {
-  return s.replace(/\s+/g, ' ').trim();
+/**
+ * Squashes a body to what a feed row can use, but KEEPS the line breaks. 37% of a lead's messages are
+ * multi-line and 42% carry markdown structure — headings, tables, fenced code —
+ * and flattening turned all of it into one run-on line of markdown SOURCE. A
+ * row is still one line when collapsed (CSS `white-space: nowrap` folds the
+ * newlines away), so this costs nothing to render and is what lets a view
+ * expand a row into the shape the author wrote. Measured on 413 real messages:
+ * +0.4% characters against `flatten`.
+ *
+ * Runs of horizontal space still collapse, and three or more blank lines become
+ * one: neither survives a 47-character column, and both are pure bulk.
+ */
+function tidy(s: string): string {
+  return s
+    .replace(/[^\S\n]+/g, ' ')
+    .replace(/ ?\n ?/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
+
+// `cd <somewhere> && ` / `cd <somewhere>; ` at the head of a command. Measured
+// on a live console: 18 of 18 Bash lines opened with the same 43 characters, so
+// three different commands rendered as the same 47-character row. The directory
+// is constant context the header already carries; the command is the signal.
+// A NEWLINE separates the two as often as `;` or `&&` does — measured on this
+// machine's own transcripts, where every multi-line command opens that way.
+// Anchored, and `cd` and its path must share a line and be ONE token, so `cd`
+// alone, `cdk deploy`, `echo "cd /tmp"` and `git log | grep cd` all survive.
+const LEADING_CD = /^cd[^\S\n]+("[^"]*"|'[^']*'|\S+)[^\S\n]*(?:&&|;|\n)\s*/;
 
 function capText(s: string): string {
   if (s.length <= TRANSCRIPT_TEXT_CAP) return s;
@@ -57,7 +83,10 @@ function describeTool(name: string, input: unknown): string {
   const fields = input as Record<string, unknown>;
   for (const key of TOOL_INPUT_KEYS) {
     const value = fields[key];
-    if (typeof value === 'string' && value.trim()) return capText(`${name}(${flatten(value)})`);
+    if (typeof value === 'string' && value.trim()) {
+      const shown = name === 'Bash' ? value.replace(LEADING_CD, '') : value;
+      return capText(`${name}(${tidy(shown)})`);
+    }
   }
   return name;
 }
@@ -85,9 +114,9 @@ function markerForResult(text: string, isError: boolean): Marker {
 }
 
 function resultText(content: unknown): string {
-  if (typeof content === 'string') return flatten(content);
+  if (typeof content === 'string') return tidy(content);
   if (Array.isArray(content)) {
-    return flatten(
+    return tidy(
       content
         .map((block) => {
           if (block && typeof block === 'object') {
@@ -99,7 +128,7 @@ function resultText(content: unknown): string {
         .join(' '),
     );
   }
-  return flatten(JSON.stringify(content ?? ''));
+  return tidy(JSON.stringify(content ?? ''));
 }
 
 export function toTranscriptLines(rec: TranscriptRecord): TranscriptLine[] {
@@ -113,7 +142,7 @@ export function toTranscriptLines(rec: TranscriptRecord): TranscriptLine[] {
   if (rec.type === 'user') {
     if (typeof content === 'string') {
       const body = content.replace(TEAMMATE_OPEN, '').replace(TEAMMATE_CLOSE, '');
-      const text = flatten(body);
+      const text = tidy(body);
       if (text) drafts.push({ marker: markerForUserText(body), text });
     } else if (Array.isArray(content)) {
       for (const block of content) {
@@ -123,7 +152,7 @@ export function toTranscriptLines(rec: TranscriptRecord): TranscriptLine[] {
           const text = resultText(b.content);
           if (text) drafts.push({ marker: markerForResult(text, b.is_error === true), text });
         } else if (b.type === 'text' && typeof b.text === 'string') {
-          const text = flatten(b.text);
+          const text = tidy(b.text);
           if (text) drafts.push({ marker: '❯', text });
         }
       }
@@ -133,7 +162,7 @@ export function toTranscriptLines(rec: TranscriptRecord): TranscriptLine[] {
       if (!block || typeof block !== 'object') continue;
       const b = block as { type?: string; text?: string; name?: string; input?: unknown };
       if (b.type === 'text' && typeof b.text === 'string') {
-        const text = flatten(b.text);
+        const text = tidy(b.text);
         if (text) drafts.push({ marker: '⏺', text });
       } else if (b.type === 'tool_use' && typeof b.name === 'string') {
         drafts.push({ marker: '⏺', text: describeTool(b.name, b.input) });

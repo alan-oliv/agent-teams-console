@@ -86,7 +86,10 @@ describe('toTranscriptLines', () => {
     expect(lines[0].ts).toBe(1787843382986);
     expect(lines[0].text.startsWith('You are a throwaway probe for a 2-minute data-capture spike.')).toBe(true);
     expect(lines[0].text.includes('teammate-message')).toBe(false);
-    expect(lines[0].text.includes('\n')).toBe(false);
+    // The wrapper goes; the prompt's own paragraphs stay, so a view can expand
+    // the row into the shape it was written in.
+    expect(lines[0].text.includes('\n')).toBe(true);
+    expect(lines[0].text).not.toMatch(/\n{3,}| \n|\n /);
   });
 
   it('maps assistant text to ⏺', () => {
@@ -124,8 +127,9 @@ describe('toTranscriptLines', () => {
       },
     ]);
     expect(toTranscriptLines(records[9])[0].marker).toBe('⎿');
+    // Two task rows, on two lines — they used to be run together into one.
     expect(toTranscriptLines(records[9])[0].text).toBe(
-      '#1 [pending] SPIKE probe A — report your identity #2 [pending] SPIKE probe B — report your identity',
+      '#1 [pending] SPIKE probe A — report your identity\n#2 [pending] SPIKE probe B — report your identity',
     );
   });
 
@@ -279,5 +283,57 @@ describe('TRANSCRIPT_TEXT_CAP', () => {
   it('keeps a surrogate pair that fits under the cap', () => {
     const source = `😀${pattern(10)}`;
     expect(toTranscriptLines(toolResult(source))[0].text).toBe(source);
+  });
+});
+
+describe('structure worth expanding', () => {
+  const assistant = (blocks: unknown[]): TranscriptRecord => ({
+    type: 'assistant',
+    uuid: 'struct-1',
+    timestamp: '2026-08-27T15:09:55.618Z',
+    message: { role: 'assistant', content: blocks },
+  });
+  const bash = (command: string) => assistant([{ type: 'tool_use', name: 'Bash', input: { command } }]);
+  const shown = (rec: TranscriptRecord) => toTranscriptLines(rec)[0].text;
+
+  it('keeps the line breaks of a multi-line message, so a view can expand it', () => {
+    const body = '## Result\n\n| what | n |\n| --- | --- |\n| tests | 571 |\n\nAll green.';
+    expect(shown(assistant([{ type: 'text', text: body }]))).toBe(body);
+  });
+
+  it('still squashes indentation runs, which carry no structure at a 47-char width', () => {
+    expect(shown(assistant([{ type: 'text', text: 'one\n\n\n\n   two    three' }]))).toBe(
+      'one\n\ntwo three',
+    );
+  });
+
+  it('drops a leading cd into the project, which was 43 of the 47 visible characters', () => {
+    expect(shown(bash('cd /Users/alanoliv/code/agents-team-ui; npm test'))).toBe('Bash(npm test)');
+    expect(shown(bash('cd /repo && git log --oneline'))).toBe('Bash(git log --oneline)');
+    // A newline separates them as often as `;` does — every multi-line command
+    // this project writes opens that way.
+    expect(shown(bash('cd /Users/alanoliv/code/agents-team-ui\nnpm test'))).toBe('Bash(npm test)');
+  });
+
+  it('renders two commands that share that prefix differently — the whole point', () => {
+    const a = shown(bash('cd /Users/alanoliv/code/agents-team-ui; git log --oneline'));
+    const b = shown(bash('cd /Users/alanoliv/code/agents-team-ui; npx vite build'));
+    // Both used to open with the same 43 characters, so a 47-char Wall column
+    // showed two characters of difference. The command has to lead.
+    expect(a.startsWith('Bash(cd ')).toBe(false);
+    expect(b.startsWith('Bash(cd ')).toBe(false);
+    expect(a.slice(0, 12)).not.toBe(b.slice(0, 12));
+  });
+
+  it('never eats a cd that is a real argument rather than a prefix', () => {
+    for (const cmd of [
+      'git log | grep cd',
+      'echo "cd /tmp"',
+      'rg --cwd /repo pattern',
+      'cd',
+      'cdk deploy; ls',
+    ]) {
+      expect(shown(bash(cmd))).toBe(`Bash(${cmd})`);
+    }
   });
 });
