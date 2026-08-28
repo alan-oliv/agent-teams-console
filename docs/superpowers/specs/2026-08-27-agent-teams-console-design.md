@@ -559,3 +559,117 @@ Test-first is the rule for §4.1 and §4.2 specifically: those are where a silen
 - **The repository is not a git repo.** `git init` is step zero, so the plan's checkpoints are commits.
 - **Hook installation is explicit, never silent.** The console ships a `setup` command that prints the exact `settings.json` block and writes it only on confirmation, and an `uninstall` that removes it. It never edits `~/.claude/settings.json` as a side effect of starting.
 - **The console is lifecycle-gated, not always-on** (§5.4). `setup` installs the `SubagentStart` launcher hook; the server starts on the first teammate spawn and exits with the team.
+
+---
+
+## 11. Amendment (2026-08-28) — engine latency, frame size, and the review that followed
+
+**Branch:** `fix/engine-latency-and-frame-size`, 21 commits on top of `2252862`. **§2 above is a verified
+capture from 2026-08-27 and is unchanged by this amendment** — nothing below revises a captured
+observation; this section only records what changed afterward, and why.
+
+### Why
+
+Two defects showed up under live use that the §2 capture predates: the SSE frame could grow large
+enough to slow the browser (one oversized transcript line, or a whole team's history re-derived on
+every publish), and a transcript update for an agent the ingest already knew about only ever
+refreshed on the 5 s reconciliation sweep. Fixing both, plus a correctness review run against the
+fixes themselves, touched five parts of the system.
+
+### 1. Frame size
+
+- `TRANSCRIPT_TEXT_CAP = 1000` (`787ed62`, `src/shared/transcript.ts`) caps every projected line's
+  text and the `currentTool` string built from the same helper. Measured: the widest real render is
+  849 characters (Overview feed, 5120px 1×), so 1000 stays lossless to a 6033px window while cutting
+  the worst observed line — 21,071 characters of raw tool-result JSON — by 95%. The store still keeps
+  the untrimmed record.
+- `PROJECTED_TRANSCRIPT_LINES = 60`/agent (`9ae1909`, `src/server/project.ts`) — the projection now
+  derives only the transcript lines a frame keeps, walking each agent's records backwards and
+  stopping once it has enough, instead of converting every stored record on every publish. Measured:
+  an untrimmed frame for 11 agents ran 1683 KB, transcript JSON alone ~103% of that (one agent alone
+  held 1002 lines), to draw at most 18 lines on screen.
+- `4ed9c33` closed a hole the `9ae1909` memoisation opened: a non-object transcript row (reachable
+  only by hand-editing the log) used to throw inside `WeakMap.set` and silently stop every later SSE
+  publish. The fold now derives such a row unmemoised instead of keying a WeakMap on it, and the same
+  commit moved `snapshot()` before `writeHead` in the stream handler so a throw there answers a clean
+  500 instead of leaving the browser on a dead, silent connection.
+
+### 2. Latency
+
+- `TAIL_POLL_MS = 250` (`7345df0`, `src/server/ingest/files.ts`, matched to `stream.ts`'s
+  `COALESCE_MS`) polls every transcript the ingest already knows about, independent of the 5 s
+  `DEFAULT_SWEEP_MS` reconciliation sweep (unchanged). Measured: walking every file under all four
+  `~/.claude` roots costs 9 ms on a 389-file tree, 244 ms on a 10,000-file one — too slow to run at
+  250 ms — while re-reading the handful of already-known files costs ~0.1 ms for 11 agents.
+- Every hook call now also triggers an immediate targeted drain of the calling agent's own transcript
+  (`onAgentActivity` → `ingest.drainAgent`, wired in `index.ts`), ahead of any `PermissionRequest`
+  hold, so the transcript explaining a permission ask is on screen before the operator has to decide.
+  `cf2ae44` pins this wiring against the real boot path — a deleted call left the full suite green —
+  measured 6 ms with the wiring, 247 ms without.
+
+### 3. Store — one log per team, record-bounded retention, migration
+
+- One log file per team at `logs/<team>.jsonl`, not a shared `events.db` (`8c22d26`). Reproduced
+  before the fix: opening the shared log for a second team fell from 29,582 bytes to 146; opening it
+  teamless truncated it to zero.
+- `e6eee92` closed the reopened hole one level down: every console starts teamless and used to share
+  one `logs/unknown.jsonl`, so a second teamless run could adopt a first run's still-open permission
+  cards (whose permits die with the process that created them) and then truncate its history on
+  `setTeam`. Each `openStore` call now writes its teamless rows to a path no other run can name
+  (`logs/runs/<pid>-<hex>.jsonl`), and `rewrite()` — the only operation that can drop rows from a
+  file — now refuses to compact whenever the file holds bytes this run did not itself account for, so
+  two writers on one team log stay lossless (uncompacted, never lossy) until only one remains.
+- A first-run migration (`migrateLegacyLog`) folds a legacy shared `events.db` into the per-team logs
+  it finds, timestamp-ordered, and renames the source aside to `events.db.migrated-<epoch-ms>` only
+  once every team's rows are safely merged — `ff09ebe` hardened this to read-first/rename-last with a
+  content-keyed merge (`rowKey`, no `seq`) that makes a retry after a partial failure free.
+- `TRANSCRIPT_RECORDS_PER_AGENT = 1_000` (`b33d710`), backstopped by
+  `TRANSCRIPT_EVENTS_PER_AGENT = 1_200`: transcript history is now bounded by records per agent, not
+  by event count, since one stored `transcript` event can hold anywhere from 1 record to 2,630.
+  Measured: `project()` runs 0.64 µs/record; at the 11-agent production ceiling with the ingest
+  supplying a cumulative cost snapshot, fold+stringify runs 3.2 ms against a 5 ms/4 Hz budget.
+- `5803e51` trims a single oversized transcript row (e.g. a whole legacy file recovered by migration)
+  to its newest records when it alone exceeds the remaining per-agent budget, rather than admitting it
+  whole. Measured: 22,600 records held against an 11,000 bound, folding in 6.3 ms instead of 3.2 ms.
+
+### 4. Ingest — key by transcript file, not by agent name
+
+- `046c516`: a sidecar read while the console didn't yet know its team used to be rejected for good —
+  both the watcher and the sweep record a file's mtime on read either way, and a sidecar is written
+  once, so the rejected read was the teammate's only chance to join the roster for the rest of the
+  run. Unresolved sidecars are now held and judged the moment `config.json` names the team. (Measured
+  over full-suite runs on a loaded machine: 5 red in 39 before this fix, 0 red in 26 after — it also
+  removed a race two flaky tests depended on.)
+- A deeper class surfaced under adversarial review: the pre-attribution buffers, the admission test,
+  and cost-ledger attribution were all keyed by agent NAME. A real `~/.claude` was measured carrying
+  165 sidecars over only 13 distinct teammate names, so a foreign transcript sharing a name — depending
+  on read order — could double-count a teammate's cost, freeze its live total, or (through the
+  `fromStart` clear the latency fix above added) wipe its displayed transcript outright. `8cad46b`
+  re-keyed the pre-attribution buffers and usage ledger by transcript file first; `4c3b35b` finished
+  the job across the remaining surfaces (the admission test, the attribution filter, and the path
+  table); `251d9e1` stopped a disowned transcript's buffers from being left to accumulate once a file
+  is proven not to belong. `01b9946` asserts the scope rule — nothing foreign may reach the roster,
+  the feed, `costUsd`, `totalCostUsd`, or `totalTokens` — on both the ghost-sidecar and
+  pre-team-window cases, not just the one surface each original repro happened to check.
+
+### 5. Web — memoize per-agent render units, take the clock from context
+
+- Every SSE frame is a fresh `JSON.parse`, so every agent — and every transcript line — used to arrive
+  with a new object identity on every frame, and the 1 Hz "elapsed" clock was a prop that invalidated
+  every per-agent render unit once a second regardless.
+- `933f522` + `044a304`: `useTeamState` now reconciles each frame against the previous one, reusing
+  the same `Agent` object (and the same `TranscriptLine` objects, compared by id) whenever nothing
+  about that agent changed; the per-agent unit in Wall/Overview/Grid is `React.memo`'d; the ticking
+  clock moved into a `NowContext` read only by the one leaf that renders a duration.
+- `7d74ff2` and `6cefe70` carried the same treatment to the two units the first pass missed — the Rail
+  view and the always-mounted Panel dock, which otherwise re-rendered on every SSE frame and every
+  clock tick in all five views regardless of what changed.
+- `f50472a` and `dd543c5` are test-only: pinning the tail watcher's pump de-duplication and Wall's
+  exact hover render count, and fixing two flaky watcher tests that wrote their stimulus before
+  `fs.watch`/FSEvents had actually armed (measured worst-case arming time 196 ms under load).
+
+### Net result
+
+`251d9e1` is the tip of the branch. `npx tsc --noEmit` is clean and `npm test` is green; the
+correctness-review rounds above added coverage that grew the suite from a 469-test baseline to 524
+tests / 39 files.

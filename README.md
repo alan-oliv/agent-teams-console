@@ -7,9 +7,10 @@ what is waiting on you.
 
 ![The wall view: the lead pinned on the left, one scrolling transcript column per teammate](docs/console-wall.png)
 
-You never start it. The plugin's `PostToolUse(Agent)` hook watches for the moment a
-real team comes into existence and starts the server itself, then prints the URL
-into the session once:
+You never start it. The plugin's `PreToolUse`/`PostToolUse` hooks on the `Agent` tool
+watch for the moment a real team comes into existence and start the server
+themselves, then print the URL into the session once — before the teammate spawns
+when possible, falling back to just after it:
 
 ```
 Agent teams console → http://127.0.0.1:4823/?team=session-98b0b4a7
