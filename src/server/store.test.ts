@@ -1,8 +1,15 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { openStore, logPathFor, KIND_RETENTION, STALE_LOG_MS } from './store';
+import {
+  openStore,
+  logPathFor,
+  runsDirFor,
+  KIND_RETENTION,
+  PRUNE_EVERY,
+  STALE_LOG_MS,
+} from './store';
 import { project } from './project';
 import type { NeedsYouItem } from '../shared/domain';
 
@@ -69,15 +76,56 @@ describe('team scoping', () => {
     }
   });
 
-  it('reads a database written before the log was team-scoped', () => {
+  it('migrates a log written before the log was team-scoped into the per-team logs', async () => {
     const dbPath = path.join(dir, 'legacy.db');
-    const legacy = openStore(dbPath);
-    legacy.append('roster', { config: null, sidecars: [] });
-    legacy.close();
+    const legacy = [
+      { seq: 1, ts: 1, kind: 'needsyou', payload: { id: 'card-a' }, team: 'session-aaaa1111' },
+      { seq: 2, ts: 2, kind: 'statusline', payload: { branch: 'main' }, team: 'session-aaaa1111' },
+      { seq: 3, ts: 3, kind: 'hook', payload: { event: 'PreToolUse' }, team: 'session-bbbb2222' },
+      // A row from a run that never discovered its team: its permits died with
+      // that process, so it is not carried forward.
+      { seq: 4, ts: 4, kind: 'hook', payload: { event: 'PreToolUse' }, team: '' },
+    ];
+    const raw = `${legacy.map((r) => JSON.stringify(r)).join('\n')}\n`;
+    await fs.writeFile(dbPath, raw);
 
-    const reopened = openStore(dbPath);
-    expect(reopened.replay()).toHaveLength(1);
-    reopened.close();
+    const store = openStore(dbPath, 'session-aaaa1111');
+    // The push-only kinds are back: nothing on disk could rebuild them.
+    expect(store.replay().map((e) => e.kind)).toEqual(['needsyou', 'statusline']);
+    store.close();
+
+    const other = openStore(dbPath, 'session-bbbb2222');
+    expect(other.replay().map((e) => e.kind)).toEqual(['hook']);
+    other.close();
+
+    // The team-less row is dropped rather than pooled into a shared log.
+    const logs = (await fs.readdir(path.join(dir, 'logs'))).filter((n) => n.endsWith('.jsonl'));
+    expect(logs.sort()).toEqual(['session-aaaa1111.jsonl', 'session-bbbb2222.jsonl']);
+
+    // The original is renamed aside, never deleted, and byte-identical.
+    await expect(fs.stat(dbPath)).rejects.toThrow();
+    const aside = (await fs.readdir(dir)).filter((n) => n.includes('.migrated-'));
+    expect(aside).toHaveLength(1);
+    expect(await fs.readFile(path.join(dir, aside[0]), 'utf8')).toBe(raw);
+
+    // And it does not run twice: reopening adds nothing.
+    const again = openStore(dbPath, 'session-aaaa1111');
+    expect(again.replay()).toHaveLength(2);
+    again.close();
+  });
+
+  it('leaves a team log a newer run already wrote where migration would land', async () => {
+    const dbPath = path.join(dir, 'legacy-late.db');
+    const fresh = openStore(dbPath, 'session-aaaa1111');
+    fresh.append('roster', { config: null, sidecars: [] });
+    fresh.close();
+
+    const stale = { seq: 1, ts: 1, kind: 'hook', payload: { id: 'stale' }, team: 'session-aaaa1111' };
+    await fs.writeFile(dbPath, `${JSON.stringify(stale)}\n`);
+
+    const store = openStore(dbPath, 'session-aaaa1111');
+    expect(store.replay().map((e) => e.kind)).toEqual(['roster']);
+    store.close();
   });
 
   it('caps a high-volume kind so a long-lived install cannot degrade forever', () => {
@@ -151,6 +199,55 @@ describe('multi-team log safety', () => {
     );
   });
 
+  it('records which process is writing a team log, and says so when two do', async () => {
+    const dbPath = path.join(dir, 'events.db');
+    const owner = `${logPathFor(dbPath, 'session-aaaa1111')}.owner`;
+    const first = openStore(dbPath, 'session-aaaa1111');
+    expect(JSON.parse(await fs.readFile(owner, 'utf8')).pid).toBe(process.pid);
+    first.close();
+    await expect(fs.stat(owner)).rejects.toThrow();
+
+    // A live process already holding the log. The stamp is advisory — this
+    // console keeps serving — but nothing else would tell the operator why
+    // every row is doubled and half the cards will not resolve.
+    await fs.writeFile(owner, JSON.stringify({ pid: process.ppid, since: Date.now() }));
+    const said: string[] = [];
+    const spy = vi.spyOn(console, 'error').mockImplementation((m: unknown) => {
+      said.push(String(m));
+    });
+    const second = openStore(dbPath, 'session-aaaa1111');
+    spy.mockRestore();
+    expect(said.join('\n')).toContain(`already open in process ${process.ppid}`);
+    second.append('roster', { config: null, sidecars: [] });
+    expect(second.replay()).toHaveLength(1);
+    second.close();
+
+    // A run that switches teams stops owning the log it left behind.
+    const moved = openStore(dbPath, 'session-first000');
+    moved.setTeam('session-second00');
+    await expect(fs.stat(`${logPathFor(dbPath, 'session-first000')}.owner`)).rejects.toThrow();
+    const held = await fs.readFile(`${logPathFor(dbPath, 'session-second00')}.owner`, 'utf8');
+    expect(JSON.parse(held).pid).toBe(process.pid);
+    moved.close();
+  });
+
+  it('keeps a name that is not a team name off the shared fallback log', async () => {
+    const dbPath = path.join(dir, 'events.db');
+    const hostile = openStore(dbPath, '../../evil');
+    hostile.append('needsyou', { id: 'card-a' });
+
+    const other = openStore(dbPath);
+    other.append('needsyou', { id: 'card-b' });
+    // A name the log directory cannot hold is not a team, so this run stays on
+    // its own scratch log instead of joining every other run on the fallback.
+    other.setTeam('a/b');
+    expect(other.replay().map((e) => (e.payload as { id: string }).id)).toEqual(['card-b']);
+
+    await expect(fs.stat(logPathFor(dbPath, 'unknown'))).rejects.toThrow();
+    hostile.close();
+    other.close();
+  });
+
   it('adopts pre-team events into a team log that already has history', () => {
     const dbPath = path.join(dir, 'events.db');
     const earlier = openStore(dbPath, 'session-xxxx0001');
@@ -205,6 +302,114 @@ describe('multi-team log safety', () => {
 
     await expect(fs.stat(dead)).rejects.toThrow();
     await expect(fs.stat(recent)).resolves.toBeDefined();
+  });
+});
+
+describe('two runs that have not found their team yet', () => {
+  it("cannot read, move or destroy each other's rows", async () => {
+    const dbPath = path.join(dir, 'events.db');
+
+    const a = openStore(dbPath);
+    for (let i = 0; i < 50; i++) a.append('needsyou', { id: `card-a-${i}` });
+    expect(a.replay()).toHaveLength(50);
+
+    // B starts empty: A's rows are not in a file B can name.
+    const b = openStore(dbPath);
+    expect(b.replay()).toEqual([]);
+    b.append('needsyou', { id: 'card-b' });
+    b.setTeam('session-bbbb2222');
+    expect(b.replay().map((e) => (e.payload as { id: string }).id)).toEqual(['card-b']);
+
+    // A is untouched, and still writing to its own log.
+    a.append('needsyou', { id: 'card-a-late' });
+    expect(a.replay()).toHaveLength(51);
+
+    a.setTeam('session-aaaa1111');
+    const aLog = (await fs.readFile(logPathFor(dbPath, 'session-aaaa1111'), 'utf8'))
+      .split('\n')
+      .filter(Boolean);
+    expect(aLog).toHaveLength(51);
+    const bLog = (await fs.readFile(logPathFor(dbPath, 'session-bbbb2222'), 'utf8'))
+      .split('\n')
+      .filter(Boolean);
+    expect(bLog).toHaveLength(1);
+    a.close();
+    b.close();
+  });
+
+  it('does not adopt the rows of a run that died before it found its team', () => {
+    const dbPath = path.join(dir, 'events.db');
+    // No setTeam and no close: this run was killed before discovery.
+    const dead = openStore(dbPath);
+    dead.append('needsyou', { id: 'card-from-a-dead-run' });
+
+    const next = openStore(dbPath);
+    expect(next.replay()).toEqual([]);
+    next.close();
+  });
+
+  it('leaves no scratch log behind once the team is known', async () => {
+    const dbPath = path.join(dir, 'events.db');
+    const store = openStore(dbPath);
+    store.append('needsyou', { id: 'card' });
+    store.setTeam('session-aaaa1111');
+    expect(await fs.readdir(runsDirFor(dbPath))).toEqual([]);
+    store.close();
+  });
+});
+
+describe('a second writer on one team log', () => {
+  const idsOnDisk = async (dbPath: string, team: string) =>
+    new Set(
+      (await fs.readFile(logPathFor(dbPath, team), 'utf8'))
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => (JSON.parse(line) as { payload: { id?: string } }).payload?.id)
+        .filter(Boolean),
+    );
+
+  it('never compacts away rows it did not write', async () => {
+    const dbPath = path.join(dir, 'events.db');
+    const team = 'session-aaaa1111';
+
+    const a = openStore(dbPath, team);
+    for (let i = 0; i < 10; i++) a.append('task', { id: `a-task-${i}`, status: 'in_progress' });
+
+    const b = openStore(dbPath, team);
+    expect(b.replay()).toHaveLength(10);
+    for (let i = 0; i < 5; i++) a.append('needsyou', { id: `a-card-${i}` });
+    expect((await idsOnDisk(dbPath, team)).size).toBe(15);
+
+    // B crosses PRUNE_EVERY with a kind over its cap, so it wants to compact.
+    for (let i = 0; i < PRUNE_EVERY; i++) b.append('roster', { config: null, sidecars: [] });
+
+    const ids = await idsOnDisk(dbPath, team);
+    for (let i = 0; i < 5; i++) expect(ids.has(`a-card-${i}`)).toBe(true);
+    for (let i = 0; i < 10; i++) expect(ids.has(`a-task-${i}`)).toBe(true);
+    a.close();
+    b.close();
+  });
+
+  it('compacts again once it is the only writer', async () => {
+    const dbPath = path.join(dir, 'events.db');
+    const team = 'session-aaaa1111';
+    const cap = KIND_RETENTION.roster!;
+    const lines = async () =>
+      (await fs.readFile(logPathFor(dbPath, team), 'utf8')).split('\n').filter(Boolean);
+
+    const a = openStore(dbPath, team);
+    const b = openStore(dbPath, team);
+    a.append('roster', { config: null, sidecars: [] });
+    for (let i = 0; i < PRUNE_EVERY + 10; i++) b.append('roster', { config: null, sidecars: [] });
+    // Uncompacted while two runs are writing: 1 + 260 rows, well over the cap.
+    expect(await lines()).toHaveLength(PRUNE_EVERY + 11);
+    a.close();
+    b.close();
+
+    const alone = openStore(dbPath, team);
+    expect(alone.replay().length).toBeLessThanOrEqual(cap);
+    alone.close();
+    expect((await lines()).length).toBeLessThanOrEqual(cap);
   });
 });
 
@@ -281,14 +486,14 @@ describe('needsyou-resolved retention', () => {
 describe('openStore', () => {
   it('survives close and reopen, replaying in seq order', () => {
     const dbPath = path.join(dir, 'events.db');
-    const first = openStore(dbPath);
+    const first = openStore(dbPath, 'session-reopen01');
     const a = first.append('roster', { config: { name: 'session-98b0b4a7' } });
     const b = first.append('task', { id: '1', status: 'in_progress' });
     const c = first.append('mail', { to: 'team-lead' }, 'probe-alpha');
     expect([a.seq, b.seq, c.seq]).toEqual([1, 2, 3]);
     first.close();
 
-    const second = openStore(dbPath);
+    const second = openStore(dbPath, 'session-reopen01');
     const events = second.replay();
     second.close();
 
@@ -319,18 +524,18 @@ describe('openStore', () => {
 
   it('keeps a payload intact across a close and reopen', () => {
     const dbPath = path.join(dir, 'reopen.db');
-    const store = openStore(dbPath);
+    const store = openStore(dbPath, 'session-reopen02');
     store.append('substatus', { agent: 'probe-charlie', tokenCount: 23639 });
     store.close();
-    const reopened = openStore(dbPath);
+    const reopened = openStore(dbPath, 'session-reopen02');
     expect(reopened.replay()[0].payload).toEqual({ agent: 'probe-charlie', tokenCount: 23639 });
     reopened.close();
   });
 
   it('drops a final line a crash truncated mid-write', async () => {
     const dbPath = path.join(dir, 'torn.db');
-    const logPath = logPathFor(dbPath, '');
-    const store = openStore(dbPath);
+    const logPath = logPathFor(dbPath, 'session-torn0002');
+    const store = openStore(dbPath, 'session-torn0002');
     store.append('roster', { config: null, sidecars: [] });
     store.append('task', { id: 'half-written', status: 'in_progress' });
     store.close();
@@ -338,12 +543,14 @@ describe('openStore', () => {
     const whole = await fs.readFile(logPath, 'utf8');
     await fs.writeFile(logPath, whole.slice(0, whole.length - 12));
 
-    const reopened = openStore(dbPath);
+    const reopened = openStore(dbPath, 'session-torn0002');
     expect(reopened.replay().map((e) => e.kind)).toEqual(['roster']);
     // The next append lands on a whole line, not glued to the torn one.
     reopened.append('hook', { event: 'PreToolUse' });
     reopened.close();
-    expect(openStore(dbPath).replay().map((e) => e.kind)).toEqual(['roster', 'hook']);
+    const last = openStore(dbPath, 'session-torn0002');
+    expect(last.replay().map((e) => e.kind)).toEqual(['roster', 'hook']);
+    last.close();
   });
 
   it('prunes the log file itself, so a trim is not undone by a reopen', async () => {

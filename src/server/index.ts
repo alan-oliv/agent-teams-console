@@ -11,7 +11,7 @@ import { createStream } from './stream';
 import { createHttpServer, listen } from './http';
 import { readJsonSafe } from './watch/jsonfile';
 import { checkClaudeVersion, readClaudeVersion, runSetup } from './setup';
-import { startIdleReaper } from './lifecycle';
+import { isPidAlive, startIdleReaper } from './lifecycle';
 import { logError, logInfo } from './log';
 import type { TeamConfig } from '../shared/roster';
 
@@ -80,17 +80,6 @@ function toDiscovered(config: TeamConfig): DiscoveredTeam {
     leadSessionId: config.leadSessionId,
     projectSlug: leadCwd.replace(/[^a-zA-Z0-9]/g, '-'),
   };
-}
-
-function isPidAlive(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    // EPERM means the process exists but we may not signal it — still alive.
-    return (err as NodeJS.ErrnoException).code === 'EPERM';
-  }
 }
 
 // A session file can outlive the process it describes (crash, kill -9), so a

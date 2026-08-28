@@ -15,6 +15,21 @@ export function teamNameFromSessionId(sessionId: string): string {
 }
 
 /**
+ * A pid file can outlive the process it names (crash, kill -9), so a recorded
+ * pid is only evidence once the OS agrees it is still running.
+ */
+export function isPidAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // EPERM means the process exists but we may not signal it — still alive.
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+/**
  * A team "exists" only once a real teammate has joined. Ordinary Agent-tool
  * subagents and workflow fan-outs never appear in members[] — verified during
  * the capture spike, where six workflow subagents were live and members[] still
