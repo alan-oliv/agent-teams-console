@@ -1635,6 +1635,9 @@ import path2 from "node:path";
 import { promises as fs, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+var execFileAsync = promisify(execFile);
 function resolvePluginDir() {
   const candidates = ["../../plugin/", "../../"];
   for (const rel of candidates) {
@@ -1652,6 +1655,24 @@ function isPidAlive(pid) {
     return true;
   } catch (err) {
     return err.code === "EPERM";
+  }
+}
+function sparePidsFrom(psOutput) {
+  const spares = /* @__PURE__ */ new Set();
+  for (const line of psOutput.split("\n")) {
+    const m = /^\s*(\d+)\s+(.*)$/.exec(line);
+    if (m && m[2].includes("bg-spare")) spares.add(Number(m[1]));
+  }
+  return spares;
+}
+async function recycledSpares(pids) {
+  const wanted = pids.filter((p) => Number.isInteger(p) && p > 0);
+  if (wanted.length === 0) return /* @__PURE__ */ new Set();
+  try {
+    const { stdout } = await execFileAsync("ps", ["-p", wanted.join(","), "-o", "pid=,command="]);
+    return sparePidsFrom(stdout);
+  } catch {
+    return /* @__PURE__ */ new Set();
   }
 }
 async function hasLiveTeam(teamsRoot2, teamName) {
@@ -4096,9 +4117,9 @@ function listen(server, port) {
 // src/server/setup.ts
 import { promises as fs7 } from "node:fs";
 import path8 from "node:path";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-var run = promisify(execFile);
+import { execFile as execFile2 } from "node:child_process";
+import { promisify as promisify2 } from "node:util";
+var run = promisify2(execFile2);
 var PINNED_CLAUDE_VERSION = "2.1.231";
 var HOOK_TIMEOUT_SECONDS = 5;
 var PERMISSION_HOOK_TIMEOUT_SECONDS = DEFAULT_PERMISSION_TIMEOUT_MS / 1e3;
@@ -4310,6 +4331,7 @@ async function runSetup(opts) {
 // src/server/index.ts
 var DEFAULT_PORT = 4823;
 var IDLE_GRACE_MS = 10 * 60 * 1e3;
+var FOLLOW_INTERVAL_MS = 3e3;
 function parseArgs(argv) {
   let command = "run";
   let port = DEFAULT_PORT;
@@ -4401,13 +4423,22 @@ async function readSessions(sessionsRoot) {
   } catch {
     return facts;
   }
+  const docs = [];
   for (const entry of entries) {
     if (!entry.endsWith(".json")) continue;
     const doc = await readJsonSafe(
       path9.join(sessionsRoot, entry)
     );
     if (typeof doc?.sessionId !== "string") continue;
-    if (typeof doc.pid === "number" && isPidAlive(doc.pid)) facts.live.add(doc.sessionId);
+    docs.push({ sessionId: doc.sessionId, pid: doc.pid, name: doc.name });
+  }
+  const spares = await recycledSpares(
+    docs.map((d) => d.pid).filter((p) => typeof p === "number")
+  );
+  for (const doc of docs) {
+    if (typeof doc.pid === "number" && isPidAlive(doc.pid) && !spares.has(doc.pid)) {
+      facts.live.add(doc.sessionId);
+    }
     if (typeof doc.name === "string" && doc.name !== "") facts.names.set(doc.sessionId, doc.name);
   }
   return facts;
@@ -4566,6 +4597,7 @@ async function main(argv) {
   let ingest = startIngest(generation, teamName, discovered?.leadSessionId);
   await ingest.sweep();
   let switching = false;
+  let pinned = false;
   const retarget = async (team, lead) => {
     const gen = ++generation;
     ingest.close();
@@ -4577,7 +4609,10 @@ async function main(argv) {
     hub.publish();
   };
   const selectTeam = async (team) => {
-    if (team === currentTeam) return { ok: true, changed: false };
+    if (team === currentTeam) {
+      pinned = true;
+      return { ok: true, changed: false };
+    }
     if (switching) {
       return { ok: false, reason: "busy", message: `a team switch is already running \u2014 retry ${team}` };
     }
@@ -4599,6 +4634,7 @@ async function main(argv) {
         };
       }
       await retarget(team, typeof config.leadSessionId === "string" ? config.leadSessionId : "");
+      pinned = true;
       return { ok: true, changed: true };
     } finally {
       switching = false;
@@ -4610,6 +4646,7 @@ async function main(argv) {
     if (stopping) return;
     stopping = true;
     reaper?.stop();
+    clearInterval(follower);
     ingest.close();
     hub.close();
     server.close();
@@ -4636,6 +4673,25 @@ async function main(argv) {
   });
   const port = await listen(server, cli.port);
   console.log(`agent teams console on http://127.0.0.1:${port}${cli.readOnly ? " (read-only)" : ""}`);
+  const followRealTeam = async () => {
+    if (pinned || switching) return;
+    const { teams } = await listTeamSummaries(teamsRoot2, sessionsRoot, currentTeam);
+    if (teams.some((t) => t.name === currentTeam && t.members >= 2)) return;
+    const target = teams.find((t) => t.members >= 2 && t.live);
+    if (!target || target.name === currentTeam) return;
+    switching = true;
+    try {
+      logInfo(`following ${target.name} (${target.members} members)`);
+      await retarget(target.name, target.leadSessionId);
+    } catch (err) {
+      logError("follow", err);
+    } finally {
+      switching = false;
+    }
+  };
+  const follower = setInterval(() => void followRealTeam(), FOLLOW_INTERVAL_MS);
+  follower.unref();
+  void followRealTeam();
   reaper = startIdleReaper({
     watchedTeam: () => currentTeam,
     teamsRoot: teamsRoot2,
@@ -4654,6 +4710,7 @@ if (process.argv[1] && import.meta.url.endsWith(path9.basename(process.argv[1]))
 }
 export {
   DEFAULT_PORT,
+  FOLLOW_INTERVAL_MS,
   IDLE_GRACE_MS,
   discoverTeam,
   fencedSink,

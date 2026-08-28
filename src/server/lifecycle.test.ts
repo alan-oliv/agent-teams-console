@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs';
 import { spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
-import { teamNameFromSessionId, hasLiveTeam, startIdleReaper } from './lifecycle';
+import { teamNameFromSessionId, hasLiveTeam, startIdleReaper, sparePidsFrom } from './lifecycle';
 
 // Async execFile has no `input` option (only execFileSync/spawnSync do) — an
 // async execFile call with `input` silently ignores it, leaving the child's
@@ -527,5 +527,30 @@ describe('startIdleReaper', () => {
     } finally {
       reaper.stop();
     }
+  });
+});
+
+
+describe('sparePidsFrom', () => {
+  // Real `ps -o pid=,command=` output from the machine that reported seeing two
+  // sessions with one terminal open. 48226 had been a background session four
+  // hours earlier; its process was recycled into the warm pool and kept the
+  // conversation on the dropdown, marked live.
+  const PS = [
+    '48226 claude bg-spare --bg-spare /tmp/cc-daemon-501/91f68550/spare/11b0684f.claim.sock',
+    '76363 claude --dangerously-skip-permissions',
+  ].join('\n');
+
+  it('picks out a process recycled into the spare pool', () => {
+    expect(sparePidsFrom(PS)).toEqual(new Set([48226]));
+  });
+
+  it('treats a real session as live, however it was launched', () => {
+    expect(sparePidsFrom(PS).has(76363)).toBe(false);
+  });
+
+  it('reports nothing for empty or unreadable output', () => {
+    expect(sparePidsFrom('')).toEqual(new Set());
+    expect(sparePidsFrom('nonsense')).toEqual(new Set());
   });
 });

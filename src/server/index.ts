@@ -11,7 +11,7 @@ import { createStream } from './stream';
 import { createHttpServer, listen, type SelectTeamOutcome } from './http';
 import { readJsonSafe } from './watch/jsonfile';
 import { checkClaudeVersion, readClaudeVersion, runSetup } from './setup';
-import { isPidAlive, startIdleReaper } from './lifecycle';
+import { isPidAlive, recycledSpares, startIdleReaper } from './lifecycle';
 import { logError, logInfo } from './log';
 import type { TeamConfig } from '../shared/roster';
 import type { TeamsResponse, TeamSummary } from '../shared/domain';
@@ -24,6 +24,12 @@ export const DEFAULT_PORT = 4823;
  * drift apart.
  */
 export const IDLE_GRACE_MS = 10 * 60 * 1000;
+/**
+ * How often the console checks whether a real team has appeared beside the one
+ * it is showing. Short: this is the gap between spawning a teammate and seeing
+ * it, and it costs one readdir over ~/.claude/teams.
+ */
+export const FOLLOW_INTERVAL_MS = 3000;
 
 export interface Cli {
   command: 'run' | 'setup' | 'uninstall';
@@ -175,13 +181,27 @@ async function readSessions(sessionsRoot: string): Promise<SessionFacts> {
   } catch {
     return facts;
   }
+  const docs: { sessionId: string; pid?: number; name?: string }[] = [];
   for (const entry of entries) {
     if (!entry.endsWith('.json')) continue;
     const doc = await readJsonSafe<{ sessionId?: string; pid?: number; name?: string }>(
       path.join(sessionsRoot, entry),
     );
     if (typeof doc?.sessionId !== 'string') continue;
-    if (typeof doc.pid === 'number' && isPidAlive(doc.pid)) facts.live.add(doc.sessionId);
+    docs.push({ sessionId: doc.sessionId, pid: doc.pid, name: doc.name });
+  }
+
+  // A pid that answers is not proof the session behind it is still there:
+  // Claude Code recycles a finished background session's process into its spare
+  // pool, where it survives for hours. Asked once for every pid, not per row.
+  const spares = await recycledSpares(
+    docs.map((d) => d.pid).filter((p): p is number => typeof p === 'number'),
+  );
+
+  for (const doc of docs) {
+    if (typeof doc.pid === 'number' && isPidAlive(doc.pid) && !spares.has(doc.pid)) {
+      facts.live.add(doc.sessionId);
+    }
     if (typeof doc.name === 'string' && doc.name !== '') facts.names.set(doc.sessionId, doc.name);
   }
   return facts;
@@ -422,6 +442,10 @@ export async function main(argv: string[]): Promise<number> {
   await ingest.sweep();
 
   let switching = false;
+  // Set the moment the operator picks a team themselves. The follower below
+  // only ever corrects the console's OWN guess — once a human has chosen, a
+  // team appearing elsewhere must not yank them off what they are reading.
+  let pinned = false;
 
   /**
    * Only the ingest is rebuilt. The store is RE-POINTED: setTeam already clears
@@ -448,7 +472,10 @@ export async function main(argv: string[]): Promise<number> {
   const selectTeam = async (team: string): Promise<SelectTeamOutcome> => {
     // A rebuild for nothing is visible, not just wasteful: a fresh ingest has no
     // config until its sweep lands, so the console would blink empty.
-    if (team === currentTeam) return { ok: true, changed: false };
+    if (team === currentTeam) {
+      pinned = true;
+      return { ok: true, changed: false };
+    }
     // Claimed synchronously with the check, before the reads below await — a
     // second request landing in that window would otherwise pass the guard too.
     // Rejected rather than queued: a queued second click resolves after the
@@ -476,6 +503,8 @@ export async function main(argv: string[]): Promise<number> {
         };
       }
       await retarget(team, typeof config.leadSessionId === 'string' ? config.leadSessionId : '');
+      // The operator has chosen; the follower stops correcting from here on.
+      pinned = true;
       return { ok: true, changed: true };
     } finally {
       // In a finally, so a throw cannot wedge the console into permanent 409s.
@@ -489,6 +518,7 @@ export async function main(argv: string[]): Promise<number> {
     if (stopping) return;
     stopping = true;
     reaper?.stop();
+    clearInterval(follower);
     ingest.close();
     hub.close();
     server.close();
@@ -517,6 +547,41 @@ export async function main(argv: string[]): Promise<number> {
 
   const port = await listen(server, cli.port);
   console.log(`agent teams console on http://127.0.0.1:${port}${cli.readOnly ? ' (read-only)' : ''}`);
+
+  /**
+   * A console can be running before the team it should show even exists: the
+   * launcher starts it on PreToolUse, BEFORE the spawn that writes config.json,
+   * and Claude Code gives each new team a fresh directory. The ingest only ever
+   * learns one team — handleTeamsJson ignores every other directory once it has
+   * one — so without this the console sat on whatever it guessed at startup
+   * while the real team filled up beside it, and teammates never appeared.
+   *
+   * Only corrects its own guess, and only towards a REAL team (two or more
+   * members, the same bar the launcher uses), so a lead-only leftover cannot
+   * steal the view from a team that is actually working.
+   */
+  const followRealTeam = async (): Promise<void> => {
+    if (pinned || switching) return;
+    const { teams } = await listTeamSummaries(teamsRoot, sessionsRoot, currentTeam);
+    if (teams.some((t) => t.name === currentTeam && t.members >= 2)) return;
+    // Sorted live-first, then by most recent activity, so the first real team
+    // is the one worth watching.
+    const target = teams.find((t) => t.members >= 2 && t.live);
+    if (!target || target.name === currentTeam) return;
+    switching = true;
+    try {
+      logInfo(`following ${target.name} (${target.members} members)`);
+      await retarget(target.name, target.leadSessionId);
+    } catch (err) {
+      logError('follow', err);
+    } finally {
+      switching = false;
+    }
+  };
+
+  const follower = setInterval(() => void followRealTeam(), FOLLOW_INTERVAL_MS);
+  follower.unref();
+  void followRealTeam();
 
   reaper = startIdleReaper({
     watchedTeam: () => currentTeam,
