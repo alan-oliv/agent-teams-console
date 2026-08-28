@@ -44,22 +44,32 @@ prompt without switching back to the terminal.
 
 ## Install
 
-The plugin ships with its bundle already built, so there is no `npm install` and no
-build step on your machine.
-
-From a clone:
+Three steps on a new machine, then restart:
 
 ```bash
-claude plugin marketplace add /path/to/agents-team-ui
+claude plugin marketplace add alan-oliv/agent-teams-console
 claude plugin install agent-teams-console@agent-teams-console
+# then, inside Claude Code:
+/console-setup
 ```
 
-`marketplace add` also takes a `owner/repo` GitHub slug or a git URL once this is
-pushed somewhere — this repository is its own marketplace, so the same two commands
-work either way.
+The plugin ships with its bundle already built, so there is no `npm install` and no
+build step on your machine. Everything the console observes travels inside it — all
+ten hooks, the launcher, the two slash commands — and needs no configuration.
 
-**Restart your Claude Code session afterwards.** Hooks are read once at session
-start, so the console will not appear in the session you installed from.
+`/console-setup` is the once-per-machine step for the two things a plugin manifest
+has nowhere to put: the `env` vars that turn on agent teams and the task tools, and
+`subagentStatusLine`. It checks the machine first, shows you the keys, and writes
+only once you say yes. It never touches your `statusLine` and never writes hooks —
+see [what is left to install](#what-is-left-to-install-two-env-vars) for why.
+
+`marketplace add` also takes a local path (`claude plugin marketplace add
+/path/to/agents-team-ui`) or any git URL — this repository is its own marketplace.
+Prefer the `owner/repo` form: a local directory is copied verbatim, `node_modules`
+and all, while a clone brings only what is committed.
+
+**Restart your Claude Code session afterwards.** Hooks and `env` are read once at
+session start, so the console will not appear in the session you installed from.
 
 Check it any time with the `/console` slash command (`/agent-teams-console:console`
 if another plugin already owns that name). It reports whether the console is
