@@ -121,6 +121,9 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
   let lastConfig: TeamConfig | null = null;
   const sidecars = new Map<string, { meta: Sidecar; transcriptPath: string }>();
   const marks = new Map<string, number>();
+  // Sidecars read while the team was still unknown, held until config.json can
+  // judge them. See handleProjectsJson.
+  const unresolvedSidecars = new Map<string, Sidecar>();
   // Every transcript this ingest has attributed to an agent, so the tail poll
   // and drainAgent can reach a file without walking the tree to find it.
   const transcriptPaths = new Map<string, string>();
@@ -191,6 +194,8 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
       teamName = cfg.name;
       leadSessionId = cfg.leadSessionId;
       if (learned) config.onTeam?.({ teamName: cfg.name, leadSessionId: cfg.leadSessionId });
+      for (const [f, meta] of unresolvedSidecars) acceptSidecar(f, meta);
+      unresolvedSidecars.clear();
       appendRoster();
       return;
     }
@@ -201,25 +206,44 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
     store.append('mail', { source: 'inbox', to, entries }, to);
   };
 
-  const handleProjectsJson = async (file: string) => {
-    if (!file.endsWith('.meta.json')) return;
-    const meta = await readJsonSafe<Sidecar>(file);
-    if (!meta) return;
-    // Fail CLOSED while the team is unresolved: `teamName` unset must reject
-    // every sidecar, not admit them all — otherwise a console started before
-    // its team's config.json exists shows every in-process teammate on the
-    // machine, including other sessions' (seen live: three agents from an
-    // unrelated session, with the real teammates all shown as 'departed').
-    if (meta.taskKind !== 'in_process_teammate' || !teamName || meta.teamName !== teamName) {
-      // Proven NOT a teammate — discard anything buffered under that name.
+  const acceptSidecar = (file: string, meta: Sidecar): boolean => {
+    if (meta.teamName !== teamName) {
+      // Not ours — discard anything buffered under that name.
       if (meta.name) pending.delete(meta.name);
-      return;
+      return false;
     }
     const transcriptPath = file.replace(/\.meta\.json$/, '.jsonl');
     sidecars.set(meta.name, { meta, transcriptPath });
     transcriptPaths.set(meta.name, transcriptPath);
     flushPending(meta.name);
-    appendRoster();
+    return true;
+  };
+
+  const handleProjectsJson = async (file: string) => {
+    if (!file.endsWith('.meta.json')) return;
+    const meta = await readJsonSafe<Sidecar>(file);
+    if (!meta) return;
+    if (meta.taskKind !== 'in_process_teammate') {
+      // Proven NOT a teammate — discard anything buffered under that name.
+      if (meta.name) pending.delete(meta.name);
+      return;
+    }
+    // Fail CLOSED while the team is unresolved: `teamName` unset must reject
+    // every sidecar, not admit them all — otherwise a console started before
+    // its team's config.json exists shows every in-process teammate on the
+    // machine, including other sessions' (seen live: three agents from an
+    // unrelated session, with the real teammates all shown as 'departed').
+    if (!teamName) {
+      // Rejected for want of a team, not on the file's own merits — and both
+      // readers record its mtime either way, so the sweep's gate will never
+      // offer this file again. Sidecars are written once, so dropping it here
+      // strands the teammate for the whole run: hold it until config.json can
+      // say whether it is ours.
+      unresolvedSidecars.set(file, meta);
+      return;
+    }
+    unresolvedSidecars.delete(file);
+    if (acceptSidecar(file, meta)) appendRoster();
   };
 
   const handleTaskJson = async (file: string) => {

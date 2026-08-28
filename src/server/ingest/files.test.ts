@@ -414,6 +414,47 @@ describe('startFileIngest', () => {
     expect(roster?.sidecars ?? []).toHaveLength(0);
     expect(project(store.replay(), false).agents).toHaveLength(0);
   });
+
+  it('still adopts a sidecar it had to reject for want of a team, once config.json lands', async () => {
+    // The same unresolved-team window as the test above, but this time our own
+    // config.json arrives afterwards. A sidecar read in that window is rejected
+    // because the team is unknown, not on its own merits — and its mtime is
+    // recorded either way, so the sweep's gate will never offer the file again.
+    // Sidecars are written once and never touched, so this read is the only
+    // chance there is: dropping it strands the teammate for the whole run.
+    const ourDir = path.join(paths.projects, SLUG, LEAD_SESSION, 'subagents');
+    await fs.mkdir(ourDir, { recursive: true });
+    const sidecars = JSON.parse(
+      await fs.readFile(path.join(FIXTURES, 'meta-sidecars.json'), 'utf8'),
+    ) as Array<Record<string, unknown>>;
+    await fs.writeFile(
+      path.join(ourDir, 'agent-aprobe-charlie-12ee4cb1ed35cf7c.meta.json'),
+      JSON.stringify(sidecars.find((s) => s.name === 'probe-charlie')),
+    );
+
+    const ingest = startFileIngest(store, { paths, sweepIntervalMs: 0 });
+    try {
+      // Let any watcher delivery for that sidecar land while the team is still
+      // unknown, so the sweep below is not the only reader that saw it.
+      await settle();
+      await ingest.sweep();
+      const before = of(store.replay(), 'roster').at(-1)?.payload as RosterPayload | undefined;
+      expect(before?.sidecars ?? []).toHaveLength(0);
+
+      await fs.mkdir(path.join(paths.teams, TEAM), { recursive: true });
+      await fs.copyFile(
+        path.join(FIXTURES, 'config-4-members.json'),
+        path.join(paths.teams, TEAM, 'config.json'),
+      );
+      await ingest.sweep();
+    } finally {
+      ingest.close();
+    }
+
+    const roster = of(store.replay(), 'roster').at(-1)!.payload as RosterPayload;
+    expect(roster.config!.name).toBe(TEAM);
+    expect(roster.sidecars.map((s) => s.meta.name)).toEqual(['probe-charlie']);
+  });
 });
 
 describe('transcript latency', () => {

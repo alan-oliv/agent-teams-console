@@ -23,6 +23,34 @@ async function waitFor<T>(fn: () => T | undefined, timeoutMs = 10_000): Promise<
   }
 }
 
+/**
+ * Wait until the watcher is demonstrably delivering, by writing throwaway files
+ * into its root until one comes back. FSEventStreamStart returns before the
+ * stream is armed, and a write that lands in that window is never reported at
+ * all — so the case under test has to start AFTER the watcher has proven
+ * itself, or it is racing the arm rather than testing what it names. Retrying
+ * the stimulus is the only fix: waiting longer cannot recover a dropped event,
+ * which is why this waits on the watcher's own output and not on a clock.
+ */
+async function untilArmed(root: string, delivered: () => string[]): Promise<void> {
+  // Inside vitest's 5s testTimeout, so a watcher that never arms is reported as
+  // exactly that instead of as the assertion below timing out.
+  const deadline = Date.now() + 4000;
+  for (let attempt = 0; Date.now() < deadline; attempt++) {
+    const probe = path.join(root, `arming-${attempt}.jsonl`);
+    await fs.writeFile(probe, '{"arming":true}\n');
+    for (let i = 0; i < 25; i++) {
+      if (delivered().includes(probe)) {
+        await fs.rm(probe, { force: true });
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    await fs.rm(probe, { force: true });
+  }
+  throw new Error(`watcher on ${root} never reported a probe file`);
+}
+
 describe('watchAppendOnly on a missing root', () => {
   it('does not throw when the root does not exist', async () => {
     // Same synchronous-ENOENT crash as watchJsonTree; both watchers shared the
@@ -108,6 +136,7 @@ describe('watchAppendOnly', () => {
     const got: Array<{ path: string; lines: string[] }> = [];
     const w = watchAppendOnly(dir, (p, lines) => got.push({ path: p, lines }));
     try {
+      await untilArmed(dir, () => got.map((g) => g.path));
       const file = path.join(dir, 'slug', 'subagents', 'agent-aprobe-charlie-12ee4cb1ed35cf7c.jsonl');
       await fs.writeFile(file, '{"type":"assistant"}\n');
       const hit = await waitFor(() => got.find((g) => g.path === file));
@@ -136,6 +165,7 @@ describe('watchAppendOnly', () => {
       // most generous budget in the suite. The raw watcher has no fallback for a
       // missed/delayed event; in production, ingest/files.ts layers a periodic
       // reconciliation sweep on top of watchAppendOnly for exactly this case.
+      await untilArmed(dir, () => got.map((g) => g.path));
       await fs.mkdir(path.join(dir, 'slug', 'subagents'), { recursive: true });
       const file = path.join(dir, 'slug', 'subagents', 'agent-aprobe-charlie-12ee4cb1ed35cf7c.jsonl');
       await fs.writeFile(file, '{"type":"assistant"}\n');
@@ -205,7 +235,11 @@ describe('pump', () => {
       const file = path.join(dir, 'hammer.jsonl');
       await fs.writeFile(file, '');
 
-      const total = 200;
+      // Enough half-records to land many drains mid-record without making this
+      // a filesystem storm. Churn here is paid for elsewhere: FSEvents drops
+      // events under load, a dropped event is unrecoverable, and the watcher
+      // tests that follow have no way to tell that apart from a real defect.
+      const total = 40;
       let writing = true;
       const hammer = (async () => {
         while (writing) {
