@@ -7,3 +7,9 @@ dist/
 *.sqlite-wal
 *.sqlite-shm
 PROGRESS.md
+ui-shot.png
+shot-*.png
+final-*.png
+check-ui.mjs
+shot*.mjs
+probe.mjs
