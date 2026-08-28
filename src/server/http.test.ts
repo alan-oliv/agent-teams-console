@@ -297,6 +297,27 @@ describe('control routes', () => {
     }
   });
 
+  it("404s a permission card's id on the plan route, and leaves the permit and inbox untouched", async () => {
+    const { server, url } = await boot(false);
+    try {
+      const held = permits.hold('probe-bravo', 'Bash', {}, 600_000);
+      state.needsYou = [
+        ...state.needsYou,
+        { id: held.id, kind: 'permission', agent: 'probe-bravo', reason: 'permission', detail: 'Bash' },
+      ];
+
+      const res = await post(`${url}/api/plans/${held.id}/approve`);
+      expect(res.status).toBe(404);
+      expect((await res.json()).message).toContain('permission');
+
+      // Still held — /approve must not have resolved it.
+      expect(permits.resolve(held.id, 'deny')).toBe(true);
+      await expect(fs.stat(path.join(dir, TEAM, 'inboxes', 'probe-bravo.json'))).rejects.toThrow();
+    } finally {
+      await shutdown(server);
+    }
+  });
+
   it('POST /api/permits/:id/allow releases the held hook', async () => {
     const { server, url } = await boot(false);
     try {

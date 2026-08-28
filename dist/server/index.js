@@ -1627,7 +1627,12 @@ var KIND_RETENTION = {
   hook: 2e3,
   substatus: 500,
   roster: 200,
-  statusline: 200
+  statusline: 200,
+  // A resolution is a human action (approve/deny/dismiss a card), not a
+  // background event, so 500 is many days of them even on a busy console —
+  // and safe regardless: trim() always drops a resolution's matching
+  // `needsyou` create alongside it, so nothing here is ever left dangling.
+  "needsyou-resolved": 500
 };
 var PRUNE_EVERY = 250;
 function encode(event, team) {
@@ -1656,6 +1661,10 @@ function decode(line) {
     }
   };
 }
+function needsYouId(payload) {
+  const id = payload && typeof payload === "object" ? payload.id : void 0;
+  return typeof id === "string" ? id : void 0;
+}
 function trim(events) {
   const counts = /* @__PURE__ */ new Map();
   for (const e of events) counts.set(e.kind, (counts.get(e.kind) ?? 0) + 1);
@@ -1665,7 +1674,20 @@ function trim(events) {
     if (over > 0) excess.set(kind, over);
   }
   if (excess.size === 0) return events;
+  const closedIds = /* @__PURE__ */ new Set();
+  let closedOver = excess.get("needsyou-resolved") ?? 0;
+  for (const e of events) {
+    if (closedOver <= 0) break;
+    if (e.kind !== "needsyou-resolved") continue;
+    const id = needsYouId(e.payload);
+    if (id) closedIds.add(id);
+    closedOver--;
+  }
   return events.filter((e) => {
+    if (e.kind === "needsyou") {
+      const id = needsYouId(e.payload);
+      if (id && closedIds.has(id)) return false;
+    }
     const over = excess.get(e.kind);
     if (!over) return true;
     excess.set(e.kind, over - 1);
@@ -2125,7 +2147,7 @@ function deriveTaskState(raw, task, agents) {
 }
 
 // src/server/project.ts
-var TRANSCRIPT_CAP = 2e3;
+var PROJECTED_TRANSCRIPT_LINES = 60;
 function usageRecordsOf(records) {
   const out = [];
   for (const r of records) {
@@ -2302,7 +2324,7 @@ function project(events, readOnly) {
       compactAt: resolved.compactAt,
       costUsd: totalCost(usage),
       startedAt: id.joinedAt,
-      transcript: lines.slice(-TRANSCRIPT_CAP),
+      transcript: lines.slice(-PROJECTED_TRANSCRIPT_LINES),
       unread: unread.get(id.name) ?? 0,
       error: errors.get(id.name)
     };
@@ -3234,6 +3256,13 @@ function createHttpServer(deps) {
           const card = deps.state().needsYou.find((n) => n.id === requestId);
           if (!card) {
             json(res, 404, { error: "not found", message: `no pending plan ${requestId}` });
+            return;
+          }
+          if (card.kind !== "plan") {
+            json(res, 404, {
+              error: "not found",
+              message: `${requestId} is a ${card.kind} card, not a plan`
+            });
             return;
           }
           if (!SAFE_SEGMENT.test(card.agent)) {

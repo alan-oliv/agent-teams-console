@@ -37,8 +37,10 @@ export interface Store {
  * or keyed in the fold, so dropping the oldest rows costs history, never
  * correctness — and the startup sweep re-reads the files anyway.
  *
- * `needsyou` and `needsyou-resolved` are deliberately uncapped: dropping a
- * `resolved` row while its `needsyou` survived would resurrect a dismissed card.
+ * `needsyou` (the creates) stays uncapped: a still-open card has no `resolved`
+ * row yet, so nothing here can tell "old" from "still relevant" by count alone.
+ * `needsyou-resolved` gets a cap below, but `trim()` gives it paired handling
+ * — see there — so a dropped resolution can never resurrect the card it closed.
  */
 export const KIND_RETENTION: Partial<Record<EventKind, number>> = {
   transcript: 5_000,
@@ -48,6 +50,11 @@ export const KIND_RETENTION: Partial<Record<EventKind, number>> = {
   substatus: 500,
   roster: 200,
   statusline: 200,
+  // A resolution is a human action (approve/deny/dismiss a card), not a
+  // background event, so 500 is many days of them even on a busy console —
+  // and safe regardless: trim() always drops a resolution's matching
+  // `needsyou` create alongside it, so nothing here is ever left dangling.
+  'needsyou-resolved': 500,
 };
 
 const PRUNE_EVERY = 250;
@@ -86,6 +93,11 @@ function decode(line: string): { team: string; event: StoredEvent } | null {
   };
 }
 
+function needsYouId(payload: unknown): string | undefined {
+  const id = payload && typeof payload === 'object' ? (payload as { id?: unknown }).id : undefined;
+  return typeof id === 'string' ? id : undefined;
+}
+
 /** Drops the oldest events of any kind that is over its retention cap. */
 function trim(events: StoredEvent[]): StoredEvent[] {
   const counts = new Map<string, number>();
@@ -98,8 +110,25 @@ function trim(events: StoredEvent[]): StoredEvent[] {
   }
   if (excess.size === 0) return events;
 
+  // The ids of the `needsyou-resolved` rows this pass is about to drop. Their
+  // matching `needsyou` create rows must go with them (below) — a card with no
+  // resolve yet is never in this set, so a still-open card is never touched.
+  const closedIds = new Set<string>();
+  let closedOver = excess.get('needsyou-resolved') ?? 0;
+  for (const e of events) {
+    if (closedOver <= 0) break;
+    if (e.kind !== 'needsyou-resolved') continue;
+    const id = needsYouId(e.payload);
+    if (id) closedIds.add(id);
+    closedOver--;
+  }
+
   // Ascending seq order, so the first `over` events of a kind are its oldest.
   return events.filter((e) => {
+    if (e.kind === 'needsyou') {
+      const id = needsYouId(e.payload);
+      if (id && closedIds.has(id)) return false;
+    }
     const over = excess.get(e.kind);
     if (!over) return true;
     excess.set(e.kind, over - 1);

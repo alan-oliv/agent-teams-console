@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { project } from './project';
+import { project, PROJECTED_TRANSCRIPT_LINES } from './project';
 import type { StoredEvent, EventKind } from './store';
 import type { TeamConfig, Sidecar } from '../shared/roster';
 import { parseLine, type TranscriptRecord } from '../shared/transcript';
@@ -104,10 +104,74 @@ describe('project', () => {
     );
   });
 
-  it('caps the in-memory transcript at 2000 lines per agent', () => {
-    for (const a of state.agents) expect(a.transcript.length).toBeLessThanOrEqual(2000);
+  it('caps the projected transcript at 60 lines per agent', () => {
+    for (const a of state.agents) expect(a.transcript.length).toBeLessThanOrEqual(PROJECTED_TRANSCRIPT_LINES);
     expect(byName['probe-charlie'].transcript.length).toBeGreaterThan(0);
     expect(byName['team-lead'].transcript).toEqual([]);
+  });
+
+  it('projects only the last 60 of 500 transcript lines, in order', () => {
+    const config: TeamConfig = {
+      name: 'session-solo',
+      createdAt: 0,
+      leadAgentId: 'lead-1',
+      leadSessionId: 'lead-1',
+      members: [{ agentId: 'lead-1', name: 'solo', joinedAt: 0, tmuxPaneId: '', subscriptions: [] }],
+    };
+    const records: TranscriptRecord[] = Array.from({ length: 500 }, (_, i) => ({
+      type: 'assistant',
+      uuid: `line-${i + 1}`,
+      timestamp: new Date(1787843400000 + i).toISOString(),
+      message: { content: [{ type: 'text', text: `line ${i + 1}` }] },
+    }));
+    const log: StoredEvent[] = [
+      { seq: 1, ts: 0, kind: 'roster', payload: { config, sidecars: [] } },
+      { seq: 2, ts: 0, kind: 'transcript', agent: 'solo', payload: { agent: 'solo', records } },
+    ];
+    const solo = project(log, false).agents.find((a) => a.name === 'solo')!;
+    expect(solo.transcript).toHaveLength(PROJECTED_TRANSCRIPT_LINES);
+    expect(solo.transcript.map((l) => l.text)).toEqual(
+      Array.from({ length: PROJECTED_TRANSCRIPT_LINES }, (_, i) => `line ${441 + i}`),
+    );
+  });
+
+  // Regression guard for the 60x-oversized SSE frame: measured live, 11 agents
+  // (one carrying ~1000 transcript lines) serialised to 1683 KB, ~103% of it
+  // transcript JSON, to draw at most 18 lines on screen. If the projected cap
+  // is ever "optimised" back up, this is what catches it.
+  it('serialises a realistic multi-agent frame under 200 KB', () => {
+    const config: TeamConfig = {
+      name: 'session-load',
+      createdAt: 0,
+      leadAgentId: 'agent-0',
+      leadSessionId: 'agent-0',
+      members: Array.from({ length: 11 }, (_, i) => ({
+        agentId: `agent-${i}`,
+        name: `agent-${i}`,
+        joinedAt: 0,
+        tmuxPaneId: '',
+        subscriptions: [],
+      })),
+    };
+    const log: StoredEvent[] = [{ seq: 1, ts: 0, kind: 'roster', payload: { config, sidecars: [] } }];
+    let seq = 1;
+    for (let i = 0; i < 11; i++) {
+      // Mirrors the live measurement: one agent alone carried ~1000 lines.
+      const lineCount = i === 0 ? 1000 : 200;
+      const records: TranscriptRecord[] = Array.from({ length: lineCount }, (_, j) => ({
+        type: 'assistant',
+        uuid: `agent-${i}-line-${j}`,
+        timestamp: new Date(1787843400000 + j).toISOString(),
+        message: {
+          content: [
+            { type: 'text', text: `Ran the check for step ${j} and confirmed the output matches expectations.` },
+          ],
+        },
+      }));
+      log.push({ seq: ++seq, ts: 0, kind: 'transcript', agent: `agent-${i}`, payload: { agent: `agent-${i}`, records } });
+    }
+    const bytes = Buffer.byteLength(JSON.stringify(project(log, false)));
+    expect(bytes).toBeLessThan(200 * 1024);
   });
 
   it('folds tasks last-write-wins and derives state', () => {

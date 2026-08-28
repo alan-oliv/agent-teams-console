@@ -96,6 +96,76 @@ describe('team scoping', () => {
   });
 });
 
+describe('needsyou-resolved retention', () => {
+  it('plateaus past the cap without ever leaving a create outliving its resolution', () => {
+    const cap = KIND_RETENTION['needsyou-resolved']!;
+    const store = openStore(path.join(dir, 'resolved-cap.db'), 'session-cap00001');
+    try {
+      // Still open right now — no resolution at all — so it must survive no
+      // matter how many OTHER cards get resolved after it.
+      store.append('needsyou', {
+        id: 'open-card',
+        kind: 'plan',
+        agent: 'probe-alpha',
+        reason: 'plan approval',
+        detail: 'still open',
+      } satisfies NeedsYouItem);
+
+      for (let i = 0; i < cap + 600; i++) {
+        const id = `resolved-${i}`;
+        store.append('needsyou', {
+          id,
+          kind: 'permission',
+          agent: 'probe-bravo',
+          reason: 'permission',
+          detail: 'Bash',
+          expiresAt: Date.now() + 540_000,
+        } satisfies NeedsYouItem);
+        store.append('needsyou-resolved', { id });
+      }
+
+      const kept = store.replay();
+      const resolvedKept = kept.filter((e) => e.kind === 'needsyou-resolved');
+      expect(resolvedKept.length).toBeLessThanOrEqual(cap + 250);
+      expect(resolvedKept.length).toBeGreaterThan(cap - 1);
+
+      const keptCreateIds = new Set(
+        kept.filter((e) => e.kind === 'needsyou').map((e) => (e.payload as { id: string }).id),
+      );
+      const keptResolvedIds = new Set(resolvedKept.map((e) => (e.payload as { id: string }).id));
+
+      expect(keptCreateIds.has('open-card')).toBe(true);
+      // Every surviving `needsyou` create for a resolved id still has its
+      // `needsyou-resolved` row too — a create can never outlive the
+      // resolution that closed it, or the card would resurrect when
+      // project() replays the trimmed log.
+      for (const id of keptCreateIds) {
+        if (id === 'open-card') continue;
+        expect(keptResolvedIds.has(id)).toBe(true);
+      }
+    } finally {
+      store.close();
+    }
+  });
+
+  it('still resolves a card out of needsYou under the new cap', () => {
+    const store = openStore(path.join(dir, 'resolve-once.db'), 'session-resolve1');
+    try {
+      store.append('needsyou', {
+        id: 'p1',
+        kind: 'plan',
+        agent: 'probe-alpha',
+        reason: 'plan approval',
+        detail: '4 steps',
+      } satisfies NeedsYouItem);
+      store.append('needsyou-resolved', { id: 'p1' });
+      expect(project(store.replay(), false).needsYou).toEqual([]);
+    } finally {
+      store.close();
+    }
+  });
+});
+
 describe('openStore', () => {
   it('survives close and reopen, replaying in seq order', () => {
     const dbPath = path.join(dir, 'events.db');

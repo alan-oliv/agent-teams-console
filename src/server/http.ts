@@ -311,6 +311,17 @@ export function createHttpServer(deps: HttpDeps): Server {
             json(res, 404, { error: 'not found', message: `no pending plan ${requestId}` });
             return;
           }
+          // A permission or failure card's id can land here too — without this
+          // check we'd write a spurious plan_approval_response into that
+          // agent's inbox and leave the real permission hanging to its own
+          // auto-deny, while the operator believes they just approved it.
+          if (card.kind !== 'plan') {
+            json(res, 404, {
+              error: 'not found',
+              message: `${requestId} is a ${card.kind} card, not a plan`,
+            });
+            return;
+          }
           // The card's agent came from an unauthenticated /hook payload, so it
           // is caller input too — a hostile one would otherwise reach the inbox
           // writer on the operator's own approve click.
