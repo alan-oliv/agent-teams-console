@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { openStore, type Store, type StoredEvent } from '../store';
+import type { InboxEntry } from '../../shared/mailbox';
 import {
   startFileIngest,
   agentOfTranscript,
@@ -350,6 +351,35 @@ describe('startFileIngest', () => {
       const after = store.replay().length;
       await ingest.sweep();
       expect(store.replay()).toHaveLength(after);
+    } finally {
+      ingest.close();
+    }
+  });
+
+  it("never ingests another team's inbox", async () => {
+    await layout();
+    // Same shape as the config.json guard above it: an inbox lives at
+    // teams/<team>/inboxes/<agent>.json, so the owning team is the GRANDparent.
+    // Invisible while a console only ever watched one team; the team selector
+    // makes it reachable on the first switch.
+    const stranger = path.join(paths.teams, 'session-stranger', 'inboxes');
+    await fs.mkdir(stranger, { recursive: true });
+    await fs.writeFile(
+      path.join(stranger, 'probe-alpha.json'),
+      JSON.stringify([
+        { from: 'their-lead', text: 'not ours', timestamp: '2026-08-27T15:20:00.000Z', msg_id: 'foreign-1', read: false },
+      ]),
+    );
+    const ingest = startFileIngest(store, { paths, sweepIntervalMs: 0 });
+    try {
+      await settle();
+      await ingest.sweep();
+      const texts = of(store.replay(), 'mail').flatMap((e) =>
+        ((e.payload as MailPayload).source === 'inbox' ? (e.payload as { entries: InboxEntry[] }).entries : []).map(
+          (m) => m.text,
+        ),
+      );
+      expect(texts).not.toContain('not ours');
     } finally {
       ingest.close();
     }

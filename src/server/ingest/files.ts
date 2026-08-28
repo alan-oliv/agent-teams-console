@@ -473,6 +473,24 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
     evictPending();
   };
 
+  const readOwnInboxes = async () => {
+    if (!teamName) return;
+    const dir = path.join(config.paths.teams, teamName, 'inboxes');
+    let names: string[];
+    try {
+      names = await fs.readdir(dir);
+    } catch {
+      return; // a team with no mailboxes yet is the ordinary case, not a fault
+    }
+    for (const name of names) {
+      if (!name.endsWith('.json')) continue;
+      const entries = await readJsonSafe<InboxEntry[]>(path.join(dir, name));
+      if (!Array.isArray(entries)) continue;
+      const to = name.replace(/\.json$/, '');
+      store.append('mail', { source: 'inbox', to, entries }, to);
+    }
+  };
+
   const handleTeamsJson = async (file: string) => {
     const base = path.basename(file);
     const dirName = path.basename(path.dirname(file));
@@ -508,10 +526,21 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
       }
       for (const [f, meta] of unresolvedSidecars) acceptSidecar(f, meta);
       unresolvedSidecars.clear();
+      // The inbox reader below fails closed while the team is unknown, and the
+      // mtime gate would never offer those files again, so claim our own now
+      // that we can tell which they are.
+      if (learned) await readOwnInboxes();
       appendRoster();
       return;
     }
     if (dirName !== 'inboxes') return;
+    // teams/<team>/inboxes/<agent>.json — the owning team is the GRANDparent,
+    // so the config.json guard above never covered this path: an ingest scoped
+    // to one team was reading every team's mail on the machine. Fails CLOSED
+    // while the team is unknown, because a watcher event can arrive before
+    // config.json is read and an append made then can never be retracted —
+    // readOwnInboxes above picks ours back up the moment the team is known.
+    if (!teamName || path.basename(path.dirname(path.dirname(file))) !== teamName) return;
     const to = base.replace(/\.json$/, '');
     const entries = await readJsonSafe<InboxEntry[]>(file);
     if (!Array.isArray(entries)) return;
