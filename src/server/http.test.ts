@@ -114,6 +114,33 @@ describe('GET /stream', () => {
       await shutdown(server);
     }
   });
+
+  // A throw out of project() must not reach the browser as an open, silent SSE
+  // socket. Measured before the fix: subscribe() writes the 200 header first,
+  // so the handler's own error path cannot answer any more ("Cannot write
+  // headers after they are sent"), the rejection escapes the handler entirely
+  // and the client waits on a dead stream until it gives up.
+  it('answers a 500 when the snapshot throws, instead of a dead stream', async () => {
+    const failing = createStream(() => {
+      throw new Error('corrupt log row');
+    }, 50);
+    const server = createHttpServer({
+      permits,
+      hooks: createHookHandlers({ store, permits }),
+      stream: failing,
+      state: () => emptyState(false),
+      readOnly: false,
+    });
+    const port = await listen(server, 0);
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/stream`, { signal: AbortSignal.timeout(2000) });
+      expect(res.status).toBe(500);
+      expect(((await res.json()) as { message: string }).message).toBe('corrupt log row');
+    } finally {
+      failing.close();
+      await new Promise<void>((r) => server.close(() => r()));
+    }
+  });
 });
 
 describe('static web bundle', () => {

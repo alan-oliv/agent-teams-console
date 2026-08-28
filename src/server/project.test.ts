@@ -237,6 +237,53 @@ describe('project', () => {
     expect(block.content).toHaveLength(30_000);
   });
 
+  // `parseLine` keeps non-object records out of the store, so this only happens
+  // to a hand-edited or corrupted log — but the log is a plain text file an
+  // operator can open, and one bad row must cost one row. project() throwing
+  // takes every later publish with it: flush() swallows it and the SSE simply
+  // stops sending frames, so the console freezes with nothing on screen.
+  it('skips a non-object transcript record and keeps folding the rest', () => {
+    const config: TeamConfig = {
+      name: 'session-corrupt',
+      createdAt: 0,
+      leadAgentId: 'lead-1',
+      leadSessionId: 'lead-1',
+      members: [
+        { agentId: 'lead-1', name: 'solo', joinedAt: 0, tmuxPaneId: '', subscriptions: [] },
+        { agentId: 'lead-2', name: 'other', joinedAt: 0, tmuxPaneId: '', subscriptions: [] },
+      ],
+    };
+    const speech = (uuid: string, text: string): TranscriptRecord => ({
+      type: 'assistant',
+      uuid,
+      timestamp: '2026-08-27T15:20:00.000Z',
+      message: { content: [{ type: 'text', text }] },
+    });
+    const corrupt = [
+      speech('solo-1', 'solo one'),
+      'a-string',
+      42,
+      true,
+      speech('solo-2', 'solo two'),
+    ] as unknown as TranscriptRecord[];
+    const log: StoredEvent[] = [
+      { seq: 1, ts: 0, kind: 'roster', payload: { config, sidecars: [] } },
+      { seq: 2, ts: 0, kind: 'transcript', agent: 'solo', payload: { agent: 'solo', records: corrupt } },
+      {
+        seq: 3,
+        ts: 0,
+        kind: 'transcript',
+        agent: 'other',
+        payload: { agent: 'other', records: [speech('other-1', 'other one')] },
+      },
+    ];
+
+    const projected = project(log, false);
+    const named = Object.fromEntries(projected.agents.map((a) => [a.name, a]));
+    expect(named['solo'].transcript.map((l) => l.text)).toEqual(['solo one', 'solo two']);
+    expect(named['other'].transcript.map((l) => l.text)).toEqual(['other one']);
+  });
+
   // The 200 KB guard above uses one 74-char synthetic line per record, so it
   // cannot see D1: the frame is dominated by the few very long lines, not by
   // the many average ones. Measured over real transcripts: p50 163 chars,

@@ -45,13 +45,17 @@ export function createStream(snapshot: () => TeamState, coalesceMs = COALESCE_MS
         res.end();
         return;
       }
+      // Build the first frame BEFORE the headers go out. A throw from
+      // snapshot() after writeHead leaves the caller's error path unable to
+      // answer at all, and the browser holding an open, silent SSE socket.
+      const first = frame('snapshot', snapshot());
       res.writeHead(200, {
         'content-type': 'text/event-stream',
         'cache-control': 'no-cache, no-transform',
         connection: 'keep-alive',
         'x-accel-buffering': 'no',
       });
-      res.write(frame('snapshot', snapshot()));
+      res.write(first);
       clients.add(res);
       res.on('close', () => clients.delete(res));
     },

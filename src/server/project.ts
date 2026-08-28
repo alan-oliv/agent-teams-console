@@ -127,6 +127,18 @@ function lastAssistantModel(records: TranscriptRecord[]): string | undefined {
 }
 
 /**
+ * `WeakMap.set` throws on a primitive key, so a record that is not an object
+ * would take the whole publish down — and with it every later one, since
+ * `flush()` swallows the throw and the SSE just stops sending. `parseLine`
+ * keeps such rows out of the store, but the log is a plain text file an
+ * operator can hand-edit, and one corrupt row must cost only its own lines.
+ * The derivations are pure, so skipping the memo costs nothing but repeat work.
+ */
+function memoisable(rec: TranscriptRecord): boolean {
+  return rec !== null && typeof rec === 'object';
+}
+
+/**
  * `toTranscriptLines` and `currentToolOf` are pure functions of one record, and
  * `store.replay()` hands back the SAME record objects on every publish — it
  * copies the array, not the rows, and `trim()`/`setTeam()` re-wrap the event but
@@ -140,6 +152,7 @@ function lastAssistantModel(records: TranscriptRecord[]): string | undefined {
  */
 const lineMemo = new WeakMap<TranscriptRecord, TranscriptLine[]>();
 function linesOf(rec: TranscriptRecord): TranscriptLine[] {
+  if (!memoisable(rec)) return toTranscriptLines(rec);
   let lines = lineMemo.get(rec);
   if (!lines) {
     lines = toTranscriptLines(rec);
@@ -153,6 +166,7 @@ function linesOf(rec: TranscriptRecord): TranscriptLine[] {
 const NO_TOOL = Symbol('no tool');
 const toolMemo = new WeakMap<TranscriptRecord, string | typeof NO_TOOL>();
 function toolOf(rec: TranscriptRecord): string | undefined {
+  if (!memoisable(rec)) return currentToolOf(rec);
   const hit = toolMemo.get(rec);
   if (hit !== undefined) return hit === NO_TOOL ? undefined : hit;
   const tool = currentToolOf(rec);
