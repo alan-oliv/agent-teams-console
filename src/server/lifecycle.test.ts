@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs';
 import { spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
-import { teamNameFromSessionId, hasLiveTeam } from './lifecycle';
+import { teamNameFromSessionId, hasLiveTeam, startIdleReaper } from './lifecycle';
 
 // Async execFile has no `input` option (only execFileSync/spawnSync do) — an
 // async execFile call with `input` silently ignores it, leaving the child's
@@ -454,3 +454,78 @@ async function writeForkedFrom(projectsRoot: string, cwd: string, sessionId: str
     JSON.stringify({ forkedFrom: { sessionId: parentSessionId, messageUuid: 'x' } }) + '\n',
   );
 }
+
+
+describe('startIdleReaper', () => {
+  let root: string;
+
+  const teamDir = (name: string) => path.join(root, name);
+  const writeTeam = async (name: string, members: number) => {
+    await fs.mkdir(teamDir(name), { recursive: true });
+    await fs.writeFile(
+      path.join(teamDir(name), 'config.json'),
+      JSON.stringify({
+        name,
+        leadAgentId: `team-lead@${name}`,
+        leadSessionId: name.replace('session-', ''),
+        members: Array.from({ length: members }, (_, i) => ({ name: i === 0 ? 'team-lead' : `m${i}` })),
+      }),
+    );
+  };
+
+  // Real timers with a tiny tick: the reaper's own body awaits real filesystem
+  // I/O, which fake timers cannot flush.
+  const settle = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  beforeEach(async () => {
+    root = await fs.mkdtemp(path.join(os.tmpdir(), 'reaper-'));
+  });
+  afterEach(async () => {
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
+  // Claude Code deletes a team's directory when the session behind it exits, so
+  // the console was left serving a frozen wall for the whole grace window.
+  it('exits on the next tick when the team it is showing has been deleted', async () => {
+    await writeTeam('session-aaaaaaaa', 1);
+    let exited = false;
+    await fs.rm(teamDir('session-aaaaaaaa'), { recursive: true, force: true });
+    const reaper = startIdleReaper({
+      teamsRoot: root,
+      graceMs: 10 * 60 * 1000,
+      tickMs: 10,
+      watchedTeam: () => 'session-aaaaaaaa',
+      onIdle: () => {
+        exited = true;
+      },
+    });
+    try {
+      await settle(120);
+      expect(exited).toBe(true);
+    } finally {
+      reaper.stop();
+    }
+  });
+
+  it('waits out the grace window while its team is merely quiet', async () => {
+    await writeTeam('session-bbbbbbbb', 1);
+    let exited = false;
+    const reaper = startIdleReaper({
+      teamsRoot: root,
+      graceMs: 300,
+      tickMs: 10,
+      watchedTeam: () => 'session-bbbbbbbb',
+      onIdle: () => {
+        exited = true;
+      },
+    });
+    try {
+      await settle(120);
+      expect(exited).toBe(false);
+      await settle(400);
+      expect(exited).toBe(true);
+    } finally {
+      reaper.stop();
+    }
+  });
+});

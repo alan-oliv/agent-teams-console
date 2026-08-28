@@ -1665,6 +1665,13 @@ async function hasLiveTeam(teamsRoot2, teamName) {
     return false;
   }
 }
+async function teamConfigExists(teamsRoot2, team) {
+  try {
+    return (await fs.stat(path.join(teamsRoot2, team, "config.json"))).isFile();
+  } catch {
+    return false;
+  }
+}
 function startIdleReaper(opts) {
   let idleSince = null;
   const timer = setInterval(async () => {
@@ -1683,12 +1690,18 @@ function startIdleReaper(opts) {
       idleSince = null;
       return;
     }
+    const watched = opts.watchedTeam?.();
+    if (watched !== void 0 && watched !== "" && !await teamConfigExists(opts.teamsRoot, watched)) {
+      clearInterval(timer);
+      opts.onIdle();
+      return;
+    }
     idleSince ??= Date.now();
     if (Date.now() - idleSince >= opts.graceMs) {
       clearInterval(timer);
       opts.onIdle();
     }
-  }, 3e4);
+  }, opts.tickMs ?? 3e4);
   timer.unref();
   return {
     stop() {
@@ -3263,7 +3276,9 @@ function startFileIngest(store, config) {
   const isRosterMember = (name) => (lastConfig?.members ?? []).some((m) => m.name === name);
   const adoptLeadSessionOf = (transcriptPath) => {
     const sessionDir = path5.basename(path5.dirname(path5.dirname(transcriptPath)));
-    if (sessionDir !== "" && !chain.has(sessionDir)) chain.add(sessionDir);
+    if (sessionDir === "" || chain.has(sessionDir)) return;
+    chain.add(sessionDir);
+    config.onLeadSession?.(sessionDir);
   };
   const acceptSidecar = (file, meta) => {
     const transcriptPath = transcriptOfSidecar(file);
@@ -4543,6 +4558,9 @@ async function main(argv) {
       store.setTeam(info.teamName);
       currentTeam = info.teamName;
       leadSessionId = info.leadSessionId;
+    },
+    onLeadSession: (id) => {
+      if (gen === generation) leadSessionId = id;
     }
   });
   let ingest = startIngest(generation, teamName, discovered?.leadSessionId);
@@ -4619,10 +4637,11 @@ async function main(argv) {
   const port = await listen(server, cli.port);
   console.log(`agent teams console on http://127.0.0.1:${port}${cli.readOnly ? " (read-only)" : ""}`);
   reaper = startIdleReaper({
+    watchedTeam: () => currentTeam,
     teamsRoot: teamsRoot2,
     graceMs: IDLE_GRACE_MS,
     onIdle: () => {
-      logInfo("no live team for 10 minutes \u2014 exiting");
+      logInfo("nothing live to show \u2014 exiting");
       process.exit(0);
     }
   });

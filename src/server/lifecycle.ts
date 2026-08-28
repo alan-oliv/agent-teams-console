@@ -73,10 +73,22 @@ export async function hasLiveTeam(teamsRoot: string, teamName: string): Promise<
  * against a crashed session leaving the server running: the SessionEnd hook is
  * the primary shutdown path, this is the backstop.
  */
+async function teamConfigExists(teamsRoot: string, team: string): Promise<boolean> {
+  try {
+    return (await fs.stat(path.join(teamsRoot, team, 'config.json'))).isFile();
+  } catch {
+    return false;
+  }
+}
+
 export function startIdleReaper(opts: {
   teamsRoot: string;
   graceMs: number;
   onIdle(): void;
+  /** The team the console is showing, so the reaper can tell when it is gone. */
+  watchedTeam?: () => string | undefined;
+  /** How often to look. Injectable so the reaper is testable against real I/O. */
+  tickMs?: number;
 }): { stop(): void } {
   let idleSince: number | null = null;
   const timer = setInterval(async () => {
@@ -95,12 +107,27 @@ export function startIdleReaper(opts: {
       idleSince = null;
       return;
     }
+
+    // Claude Code DELETES a team's directory when the session behind it exits —
+    // watched live: the team holding five teammates was gone the moment its
+    // session did. With nothing live anywhere and the watched team's own
+    // config.json deleted, there is nothing left to wait for, so skip the grace
+    // window rather than serving a frozen wall for another ten minutes. The
+    // SessionEnd hook is the fast path; this covers a lead that never sent one
+    // — no hooks installed, a crash, a kill -9.
+    const watched = opts.watchedTeam?.();
+    if (watched !== undefined && watched !== '' && !(await teamConfigExists(opts.teamsRoot, watched))) {
+      clearInterval(timer);
+      opts.onIdle();
+      return;
+    }
+
     idleSince ??= Date.now();
     if (Date.now() - idleSince >= opts.graceMs) {
       clearInterval(timer);
       opts.onIdle();
     }
-  }, 30_000);
+  }, opts.tickMs ?? 30_000);
   timer.unref();
   return {
     stop() {

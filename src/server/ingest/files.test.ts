@@ -1135,7 +1135,13 @@ describe('a transcript FILE is the identity, not the name it carries', () => {
       0,
     );
 
-  const start = (over: { teamName?: string; leadSessionId?: string } = {}) =>
+  const start = (
+    over: {
+      teamName?: string;
+      leadSessionId?: string;
+      onLeadSession?: (sessionId: string) => void;
+    } = {},
+  ) =>
     startFileIngest(store, {
       paths,
       teamName: TEAM,
@@ -1150,7 +1156,13 @@ describe('a transcript FILE is the identity, not the name it carries', () => {
   // across startFileIngest degrades the transcript watcher to sweep-only. What
   // is under test here is which file the ingest DECIDES to read; a live FSEvents
   // delivery reads the same files by another route and masks the decision.
-  const startSweepOnly = async (over: { teamName?: string; leadSessionId?: string } = {}) => {
+  const startSweepOnly = async (
+    over: {
+      teamName?: string;
+      leadSessionId?: string;
+      onLeadSession?: (sessionId: string) => void;
+    } = {},
+  ) => {
     const hidden = `${paths.projects}.hidden`;
     await fs.rename(paths.projects, hidden);
     const ingest = start(over);
@@ -1347,6 +1359,31 @@ describe('a transcript FILE is the identity, not the name it carries', () => {
     expect(
       state.agents.flatMap((a) => a.transcript).filter((l) => l.text.includes('REKEYED')).length,
     ).toBeGreaterThan(0);
+  });
+
+  // The SessionEnd hook compares the ending session against the lead session the
+  // server holds. Taken from config.json it is an id no session ever had, so the
+  // console never stopped when its lead exited — it sat there serving a frozen
+  // wall until the idle reaper noticed. The sidecar knows the real one.
+  it('reports the real lead session id, so SessionEnd can match it', async () => {
+    const REKEYED = 'deadbeef-1111-1111-1111-111111111111';
+    const seen: string[] = [];
+    await write(jsonl('abcdef01abcdef01'), many(4, 'X'));
+    await fs.writeFile(meta('abcdef01abcdef01'), sidecar('worker'));
+    const config = JSON.parse(
+      await fs.readFile(path.join(paths.teams, TEAM, 'config.json'), 'utf8'),
+    ) as { leadSessionId: string };
+    config.leadSessionId = REKEYED;
+    await fs.writeFile(path.join(paths.teams, TEAM, 'config.json'), JSON.stringify(config));
+
+    const ingest = await startSweepOnly({ leadSessionId: REKEYED, onLeadSession: (id) => seen.push(id) });
+    try {
+      await ingest.sweep();
+    } finally {
+      ingest.close();
+    }
+    expect(seen).toContain(LEAD_SESSION);
+    expect(seen).not.toContain(REKEYED);
   });
 
   it('keeps another session sidecar off the roster even when it carries our team name', async () => {

@@ -63,6 +63,13 @@ export interface IngestConfig {
    * point at which the store learns what to scope its log to.
    */
   onTeam?: (info: { teamName: string; leadSessionId: string }) => void;
+  /**
+   * The lead's REAL session id, learned from a teammate's sidecar rather than
+   * from config.json — which names a session that does not exist once a team
+   * has been re-keyed. The SessionEnd hook compares the ending session against
+   * this, so without it the console never stops when its lead exits.
+   */
+  onLeadSession?: (sessionId: string) => void;
 }
 
 export interface FileIngest {
@@ -572,7 +579,11 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
 
   const adoptLeadSessionOf = (transcriptPath: string): void => {
     const sessionDir = path.basename(path.dirname(path.dirname(transcriptPath)));
-    if (sessionDir !== '' && !chain.has(sessionDir)) chain.add(sessionDir);
+    if (sessionDir === '' || chain.has(sessionDir)) return;
+    chain.add(sessionDir);
+    // Tell the server too: this, not config.json's, is the session whose
+    // SessionEnd means the console's work is over.
+    config.onLeadSession?.(sessionDir);
   };
 
   const acceptSidecar = (file: string, meta: Sidecar): boolean => {

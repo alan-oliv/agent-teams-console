@@ -411,6 +411,9 @@ export async function main(argv: string[]): Promise<number> {
         currentTeam = info.teamName;
         leadSessionId = info.leadSessionId;
       },
+      onLeadSession: (id) => {
+        if (gen === generation) leadSessionId = id;
+      },
     });
 
   // `let`, so the closures below — and `stop`'s close, and the hook's drain —
@@ -516,10 +519,11 @@ export async function main(argv: string[]): Promise<number> {
   console.log(`agent teams console on http://127.0.0.1:${port}${cli.readOnly ? ' (read-only)' : ''}`);
 
   reaper = startIdleReaper({
+    watchedTeam: () => currentTeam,
     teamsRoot,
     graceMs: IDLE_GRACE_MS,
     onIdle: () => {
-      logInfo('no live team for 10 minutes — exiting');
+      logInfo('nothing live to show — exiting');
       process.exit(0);
     },
   });
