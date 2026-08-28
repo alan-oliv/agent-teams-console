@@ -183,6 +183,34 @@ describe('bin/console-launch.sh', () => {
     expect(await fs.readFile(marker, 'utf8')).toBe('yes');
   });
 
+  it('passes --team to the server it spawns, so discovery cannot land on a different team', async () => {
+    const pluginRoot = path.join(dir, 'plugin-team-flag');
+    await fs.mkdir(path.join(pluginRoot, 'dist', 'server'), { recursive: true });
+    const argsFile = path.join(dir, 'server-args.json');
+    await fs.writeFile(
+      path.join(pluginRoot, 'dist', 'server', 'index.js'),
+      `require('node:fs').writeFileSync(${JSON.stringify(argsFile)}, JSON.stringify(process.argv.slice(2)));\n`,
+    );
+    await fs.mkdir(path.join(dir, 'teams'), { recursive: true });
+    await writeTeamUnder(path.join(dir, 'teams'), 'session-98b0b4a7', ['team-lead', 'probe-alpha']);
+
+    await run(
+      script,
+      {
+        ...process.env,
+        CLAUDE_CONFIG_DIR: dir,
+        CLAUDE_PLUGIN_ROOT: pluginRoot,
+        OCTO_PORT: '4896',
+        OCTO_ROOT: '',
+      },
+      JSON.stringify({ hook_event_name: 'PostToolUse', tool_name: 'Agent', session_id: '98b0b4a7-3206-455b-aaf6-a5a81ad1e283' }),
+      os.tmpdir(),
+    );
+
+    const args = JSON.parse(await fs.readFile(argsFile, 'utf8'));
+    expect(args).toEqual(expect.arrayContaining(['--team', 'session-98b0b4a7']));
+  });
+
   it('exits 0 with {} on garbage input — a broken console must never fail a spawn', async () => {
     const { stdout } = await run(
       script,

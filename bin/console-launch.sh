@@ -47,10 +47,10 @@ if ! curl -sf -m 1 "$HEALTH" >/dev/null 2>&1; then
     # Prefer the bundle (fast cold start). Fall back to tsx when it has not
     # been built, so a fresh checkout still works without `npm run build`.
     if [ -f "$ROOT/dist/server/index.js" ]; then
-      nohup node "$ROOT/dist/server/index.js" --port "$PORT" \
+      nohup node "$ROOT/dist/server/index.js" --port "$PORT" --team "$team" \
         >>"$CLAUDE_DIR/agent-teams-console.log" 2>&1 &
     else
-      nohup npx --prefix "$ROOT" tsx "$ROOT/src/server/index.ts" --port "$PORT" \
+      nohup npx --prefix "$ROOT" tsx "$ROOT/src/server/index.ts" --port "$PORT" --team "$team" \
         >>"$CLAUDE_DIR/agent-teams-console.log" 2>&1 &
     fi
     i=0

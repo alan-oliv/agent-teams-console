@@ -26,6 +26,7 @@ export interface Cli {
   claudeHome: string;
   settingsPath: string;
   dbPath: string;
+  team?: string;
 }
 
 export function parseArgs(argv: string[]): Cli {
@@ -37,6 +38,9 @@ export function parseArgs(argv: string[]): Cli {
   // CLAUDE_CONFIG_DIR, so the server it starts has to agree — otherwise the
   // launcher announces a team the server is not watching.
   let claudeHome = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
+  // The launcher already knows which team it announced; --team lets it tell
+  // the server directly instead of trusting discovery to land on the same one.
+  let team: string | undefined;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -47,6 +51,8 @@ export function parseArgs(argv: string[]): Cli {
     else if (arg.startsWith('--port=')) port = Number(arg.slice('--port='.length));
     else if (arg === '--claude-home') claudeHome = argv[++i];
     else if (arg.startsWith('--claude-home=')) claudeHome = arg.slice('--claude-home='.length);
+    else if (arg === '--team') team = argv[++i];
+    else if (arg.startsWith('--team=')) team = arg.slice('--team='.length);
   }
 
   return {
@@ -57,6 +63,7 @@ export function parseArgs(argv: string[]): Cli {
     claudeHome,
     settingsPath: path.join(claudeHome, 'settings.json'),
     dbPath: path.join(claudeHome, 'agent-teams-console', 'events.db'),
+    team,
   };
 }
 
@@ -66,7 +73,46 @@ export interface DiscoveredTeam {
   projectSlug: string;
 }
 
-export async function discoverTeam(teamsRoot: string): Promise<DiscoveredTeam | null> {
+function toDiscovered(config: TeamConfig): DiscoveredTeam {
+  const leadCwd = config.members.find((m) => m.agentId === config.leadAgentId)?.cwd ?? '';
+  return {
+    teamName: config.name,
+    leadSessionId: config.leadSessionId,
+    projectSlug: leadCwd.replace(/[^a-zA-Z0-9]/g, '-'),
+  };
+}
+
+function isPidAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // EPERM means the process exists but we may not signal it — still alive.
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+// A session file can outlive the process it describes (crash, kill -9), so a
+// name match alone is not enough — the pid inside it has to still be running.
+async function isSessionLive(sessionsRoot: string, sessionId: string): Promise<boolean> {
+  if (!sessionId) return false;
+  const session = await readJsonSafe<{ sessionId?: string; pid?: number }>(
+    path.join(sessionsRoot, `${sessionId}.json`),
+  );
+  return typeof session?.pid === 'number' && isPidAlive(session.pid);
+}
+
+export async function discoverTeam(
+  teamsRoot: string,
+  sessionsRoot: string,
+  explicitTeam?: string,
+): Promise<DiscoveredTeam | null> {
+  if (explicitTeam) {
+    const config = await readJsonSafe<TeamConfig>(path.join(teamsRoot, explicitTeam, 'config.json'));
+    if (config) return toDiscovered(config);
+  }
+
   let dirs: string[];
   try {
     dirs = (await fs.readdir(teamsRoot, { withFileTypes: true }))
@@ -76,20 +122,30 @@ export async function discoverTeam(teamsRoot: string): Promise<DiscoveredTeam | 
     return null;
   }
 
-  let best: TeamConfig | null = null;
+  const configs: TeamConfig[] = [];
   for (const name of dirs) {
     const config = await readJsonSafe<TeamConfig>(path.join(teamsRoot, name, 'config.json'));
-    if (!config) continue;
-    if (!best || config.createdAt > best.createdAt) best = config;
+    if (config) configs.push(config);
   }
-  if (!best) return null;
+  if (configs.length === 0) return null;
 
-  const leadCwd = best.members.find((m) => m.agentId === best!.leadAgentId)?.cwd ?? '';
-  return {
-    teamName: best.name,
-    leadSessionId: best.leadSessionId,
-    projectSlug: leadCwd.replace(/[^a-zA-Z0-9]/g, '-'),
-  };
+  // A lead-only roster is not a real team — matches the launcher's own
+  // members.length >= 2 gate. Only fall back to lead-only teams when nothing
+  // else exists, so a solo session still shows itself.
+  const realTeams = configs.filter((c) => c.members.length >= 2);
+  const candidates = realTeams.length > 0 ? realTeams : configs;
+
+  let best: TeamConfig | null = null;
+  let bestLive = false;
+  for (const config of candidates) {
+    const live = realTeams.length > 0 && (await isSessionLive(sessionsRoot, config.leadSessionId));
+    const better = !best || (live && !bestLive) || (live === bestLive && config.createdAt > best.createdAt);
+    if (better) {
+      best = config;
+      bestLive = live;
+    }
+  }
+  return best ? toDiscovered(best) : null;
 }
 
 export async function main(argv: string[]): Promise<number> {
@@ -118,9 +174,10 @@ export async function main(argv: string[]): Promise<number> {
   console.log(guard.ok ? guard.message : `warning: ${guard.message}`);
 
   const teamsRoot = path.join(cli.claudeHome, 'teams');
+  const sessionsRoot = path.join(cli.claudeHome, 'sessions');
   setTeamsRoot(teamsRoot);
 
-  const discovered = await discoverTeam(teamsRoot);
+  const discovered = await discoverTeam(teamsRoot, sessionsRoot, cli.team);
   let leadSessionId = discovered?.leadSessionId;
 
   const store = openStore(cli.dbPath, discovered?.teamName ?? '');

@@ -3531,6 +3531,7 @@ function parseArgs(argv) {
   let readOnly = false;
   let confirm = false;
   let claudeHome = process.env.CLAUDE_CONFIG_DIR || path9.join(os2.homedir(), ".claude");
+  let team;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "setup" || arg === "uninstall") command = arg;
@@ -3540,6 +3541,8 @@ function parseArgs(argv) {
     else if (arg.startsWith("--port=")) port = Number(arg.slice("--port=".length));
     else if (arg === "--claude-home") claudeHome = argv[++i];
     else if (arg.startsWith("--claude-home=")) claudeHome = arg.slice("--claude-home=".length);
+    else if (arg === "--team") team = argv[++i];
+    else if (arg.startsWith("--team=")) team = arg.slice("--team=".length);
   }
   return {
     command,
@@ -3548,29 +3551,64 @@ function parseArgs(argv) {
     confirm,
     claudeHome,
     settingsPath: path9.join(claudeHome, "settings.json"),
-    dbPath: path9.join(claudeHome, "agent-teams-console", "events.db")
+    dbPath: path9.join(claudeHome, "agent-teams-console", "events.db"),
+    team
   };
 }
-async function discoverTeam(teamsRoot2) {
+function toDiscovered(config) {
+  const leadCwd = config.members.find((m) => m.agentId === config.leadAgentId)?.cwd ?? "";
+  return {
+    teamName: config.name,
+    leadSessionId: config.leadSessionId,
+    projectSlug: leadCwd.replace(/[^a-zA-Z0-9]/g, "-")
+  };
+}
+function isPidAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err.code === "EPERM";
+  }
+}
+async function isSessionLive(sessionsRoot, sessionId) {
+  if (!sessionId) return false;
+  const session = await readJsonSafe(
+    path9.join(sessionsRoot, `${sessionId}.json`)
+  );
+  return typeof session?.pid === "number" && isPidAlive(session.pid);
+}
+async function discoverTeam(teamsRoot2, sessionsRoot, explicitTeam) {
+  if (explicitTeam) {
+    const config = await readJsonSafe(path9.join(teamsRoot2, explicitTeam, "config.json"));
+    if (config) return toDiscovered(config);
+  }
   let dirs;
   try {
     dirs = (await fs8.readdir(teamsRoot2, { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name);
   } catch {
     return null;
   }
-  let best = null;
+  const configs = [];
   for (const name of dirs) {
     const config = await readJsonSafe(path9.join(teamsRoot2, name, "config.json"));
-    if (!config) continue;
-    if (!best || config.createdAt > best.createdAt) best = config;
+    if (config) configs.push(config);
   }
-  if (!best) return null;
-  const leadCwd = best.members.find((m) => m.agentId === best.leadAgentId)?.cwd ?? "";
-  return {
-    teamName: best.name,
-    leadSessionId: best.leadSessionId,
-    projectSlug: leadCwd.replace(/[^a-zA-Z0-9]/g, "-")
-  };
+  if (configs.length === 0) return null;
+  const realTeams = configs.filter((c) => c.members.length >= 2);
+  const candidates = realTeams.length > 0 ? realTeams : configs;
+  let best = null;
+  let bestLive = false;
+  for (const config of candidates) {
+    const live = realTeams.length > 0 && await isSessionLive(sessionsRoot, config.leadSessionId);
+    const better = !best || live && !bestLive || live === bestLive && config.createdAt > best.createdAt;
+    if (better) {
+      best = config;
+      bestLive = live;
+    }
+  }
+  return best ? toDiscovered(best) : null;
 }
 async function main(argv) {
   const cli = parseArgs(argv);
@@ -3592,8 +3630,9 @@ async function main(argv) {
   const guard = checkClaudeVersion(await readClaudeVersion());
   console.log(guard.ok ? guard.message : `warning: ${guard.message}`);
   const teamsRoot2 = path9.join(cli.claudeHome, "teams");
+  const sessionsRoot = path9.join(cli.claudeHome, "sessions");
   setTeamsRoot(teamsRoot2);
-  const discovered = await discoverTeam(teamsRoot2);
+  const discovered = await discoverTeam(teamsRoot2, sessionsRoot, cli.team);
   let leadSessionId = discovered?.leadSessionId;
   const store = openStore(cli.dbPath, discovered?.teamName ?? "");
   const permits = createPermits();
