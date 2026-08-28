@@ -135,8 +135,22 @@ they need `statusLine` keys in `settings.json`:
 - permission prompts surfaced as **NEEDS YOU** cards you can allow or deny
 - context and spend readouts in the header
 
-If you want those, run the setup once against a clone. It is independent of the
-plugin — it is also how you run the console without installing the plugin at all:
+If you want those, run **`/console-setup`**. It ships with the plugin, so there is
+nothing to clone and nothing to install: it reads your `settings.json`, shows you
+what it would add, and writes only once you say yes.
+
+It differs from the script below in one way that matters. The console's own
+`statusLine` command ends in `printf ''` — it draws nothing, because its job is
+only to POST the payload. So installing it over an existing status line
+(`ccstatusline`, `starship`, anything custom) leaves you with a blank bar. The
+command **wraps** yours instead: the payload goes to the console *and* on to your
+own command, so you keep your status line and gain the rate-limit gauge.
+
+`/console-setup` also reverses itself — ask it to remove the hooks and it
+restores what it wrapped.
+
+<details>
+<summary>Without the plugin, from a clone</summary>
 
 ```bash
 npm install
@@ -144,9 +158,13 @@ npm run setup            # prints the block it would write
 npm run setup -- --yes   # writes it to ~/.claude/settings.json
 ```
 
-It merges into your existing hooks rather than replacing them, stashes your own
-`statusLine` in `~/.claude/agent-teams-console.backup.json`, and
-`npm run uninstall -- --yes` puts everything back.
+This merges into your existing hooks rather than replacing them, and
+`npm run uninstall -- --yes` puts everything back. Note that it *replaces* your
+`statusLine` rather than wrapping it — the original is stashed in
+`~/.claude/agent-teams-console.backup.json` and restored on uninstall, but your
+own status line is blank while the console's is installed.
+
+</details>
 
 ## Developing
 
