@@ -8,12 +8,13 @@ import { TranscriptFeed } from '../components/TranscriptFeed';
 import { contextBar, costLabel, ctxLabel, elapsedLabel, pctLabel } from '../format';
 
 export function Rail({
-  agents, focused, onFocus, now,
+  agents, focused, onFocus, now, readOnly = false,
 }: {
   agents: Agent[];
   focused: string | null;
   onFocus: (name: string) => void;
   now: number;
+  readOnly?: boolean;
 }) {
   const startAt = Math.max(0, agents.findIndex((a) => a.name === focused));
   const [cursor, setCursor] = useState(startAt);
@@ -241,7 +242,7 @@ export function Rail({
 
         <TranscriptFeed lines={attached.transcript} size="rail" />
 
-        <Composer agent={attached} variant="rail" />
+        <Composer agent={attached} variant="rail" readOnly={readOnly} />
       </div>
     </div>
   );

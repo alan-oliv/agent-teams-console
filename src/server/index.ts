@@ -12,6 +12,7 @@ import { createHttpServer, listen } from './http';
 import { readJsonSafe } from './watch/jsonfile';
 import { checkClaudeVersion, readClaudeVersion, runSetup } from './setup';
 import { startIdleReaper } from './lifecycle';
+import { logError, logInfo } from './log';
 import type { TeamConfig } from '../shared/roster';
 
 export const DEFAULT_PORT = 4823;
@@ -105,6 +106,11 @@ export async function main(argv: string[]): Promise<number> {
     return 0;
   }
 
+  // A detached server whose output goes to a log nobody reads must not die
+  // silently: log and keep serving rather than taking Node's default exit.
+  process.on('unhandledRejection', (err) => logError('unhandled rejection', err));
+  process.on('uncaughtException', (err) => logError('uncaught exception', err));
+
   const guard = checkClaudeVersion(await readClaudeVersion());
   console.log(guard.ok ? guard.message : `warning: ${guard.message}`);
 
@@ -148,34 +154,46 @@ export async function main(argv: string[]): Promise<number> {
   });
   await ingest.sweep();
 
-  const server = createHttpServer({
-    permits,
-    hooks: createHookHandlers({ store: live, permits }),
-    stream: hub,
-    state: () => project(store.replay(), cli.readOnly),
-    readOnly: cli.readOnly,
-  });
-
-  const port = await listen(server, cli.port);
-  console.log(`agent teams console on http://127.0.0.1:${port}${cli.readOnly ? ' (read-only)' : ''}`);
-
-  const reaper = startIdleReaper({
-    teamsRoot,
-    graceMs: IDLE_GRACE_MS,
-    onIdle: () => {
-      console.error('[octo] no live team for 10 minutes — exiting');
-      process.exit(0);
-    },
-  });
-
+  let reaper: { stop(): void } | null = null;
+  let stopping = false;
   const stop = () => {
-    reaper.stop();
+    if (stopping) return;
+    stopping = true;
+    reaper?.stop();
     ingest.close();
     hub.close();
     server.close();
     store.close();
     process.exit(0);
   };
+
+  const server = createHttpServer({
+    permits,
+    hooks: createHookHandlers({
+      store: live,
+      permits,
+      readOnly: cli.readOnly,
+      leadSessionId: () => leadSessionId,
+      onShutdown: stop,
+    }),
+    stream: hub,
+    state: () => project(store.replay(), cli.readOnly),
+    readOnly: cli.readOnly,
+    onShutdown: stop,
+  });
+
+  const port = await listen(server, cli.port);
+  console.log(`agent teams console on http://127.0.0.1:${port}${cli.readOnly ? ' (read-only)' : ''}`);
+
+  reaper = startIdleReaper({
+    teamsRoot,
+    graceMs: IDLE_GRACE_MS,
+    onIdle: () => {
+      logInfo('no live team for 10 minutes — exiting');
+      process.exit(0);
+    },
+  });
+
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
 

@@ -96,6 +96,8 @@ export interface HttpDeps {
   state: () => TeamState;
   readOnly: boolean;
   leadName?: string;
+  /** Spec §5.4's shutdown action, shared with the SessionEnd hook handler. */
+  onShutdown?: () => void;
   /** Directory holding the built web bundle (default: {@link DEFAULT_WEB_DIST}). */
   webDist?: string;
 }
@@ -242,6 +244,13 @@ export function createHttpServer(deps: HttpDeps): Server {
         // Every /api/ route is a control write, so the read-only gate is one check.
         if (deps.readOnly) {
           json(res, 409, READ_ONLY_BODY);
+          return;
+        }
+
+        if (route === '/api/shutdown') {
+          // Answer before acting, or the caller sees a dropped connection.
+          json(res, 200, {});
+          setTimeout(() => deps.onShutdown?.(), 50).unref?.();
           return;
         }
 

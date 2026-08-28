@@ -21,8 +21,19 @@ export interface Permits {
   list(): HeldPermit[];
 }
 
+/**
+ * Auto-deny short of the hook's own timeout so the agent gets a clear refusal
+ * instead of the turn hanging to the full 600s. The card's countdown has to
+ * agree with the timer, so both come from here.
+ */
+const AUTO_DENY_FACTOR = 0.9;
+
+export function holdMsFor(timeoutMs: number): number {
+  return Math.floor(timeoutMs * AUTO_DENY_FACTOR);
+}
+
 export function autoDenyReason(timeoutMs: number): string {
-  return `auto-denied after ${Math.floor(timeoutMs * 0.9)}ms with no operator response`;
+  return `auto-denied after ${holdMsFor(timeoutMs)}ms with no operator response`;
 }
 
 interface Entry {
@@ -37,9 +48,7 @@ export function createPermits(): Permits {
   return {
     hold(agent, toolName, input, timeoutMs) {
       const id = randomUUID();
-      // Auto-deny short of the hook's own timeout so the agent gets a clear
-      // refusal instead of the turn hanging to the full 600s.
-      const holdMs = Math.floor(timeoutMs * 0.9);
+      const holdMs = holdMsFor(timeoutMs);
       let settle!: (v: { decision: 'allow' | 'deny'; reason?: string }) => void;
       const promise = new Promise<{ decision: 'allow' | 'deny'; reason?: string }>((res) => {
         settle = res;

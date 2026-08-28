@@ -7,6 +7,7 @@ import type { TaskPayload } from '../project';
 import { parseLine, type TranscriptRecord } from '../../shared/transcript';
 import type { TeamConfig, Sidecar } from '../../shared/roster';
 import type { InboxEntry } from '../../shared/mailbox';
+import { logError } from '../log';
 
 export const DEFAULT_SWEEP_MS = 5000;
 const SUBAGENT_FILE = /^agent-a(.+)-[0-9a-f]{16}\.jsonl$/;
@@ -116,6 +117,12 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
       /* file vanished between event and stat */
     }
   };
+
+  // store.append can throw (a full or busy sqlite, a handle closed during
+  // shutdown), and an unhandled rejection terminates the process by default —
+  // a silent-death mode for a server started detached.
+  const settle = (file: string) => (p: Promise<void>) =>
+    p.then(() => mark(file)).catch((err: unknown) => logError(`ingest ${file}`, err));
 
   const appendRoster = () => {
     store.append('roster', { config: lastConfig, sidecars: [...sidecars.values()] });
@@ -241,7 +248,11 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
 
   const watchers = [
     watchAppendOnly(paths.projects, (file, lines) => {
-      handleLines(file, lines);
+      try {
+        handleLines(file, lines);
+      } catch (err) {
+        logError(`ingest ${file}`, err);
+      }
       void fs.stat(file).then(
         (st) => {
           marks.set(file, st.mtimeMs);
@@ -253,16 +264,16 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
       );
     }),
     watchJsonTree(paths.projects, (file) => {
-      void handleProjectsJson(file).then(() => mark(file));
+      void settle(file)(handleProjectsJson(file));
     }),
     watchJsonTree(paths.teams, (file) => {
-      void handleTeamsJson(file).then(() => mark(file));
+      void settle(file)(handleTeamsJson(file));
     }),
     watchJsonTree(paths.tasks, (file) => {
-      void handleTaskJson(file).then(() => mark(file));
+      void settle(file)(handleTaskJson(file));
     }),
     watchJsonTree(paths.sessions, (file) => {
-      void handleSessionJson(file).then(() => mark(file));
+      void settle(file)(handleSessionJson(file));
     }),
   ];
 
@@ -270,7 +281,7 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
   const timer =
     interval > 0
       ? setInterval(() => {
-          void sweep().catch(() => undefined);
+          void sweep().catch((err: unknown) => logError('reconciliation sweep', err));
         }, interval)
       : null;
   timer?.unref?.();

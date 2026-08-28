@@ -73,6 +73,19 @@ describe('Composer', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('disables the composer in read-only mode and says why', () => {
+    // Without this the textarea looks live, ⌘⏎ fires, the server 409s and the
+    // text just sits there with no error shown.
+    render(<Composer agent={alpha} variant="wall" readOnly />);
+    const input = screen.getByTestId('composer-input') as HTMLTextAreaElement;
+    expect(input.disabled).toBe(true);
+    expect(input.placeholder).toBe('read-only — control routes are disabled');
+
+    fireEvent.change(input, { target: { value: 'stop after task 1' } });
+    fireEvent.keyDown(input, { key: 'Enter', metaKey: true });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('shows the blinking caret and the current tool in the rail variant', () => {
     render(<Composer agent={alpha} variant="rail" />);
     const caret = screen.getByTestId('composer-caret');

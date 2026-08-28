@@ -1,5 +1,6 @@
 import type { Store } from '../store';
-import type { Permits } from '../control/permits';
+import { holdMsFor, type Permits } from '../control/permits';
+import { debug, logError, logInfo } from '../log';
 
 export const DEFAULT_PERMISSION_TIMEOUT_MS = 600_000;
 const SUBAGENT_ID = /^a(.+)-[0-9a-f]{16}$/;
@@ -14,6 +15,14 @@ export interface HookDeps {
   permits: Permits;
   permissionTimeoutMs?: number;
   leadName?: string;
+  readOnly?: boolean;
+  /**
+   * The lead's session id, read late: the console can start before any team
+   * exists, so the ingest may only learn it once config.json lands.
+   */
+  leadSessionId?: () => string | undefined;
+  /** Runs when the LEAD's session ends. Defaults to exiting the process. */
+  onShutdown?: () => void;
 }
 
 export interface HookHandlers {
@@ -55,6 +64,12 @@ function resetOf(raw: unknown): string | undefined {
 export function createHookHandlers(deps: HookDeps): HookHandlers {
   const { store, permits } = deps;
   const leadName = deps.leadName ?? 'team-lead';
+  const shutdown =
+    deps.onShutdown ??
+    (() => {
+      logInfo('lead session ended — exiting');
+      process.exit(0);
+    });
 
   return {
     async hook(body) {
@@ -69,14 +84,26 @@ export function createHookHandlers(deps: HookDeps): HookHandlers {
         store.append('hook', { event, agent, toolName, text }, agent);
 
         if (event === 'SessionEnd') {
-          // Respond first; a hook that never gets its 200 stalls the session's exit.
-          setTimeout(() => {
-            console.error('[octo] session ended — exiting');
-            process.exit(0);
-          }, 250);
+          // The hooks live in ~/.claude/settings.json — USER scope — so every
+          // session on the machine posts SessionEnd here. Only the lead's ends
+          // the console; the 10-minute idle reaper covers a crashed lead.
+          const ending = str(b.session_id);
+          const lead = deps.leadSessionId?.();
+          if (lead && ending === lead) {
+            // Respond first; a hook that never gets its 200 stalls the session's exit.
+            setTimeout(shutdown, 250);
+          } else {
+            debug('hook', `SessionEnd for ${ending ?? 'an unknown session'} is not the lead's`);
+          }
         }
 
         if (event !== 'PermissionRequest') return { status: 200, body: {} };
+
+        // Holding in read-only mode is the worst of both worlds: the card
+        // renders with its buttons disabled, /api/permits 409s, and nobody can
+        // resolve it, so the agent stalls for the full auto-deny window.
+        // Answering with no decision hands the prompt back to Claude Code.
+        if (deps.readOnly) return { status: 200, body: {} };
 
         const timeoutMs = num(b.timeout) ?? deps.permissionTimeoutMs ?? DEFAULT_PERMISSION_TIMEOUT_MS;
         const held = permits.hold(agent, toolName ?? 'unknown', b.tool_input, timeoutMs);
@@ -88,7 +115,7 @@ export function createHookHandlers(deps: HookDeps): HookHandlers {
             agent,
             reason: 'permission',
             detail: `${toolName ?? 'unknown'} — awaiting your decision`,
-            expiresAt: Date.now() + Math.floor(timeoutMs * 0.9),
+            expiresAt: Date.now() + holdMsFor(timeoutMs),
           },
           agent,
         );
@@ -105,7 +132,8 @@ export function createHookHandlers(deps: HookDeps): HookHandlers {
             },
           },
         };
-      } catch {
+      } catch (err) {
+        logError('hook', err);
         return { status: 200, body: {} };
       }
     },
@@ -129,8 +157,8 @@ export function createHookHandlers(deps: HookDeps): HookHandlers {
           },
           agentNameFrom(b.agent_id, leadName),
         );
-      } catch {
-        /* never throw into the turn */
+      } catch (err) {
+        logError('statusline hook', err); // never throw into the turn
       }
       return { status: 200, body: {} };
     },
@@ -159,8 +187,8 @@ export function createHookHandlers(deps: HookDeps): HookHandlers {
             agent,
           );
         }
-      } catch {
-        /* never throw into the turn */
+      } catch (err) {
+        logError('substatus hook', err); // never throw into the turn
       }
       return { status: 200, body: {} };
     },

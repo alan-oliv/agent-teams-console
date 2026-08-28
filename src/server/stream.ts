@@ -1,5 +1,6 @@
 import type { ServerResponse } from 'node:http';
 import type { TeamState } from '../shared/domain';
+import { logError } from './log';
 
 export const COALESCE_MS = 250;
 const HEARTBEAT_MS = 15_000;
@@ -21,10 +22,16 @@ export function createStream(snapshot: () => TeamState, coalesceMs = COALESCE_MS
   let lastFlush = 0;
   let closed = false;
 
+  // This runs from a bare setTimeout, so a throw inside snapshot() would be an
+  // uncaught exception with nothing above it to catch.
   const flush = () => {
     if (clients.size === 0) return;
-    const payload = frame('state', snapshot());
-    for (const res of clients) res.write(payload);
+    try {
+      const payload = frame('state', snapshot());
+      for (const res of clients) res.write(payload);
+    } catch (err) {
+      logError('stream flush', err);
+    }
   };
 
   const heartbeat = setInterval(() => {

@@ -164,6 +164,55 @@ describe('hook', () => {
   });
 });
 
+describe('--read-only', () => {
+  it('answers PermissionRequest immediately instead of holding the turn', async () => {
+    // Holding in read-only was the worst case: the card renders with disabled
+    // buttons, /api/permits 409s, nobody can resolve it, and the agent stalls
+    // for the full 540s auto-deny.
+    const readOnly = createHookHandlers({ store, permits, readOnly: true });
+    const out = await readOnly.hook({
+      hook_event_name: 'PermissionRequest',
+      tool_name: 'Bash',
+      tool_input: { command: 'rm -rf migrations/legacy' },
+      agent_id: 'aprobe-bravo-babf58016882bc72',
+      timeout: 10000,
+    });
+    expect(out).toEqual({ status: 200, body: {} });
+    expect(permits.list()).toEqual([]);
+    expect(of(store.replay(), 'needsyou')).toEqual([]);
+  });
+});
+
+describe('SessionEnd', () => {
+  it('exits only for the lead session', async () => {
+    // The hooks live in ~/.claude/settings.json — user scope — so every session
+    // on the machine posts SessionEnd here.
+    const ended: string[] = [];
+    const withLead = createHookHandlers({
+      store,
+      permits,
+      leadSessionId: () => 'lead-session-id',
+      onShutdown: () => ended.push('shutdown'),
+    });
+
+    await withLead.hook({ hook_event_name: 'SessionEnd', session_id: 'some-other-session' });
+    await new Promise((r) => setTimeout(r, 400));
+    expect(ended).toEqual([]);
+
+    await withLead.hook({ hook_event_name: 'SessionEnd', session_id: 'lead-session-id' });
+    await new Promise((r) => setTimeout(r, 400));
+    expect(ended).toEqual(['shutdown']);
+  });
+
+  it('does not exit while the lead session is still unknown', async () => {
+    const ended: string[] = [];
+    const noLead = createHookHandlers({ store, permits, onShutdown: () => ended.push('shutdown') });
+    await noLead.hook({ hook_event_name: 'SessionEnd', session_id: 'anything' });
+    await new Promise((r) => setTimeout(r, 400));
+    expect(ended).toEqual([]);
+  });
+});
+
 describe('statusline', () => {
   it('extracts cost, context window and both rate limits', async () => {
     const res = await handlers.statusline({

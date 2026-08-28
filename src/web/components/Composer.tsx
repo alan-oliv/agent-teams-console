@@ -1,5 +1,6 @@
 import { useState, type KeyboardEvent } from 'react';
 import type { Agent } from '../../shared/domain';
+import { postJson } from '../api';
 
 interface Variant {
   padding: string;
@@ -25,21 +26,29 @@ const VARIANT: Record<'wall' | 'rail', Variant> = {
   },
 };
 
-export function Composer({ agent, variant }: { agent: Agent; variant: 'wall' | 'rail' }) {
+export function Composer({
+  agent,
+  variant,
+  readOnly = false,
+}: {
+  agent: Agent;
+  variant: 'wall' | 'rail';
+  readOnly?: boolean;
+}) {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const v = VARIANT[variant];
-  const departed = agent.status === 'departed';
+  // Read-only 409s every control route, so an enabled composer would look live
+  // and swallow the rejection. Departed teammates have no inbox reader left.
+  const disabled = readOnly || agent.status === 'departed';
 
   async function send() {
     const body = text.trim();
-    if (!body || busy || departed) return;
+    if (!body || busy || disabled) return;
     setBusy(true);
     try {
-      const res = await fetch(`/api/agents/${encodeURIComponent(agent.name)}/message`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ text: body }),
+      const res = await postJson(`/api/agents/${encodeURIComponent(agent.name)}/message`, {
+        text: body,
       });
       if (res.ok) setText('');
     } finally {
@@ -70,8 +79,8 @@ export function Composer({ agent, variant }: { agent: Agent; variant: 'wall' | '
         data-testid="composer-input"
         rows={1}
         value={text}
-        placeholder={v.placeholder(agent.name)}
-        disabled={departed}
+        placeholder={readOnly ? 'read-only — control routes are disabled' : v.placeholder(agent.name)}
+        disabled={disabled}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={onKeyDown}
         style={{

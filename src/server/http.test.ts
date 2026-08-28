@@ -39,8 +39,11 @@ function emptyState(readOnly: boolean): TeamState {
   };
 }
 
+let shutdowns: number;
+
 async function boot(readOnly: boolean, webDist?: string): Promise<{ server: Server; url: string }> {
   state = emptyState(readOnly);
+  shutdowns = 0;
   hub = createStream(() => state, 50);
   const server = createHttpServer({
     permits,
@@ -49,6 +52,9 @@ async function boot(readOnly: boolean, webDist?: string): Promise<{ server: Serv
     state: () => state,
     readOnly,
     webDist,
+    onShutdown: () => {
+      shutdowns++;
+    },
   });
   const port = await listen(server, 0);
   return { server, url: `http://127.0.0.1:${port}` };
@@ -336,6 +342,20 @@ describe('control routes', () => {
   });
 });
 
+describe('POST /api/shutdown', () => {
+  it('answers before shutting down, which is the route spec §5.4 names', async () => {
+    const { server, url } = await boot(false);
+    try {
+      const res = await post(`${url}/api/shutdown`);
+      expect(res.status).toBe(200);
+      await new Promise((r) => setTimeout(r, 120));
+      expect(shutdowns).toBe(1);
+    } finally {
+      await shutdown(server);
+    }
+  });
+});
+
 describe('--read-only', () => {
   it('409s every control route with an explanatory body', async () => {
     const { server, url } = await boot(true);
@@ -348,6 +368,7 @@ describe('--read-only', () => {
         ['/api/agents/probe-alpha/interrupt', {}],
         ['/api/agents/probe-alpha/stop', {}],
         ['/api/agents/probe-alpha/respawn', {}],
+        ['/api/shutdown', {}],
       ];
       for (const [route, body] of routes) {
         const res = await fetch(url + route, {
@@ -359,6 +380,7 @@ describe('--read-only', () => {
         expect(await res.json()).toEqual(READ_ONLY_BODY);
       }
       await expect(fs.stat(path.join(dir, TEAM, 'inboxes', 'probe-alpha.json'))).rejects.toThrow();
+      expect(shutdowns).toBe(0);
     } finally {
       await shutdown(server);
     }

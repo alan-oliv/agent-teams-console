@@ -23,12 +23,13 @@ const HEADER: CSSProperties = {
 const LINE: CSSProperties = { display: 'flex', alignItems: 'baseline', gap: '7px' };
 
 export function Wall({
-  agents, focused, onFocus, now,
+  agents, focused, onFocus, now, readOnly = false,
 }: {
   agents: Agent[];
   focused: string | null;
   onFocus: (name: string) => void;
   now: number;
+  readOnly?: boolean;
 }) {
   const [hovered, setHovered] = useState<string | null>(null);
   const lead = agents.find((a) => a.isLead);
@@ -201,7 +202,7 @@ export function Wall({
               {agent.currentTool ?? ''}
             </div>
 
-            <Composer agent={agent} variant="wall" />
+            <Composer agent={agent} variant="wall" readOnly={readOnly} />
           </div>
         );
       })}

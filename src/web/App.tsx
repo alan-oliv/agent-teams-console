@@ -66,7 +66,13 @@ export function App() {
       <StatusBar state={state} view={store.view} onViewChange={store.setView} now={now} />
       <main className="console-body">
         {store.view === 'wall' && (
-          <Wall agents={state.agents} focused={store.agent} onFocus={store.setAgent} now={now} />
+          <Wall
+            agents={state.agents}
+            focused={store.agent}
+            onFocus={store.setAgent}
+            now={now}
+            readOnly={state.readOnly}
+          />
         )}
         {store.view === 'overview' && (
           <Overview agents={state.agents} focused={store.agent} onFocus={store.setAgent} now={now} />
@@ -75,7 +81,13 @@ export function App() {
           <Tasks tasks={state.tasks} mail={state.mail} teamName={state.teamName} />
         )}
         {store.view === 'rail' && (
-          <Rail agents={state.agents} focused={store.agent} onFocus={store.setAgent} now={now} />
+          <Rail
+            agents={state.agents}
+            focused={store.agent}
+            onFocus={store.setAgent}
+            now={now}
+            readOnly={state.readOnly}
+          />
         )}
         {store.view === 'grid' && (
           <Grid agents={state.agents} focused={store.agent} onFocus={store.setAgent} now={now} />
