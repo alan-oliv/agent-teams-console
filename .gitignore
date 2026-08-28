@@ -1,5 +1,6 @@
 node_modules/
-dist/
+# dist/ is deliberately COMMITTED: the plugin ships as files and nothing
+# builds on the user's machine. Rebuild with `npm run build` before releasing.
 .superpowers/
 .DS_Store
 *.log

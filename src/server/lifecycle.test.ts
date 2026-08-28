@@ -10,9 +10,14 @@ import { teamNameFromSessionId, hasLiveTeam } from './lifecycle';
 // stdin open forever. The script blocks on `cat` reading that stdin, which
 // reads as the test hanging rather than failing. spawn + manual stdin.end()
 // is the async-correct way to feed a child process stdin and await its exit.
-function run(script: string, env: NodeJS.ProcessEnv, input: string): Promise<{ stdout: string }> {
+function run(
+  script: string,
+  env: NodeJS.ProcessEnv,
+  input: string,
+  cwd?: string,
+): Promise<{ stdout: string }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(script, [], { env });
+    const child = spawn(script, [], { env, cwd });
     let stdout = '';
     child.stdout.on('data', (d: Buffer) => {
       stdout += d.toString('utf8');
@@ -148,6 +153,34 @@ describe('bin/console-launch.sh', () => {
     const second = await launch(payload, dir);
     expect(JSON.parse(first).systemMessage).toContain('http://127.0.0.1:4899');
     expect(second).toBe('{}');
+  });
+
+  it('starts the server from CLAUDE_PLUGIN_ROOT, not from the cwd', async () => {
+    const pluginRoot = path.join(dir, 'plugin');
+    await fs.mkdir(path.join(pluginRoot, 'dist', 'server'), { recursive: true });
+    const marker = path.join(dir, 'started');
+    await fs.writeFile(
+      path.join(pluginRoot, 'dist', 'server', 'index.js'),
+      `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'yes');\n`,
+    );
+    await fs.mkdir(path.join(dir, 'teams'), { recursive: true });
+    await writeTeamUnder(path.join(dir, 'teams'), 'session-98b0b4a7', ['team-lead', 'probe-alpha']);
+
+    // cwd is somewhere with no dist/ at all: only CLAUDE_PLUGIN_ROOT can find it.
+    await run(
+      script,
+      {
+        ...process.env,
+        CLAUDE_CONFIG_DIR: dir,
+        CLAUDE_PLUGIN_ROOT: pluginRoot,
+        OCTO_PORT: '4897',
+        OCTO_ROOT: '',
+      },
+      JSON.stringify({ hook_event_name: 'PostToolUse', tool_name: 'Agent', session_id: '98b0b4a7-3206-455b-aaf6-a5a81ad1e283' }),
+      os.tmpdir(),
+    );
+
+    expect(await fs.readFile(marker, 'utf8')).toBe('yes');
   });
 
   it('exits 0 with {} on garbage input — a broken console must never fail a spawn', async () => {

@@ -13,7 +13,10 @@ set -u
 
 PORT="${OCTO_PORT:-4823}"
 CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-ROOT="${OCTO_ROOT:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)}"
+# Never the cwd: the hook inherits the Claude session's cwd — the user's
+# project, not this checkout. CLAUDE_PLUGIN_ROOT is set when we are installed
+# as a plugin; otherwise this script sits in <root>/bin.
+ROOT="${OCTO_ROOT:-${CLAUDE_PLUGIN_ROOT:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)}}"
 HEALTH="http://127.0.0.1:$PORT/health"
 
 bail() { echo '{}'; exit 0; }
