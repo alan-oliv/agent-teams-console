@@ -34,18 +34,22 @@ The files in this bundle are **design references created in HTML** — prototype
 
 **Layout — four rows, vertical flex:**
 
-1. **Status bar** — 1 row, `padding: 9px 14px`, `background: #161826`, `border-bottom: 1px solid var(--color-neutral-900)`, `font-size: 12.5px`, `gap: 14px`, items baseline-aligned.
+1. **Status bar** — **exactly one line, 40px tall.** `padding: 9px 14px`, `background: var(--color-bg)`, `border-bottom: 1px solid var(--color-neutral-900)`, `font-size: 12.5px`, `gap: 10px`, `flex-wrap: nowrap`. Every child is `flex: none; white-space: nowrap` except one `flex: 1` spacer — a shrinkable text span here wraps and doubles the bar's height, which is the single most common way to break this layout. If the metrics don't fit at a narrow viewport, drop them right-to-left (spend, then elapsed, then diffstat); never wrap.
    - `TEAM` wordmark: `var(--color-accent)`, 11px, weight 700, `letter-spacing: .14em`
-   - team name (`session-8f2a1c` — session-derived, first 8 chars of the session id)
+   - **session dropdown** — the trigger shows the session name (`session-8f2a1c`, session-derived) with a caret; the goal appears next to it in `var(--color-neutral-600)` 10.5px, ellipsised, where the bar has room. 1px `var(--color-neutral-800)` border, `var(--radius-sm)`, hover border `var(--color-accent-700)` on `var(--color-accent-900)`. The menu is 432px wide, `var(--color-bg)`, 1px `var(--color-neutral-800)`, `var(--radius-md)`, `box-shadow: 0 18px 40px rgba(0,0,0,.6)`, header `SESSIONS ON THIS MACHINE · N`; each row = state glyph (`●` live / `○` idle / `✓` ended) · session name · branch · goal · agent count · state text, with `✓` on the current one. Picking a session switches the console; the others keep running. `⌘K` searches.
    - `experimental` pill: 1px `var(--color-accent-700)` border, `var(--color-accent-300)` text, 10px, `border-radius: var(--radius-sm)`, `padding: 1px 6px`
    - branch (`var(--color-accent-400)`), PR + diffstat (`var(--color-neutral-600)`)
    - right side: `tasks 3/11`, `6 context windows`, total tokens, an ASCII aggregate meter (`var(--color-accent-500)`, `letter-spacing: -.5px`), elapsed, spend
-2. **The wall** — `flex: 1`, `display: flex`, `overflow-x: auto`, `overflow-y: hidden`, `gap: 1px`, `background: var(--color-neutral-900)` (the gap reads as a 1px rule between columns). One column per agent, `width: 366px`, `flex: none`. In production the **lead column should be `position: sticky; left: 0`** so it stays visible while the teammate columns scroll. Column internals:
+2. **The wall** — `flex: 1`, `display: flex`, `overflow-x: auto`, `overflow-y: hidden`, `gap: 1px`, `background: var(--color-neutral-900)` (the gap reads as a 1px rule between columns). One column per agent, `flex: none`, default `width: 366px`.
+   - **The lead column is `position: sticky; left: 0; z-index: 2`** with `box-shadow: 1px 0 0 var(--color-neutral-800), 8px 0 18px rgba(0,0,0,.5)` so it stays visible while teammates scroll. Put sticky on the column element itself, not on a `:first-child` stylesheet rule — a per-column width override otherwise wins and unpins it.
+   - **Columns are resizable.** A 7px hit strip sits on each column's right edge (`position: absolute; right: -3px; height: 100%; cursor: col-resize; z-index: 4`) with a 1px line inside that is transparent at rest and `var(--color-accent-500)` while dragging. Drag adjusts that column only, clamped **232–720px**; double-click resets to 366. Width is per-column state, keyed by agent name, and persists across view switches.
+   
+   Column internals:
    - **Header** (`background: #161826`, `padding: 9px 12px 8px`, bottom hairline, `gap: 5px` column):
      - line 1: status glyph (colour per status, 11px) · agent name (13px, weight 500, `var(--color-text)`) · agent-type badge (`security-reviewer`, `team-lead`, …; 9.5px, 1px `var(--color-neutral-800)` border, `var(--color-neutral-500)`) · model, right-aligned (10.5px, `var(--color-neutral-700)`)
      - line 2: status label in the status colour · role/assignment (`var(--color-neutral-600)`, 11px, ellipsised) · elapsed, right
      - line 3: **context meter** — 16-cell ASCII bar (`█` filled / `░` empty, `var(--color-accent-600)`, 11.5px, `letter-spacing: -.5px`) · percent · `!` warning glyph (`#d99e5c`) past the threshold · `96.2k / 200k` · spend, right
-   - **Transcript** — `flex: 1`, `overflow: hidden`, `padding: 9px 12px`, lines bottom-anchored (`justify-content: flex-end`, `gap: 1px`). Each line: a 9px-wide marker column (`var(--color-accent-600)`, 11px) + text (`var(--color-neutral-500)`, 11.5px, `white-space: nowrap`, ellipsised). Markers: `❯` prompt, `⏺` tool call, `⎿` result/aside, `✓` success, `✗` failure, `+` diffstat, `!` finding, `▲` waiting, `○` queued/idle.
+   - **Transcript** — `flex: 1`, `padding: 9px 12px`, `gap: 1px`, **its own Y scroll**: `overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain`, holding the agent's full history back to its session preamble. Lines are bottom-anchored via `margin-top: auto` on the first child — **not** `justify-content: flex-end`, which makes a flex column unscrollable upward. On new output, auto-scroll to the bottom only when the user is already within 64px of it; if they've scrolled up to read, leave the position alone. Scrollbar is themed and always visible on a scrollable pane so the affordance reads: 9px wide, track `rgba(233,233,237,.035)`, thumb `var(--color-neutral-800)` with a 2px transparent border (`background-clip: content-box`), `var(--color-accent-700)` on pane hover; `scrollbar-width: thin`. Every pane in every view scrolls independently this way — wall columns, overview tiles, grid panes, the rail transcript, the rail's agent list, the task list, and the mailbox. Each line: a 9px-wide marker column (`var(--color-accent-600)`, 11px) + text (`var(--color-neutral-500)`, 11.5px, `white-space: nowrap`, ellipsised). Markers: `❯` prompt, `⏺` tool call, `⎿` result/aside, `✓` success, `✗` failure, `+` diffstat, `!` finding, `▲` waiting, `○` queued/idle.
    - **Current tool** — one line, top hairline, `var(--color-neutral-700)`, 10.5px, ellipsised.
    - **Message composer** — top hairline, `background: #161826`, `padding: 8px 12px`: `❯` (`var(--color-accent-600)`) + placeholder `message <name>` + `⌘⏎` hint. This is the direct-message channel to that teammate (equivalent to selecting the row and pressing Enter in the terminal).
 3. **Needs-you strip** — top hairline, `background: #161826`, `padding: 9px 14px`. Label `NEEDS YOU · 2` in `#d99e5c`, 10.5px, `letter-spacing: .12em`. Then one card per item:
@@ -86,6 +90,10 @@ The files in this bundle are **design references created in HTML** — prototype
 - **Live counters** tick once per second: tokens, context percent, elapsed, spend, and appended transcript lines. Transcripts append chronologically — newest last, bottom-anchored.
 - **Hover** on any interactive element tints from the accent ramp; keyboard focus is `outline: 2px solid var(--color-accent); outline-offset: 2px`. No browser defaults.
 
+## Shared state across views
+
+The five views are one component reading one store, not five screens. Anything set anywhere applies everywhere: the picked session (and the branch, diffstat, task counts and agent roster that follow from it), the focused agent, per-column widths, and the context-warning threshold. When adding a control, put it in the shared chrome — never per-view.
+
 ## State
 
 Per team: `teamName` (session-derived, `session-` + first 8 of session id), branch, PR/diffstat, elapsed, total spend, aggregate tokens, task counts.
@@ -95,6 +103,8 @@ Per agent: `name`, `agentType` (built-in or subagent definition; the lead is alw
 Per task: `id`, `description`, `state` (`pending | in_progress | completed` + UI-only `plan_pending | failed | blocked`), `owner`, `dependsOn[]`.
 
 Per message: `ts`, `from`, `to`, `text`.
+
+Per session (for the dropdown): `name`, `goal`, `branch`, `diffstat`, `agentCount`, `activity` ("4 working", "all idle", "ended 41m ago"), `state` (`live | idle | done`). Enumerate live sessions from `~/.claude/teams/`.
 
 Sources: team config `~/.claude/teams/{team}/config.json` (members, agent ids, types — read-only, rewritten by Claude Code), task list `~/.claude/tasks/{team}/`, mailboxes `~/.claude/teams/{team}/inboxes/{agent}.json`. Treat all three as observed state; never hand-edit the config. Note the documented limits: one team per session, no nested teams, the lead is fixed, and in-process teammates don't survive `/resume`.
 

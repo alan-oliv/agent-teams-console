@@ -18,7 +18,12 @@ body{margin:0;background:#0d0e17;font-family:"Inter",system-ui,sans-serif;color:
 a{color:#b5abfc}a:hover{color:#d2cefd}
 @keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
 @keyframes pulse{0%,100%{opacity:.35}50%{opacity:1}}
-.wall>div:first-child{position:sticky;left:0;z-index:2;background:#12141f;box-shadow:1px 0 0 var(--color-neutral-800),8px 0 18px rgba(0,0,0,.5)}
+.tscroll>*:first-child{margin-top:auto}
+.tscroll{overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#3f424d transparent;overscroll-behavior:contain}
+.tscroll::-webkit-scrollbar{width:9px}
+.tscroll::-webkit-scrollbar-track{background:rgba(233,233,237,.035)}
+.tscroll::-webkit-scrollbar-thumb{background:#3f424d;border-radius:5px;border:2px solid transparent;background-clip:content-box}
+.tscroll:hover::-webkit-scrollbar-thumb{background:#5d5294;background-clip:content-box}
 .dv-turn{padding:40px 44px 32px;border-bottom:1px solid rgba(233,233,237,.08);scroll-margin-top:16px}
 .dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 20px}
 .dv-tid{font:600 10px "JetBrains Mono",ui-monospace,monospace;padding:3px 7px;background:#e9e9ed;color:#161826;border-radius:4px;text-decoration:none}
@@ -43,31 +48,61 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <x-import component-from-global-scope="ChromeWindow" from="./browser-window.jsx" width="{{ w }}" height="{{ h3 }}" url="localhost:4823/team/session-8f2a1c" tabs="{{ tabs }}" hint-size="1180px,800px">
 <div style="height:100%;display:flex;flex-direction:column;background:#12141f;color:var(--color-text);font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;line-height:1.55">
 
-<div style="display:flex;align-items:center;gap:14px;padding:9px 14px;border-bottom:1px solid var(--color-neutral-900);background:var(--color-bg);font-size:12.5px">
-<span style="color:var(--color-accent);letter-spacing:.14em;font-weight:700;font-size:11px">TEAM</span>
-<span style="color:var(--color-text)">{{ t.name }}</span>
-<span style="border:1px solid var(--color-accent-700);color:var(--color-accent-300);border-radius:var(--radius-sm);padding:1px 6px;font-size:10px">experimental</span>
-<div style="display:flex;gap:2px;margin-left:6px">
+<div style="display:flex;align-items:center;flex-wrap:nowrap;gap:10px;padding:9px 14px;border-bottom:1px solid var(--color-neutral-900);background:var(--color-bg);font-size:12.5px">
+<span style="color:var(--color-accent);letter-spacing:.14em;font-weight:700;font-size:11px;flex:none">TEAM</span>
+<div style="position:relative;flex:none">
+<div onClick="{{ toggleSess }}" style="display:flex;align-items:center;gap:7px;padding:3px 8px;margin:-3px 0;flex:none;white-space:nowrap;border:1px solid var(--color-neutral-800);border-radius:var(--radius-sm);cursor:pointer" style-hover="border-color:var(--color-accent-700);background:var(--color-accent-900)">
+<span style="color:var(--color-text);white-space:nowrap;flex:none">{{ sessName }}</span>
+<span style="color:var(--color-accent-400);font-size:10px">{{ sessCaret }}</span>
+</div>
+<div style="position:absolute;top:calc(100% + 6px);left:0;z-index:20;display:{{ sessMenu }};flex-direction:column;width:432px;background:var(--color-bg);border:1px solid var(--color-neutral-800);border-radius:var(--radius-md);box-shadow:0 18px 40px rgba(0,0,0,.6);overflow:hidden">
+<div style="padding:8px 12px 7px;color:var(--color-neutral-700);font-size:10px;letter-spacing:.12em;border-bottom:1px solid var(--color-neutral-900)">SESSIONS ON THIS MACHINE · 5</div>
+<sc-for list="{{ sessions }}" as="s" hint-placeholder-count="5">
+<div onClick="{{ s.pick }}" style="padding:8px 12px;display:flex;gap:9px;align-items:flex-start;cursor:pointer;background:{{ s.rowBg }};border-bottom:1px solid var(--color-neutral-900)" style-hover="background:var(--color-neutral-900)">
+<span style="font-size:10px;color:{{ s.dotCol }};margin-top:2px">{{ s.dot }}</span>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+<div style="display:flex;gap:8px;align-items:baseline">
+<span style="color:{{ s.nameCol }};font-size:12px">{{ s.name }}</span>
+<span style="color:var(--color-neutral-700);font-size:10.5px">{{ s.branch }}</span>
+<span style="flex:1"></span>
+<span style="color:var(--color-accent-400);font-size:10.5px">{{ s.check }}</span>
+</div>
+<div style="display:flex;gap:8px;align-items:baseline">
+<span style="color:var(--color-neutral-500);font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ s.goal }}</span>
+<span style="flex:1"></span>
+<span style="color:var(--color-neutral-700);font-size:10px;white-space:nowrap">{{ s.agents }}</span>
+<span style="color:var(--color-neutral-600);font-size:10px;white-space:nowrap">{{ s.state }}</span>
+</div>
+</div>
+</div>
+</sc-for>
+<div style="padding:8px 12px;display:flex;gap:12px;color:var(--color-neutral-700);font-size:10px">
+<span>⌘K to search</span><span style="flex:1"></span><span>a session is one team · switching keeps both running</span>
+</div>
+</div>
+</div>
+<div style="display:flex;gap:2px;margin-left:2px;flex:none">
 <sc-for list="{{ views }}" as="v" hint-placeholder-count="5">
-<div onClick="{{ v.on }}" style="padding:3px 9px 4px;cursor:pointer;display:flex;flex-direction:column;gap:4px;border-radius:var(--radius-sm) var(--radius-sm) 0 0" style-hover="background:var(--color-neutral-900)">
-<span style="font-size:11.5px;color:{{ v.col }}">{{ v.label }}</span>
-<span style="height:2px;border-radius:1px;background:{{ v.ul }}"></span>
+<div onClick="{{ v.on }}" style="padding:1px 9px;cursor:pointer;border-radius:var(--radius-sm);box-shadow:inset 0 0 0 1px {{ v.ul }};background:{{ v.pill }}" style-hover="background:var(--color-neutral-900)">
+<span style="font-size:11.5px;white-space:nowrap;color:{{ v.col }}">{{ v.label }}</span>
 </div>
 </sc-for>
 </div>
-<span style="flex:1"></span>
-<span style="color:var(--color-neutral-600)">tasks {{ t.done }}/{{ t.total }}</span>
-<span style="color:var(--color-neutral-600)">{{ t.windows }} windows</span>
-<span style="color:var(--color-neutral-500)">{{ t.tok }}</span>
-<span style="color:var(--color-accent-500);letter-spacing:-.5px">{{ t.bar }}</span>
-<span style="color:var(--color-neutral-500)">{{ t.elapsed }}</span>
-<span style="color:var(--color-neutral-500)">{{ t.cost }}</span>
+<span style="flex:1;min-width:8px"></span>
+<span style="color:var(--color-accent-400);white-space:nowrap;flex:none">{{ sessBranch }}</span>
+<span style="color:var(--color-neutral-600);white-space:nowrap;flex:none">{{ sessDiff }}</span>
+<span style="color:var(--color-neutral-600);white-space:nowrap;flex:none">{{ t.done }}/{{ t.total }} tasks</span>
+<span style="color:var(--color-neutral-600);white-space:nowrap;flex:none">{{ t.windows }} ctx</span>
+<span style="color:var(--color-neutral-500);white-space:nowrap;flex:none">{{ t.tok }}</span>
+<span style="color:var(--color-accent-500);letter-spacing:-.5px;white-space:nowrap;flex:none">{{ t.bar }}</span>
+<span style="color:var(--color-neutral-500);white-space:nowrap;flex:none">{{ t.elapsed }}</span>
+<span style="color:var(--color-neutral-500);white-space:nowrap;flex:none">{{ t.cost }}</span>
 </div>
 
 <sc-if value="{{ isWall }}" hint-placeholder-val="{{ true }}">
 <div class="wall" style="flex:1;display:flex;overflow-x:auto;overflow-y:hidden;min-height:0;gap:1px;background:var(--color-neutral-900)">
 <sc-for list="{{ team }}" as="a" hint-placeholder-count="6">
-<div style="flex:none;width:366px;background:#12141f;display:flex;flex-direction:column;min-height:0">
+<div style="flex:none;width:{{ a.colW }};background:#12141f;display:flex;flex-direction:column;min-height:0;position:{{ a.colPos }};left:0;z-index:{{ a.colZ }};box-shadow:{{ a.colShadow }}">
 <div style="padding:9px 12px 8px;background:var(--color-bg);border-bottom:1px solid var(--color-neutral-900);display:flex;gap:11px;align-items:flex-start">
 <div style="width:24px;height:24px;position:relative;flex:none;margin-top:3px">
 <div style="position:absolute;top:0;left:0;width:2px;height:2px;background:transparent;box-shadow:{{ a.spr }}"></div>
@@ -96,7 +131,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 </div>
 </div>
 </div>
-<div style="flex:1;overflow:hidden;padding:9px 12px;display:flex;flex-direction:column;gap:1px;justify-content:flex-end">
+<div class="tscroll" style="flex:1;padding:9px 12px;display:flex;flex-direction:column;gap:1px">
 <sc-for list="{{ a.wall }}" as="l" hint-placeholder-count="16">
 <div style="display:flex;gap:7px;align-items:baseline;white-space:nowrap">
 <span style="color:var(--color-accent-600);width:9px;flex:none;font-size:11px">{{ l.mark }}</span>
@@ -104,11 +139,15 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 </div>
 </sc-for>
 </div>
+<div style="border-top:1px solid var(--color-neutral-900);padding:7px 12px;color:var(--color-neutral-700);font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.tool }}</div>
 <div style="border-top:1px solid var(--color-neutral-900);padding:8px 12px;display:flex;align-items:center;gap:7px;background:var(--color-bg)">
 <span style="color:var(--color-accent-600);font-size:11px">❯</span>
 <span style="color:var(--color-neutral-700);font-size:11px">message {{ a.name }}</span>
 <span style="flex:1"></span>
 <span style="color:var(--color-neutral-800);font-size:10px">⌘⏎</span>
+</div>
+<div onMouseDown="{{ a.onGrip }}" onDoubleClick="{{ a.onGripDbl }}" title="drag to resize · double-click to reset" style="position:absolute;top:0;right:-3px;width:7px;height:100%;cursor:col-resize;z-index:4;display:flex;justify-content:center">
+<span style="width:1px;height:100%;background:{{ a.grip }}"></span>
 </div>
 </div>
 </sc-for>
@@ -140,7 +179,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <div style="height:100%;background:var(--color-accent-600);width:{{ a.pct }}"></div>
 </div>
 </div>
-<div style="flex:1;overflow:hidden;padding:8px 10px;display:flex;flex-direction:column;gap:1px;justify-content:flex-end">
+<div class="tscroll" style="flex:1;padding:8px 10px;display:flex;flex-direction:column;gap:1px">
 <sc-for list="{{ a.wall }}" as="l" hint-placeholder-count="12">
 <div style="display:flex;gap:5px;align-items:baseline;white-space:nowrap">
 <span style="color:var(--color-accent-700);width:8px;flex:none;font-size:9.5px">{{ l.mark }}</span>
@@ -166,7 +205,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <span style="width:80px">OWNER</span>
 <span style="width:88px">DEPENDS ON</span>
 </div>
-<div style="flex:1;overflow:hidden;display:flex;flex-direction:column">
+<div class="tscroll" style="flex:1;display:flex;flex-direction:column">
 <sc-for list="{{ tasks }}" as="k" hint-placeholder-count="11">
 <div style="display:flex;gap:10px;align-items:baseline;padding:7px 16px;border-bottom:1px solid #1b1d2b;font-size:11.5px" style-hover="background:var(--color-bg)">
 <span style="width:44px;color:var(--color-neutral-600)">{{ k.id }}</span>
@@ -185,7 +224,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 </div>
 <div style="width:404px;display:flex;flex-direction:column;background:var(--color-bg)">
 <div style="padding:10px 14px 8px;color:var(--color-neutral-700);font-size:10.5px;letter-spacing:.12em;border-bottom:1px solid var(--color-neutral-900)">MAILBOX TRAFFIC</div>
-<div style="flex:1;overflow:hidden;padding:10px 14px;display:flex;flex-direction:column;gap:9px;justify-content:flex-end">
+<div class="tscroll" style="flex:1;padding:10px 14px;display:flex;flex-direction:column;gap:9px">
 <sc-for list="{{ mail }}" as="m" hint-placeholder-count="10">
 <div style="display:flex;flex-direction:column;gap:2px">
 <div style="display:flex;gap:6px;align-items:baseline;font-size:10.5px">
@@ -209,7 +248,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <div style="display:flex;justify-content:space-between;padding:10px 14px 8px;color:var(--color-neutral-600);font-size:10.5px;letter-spacing:.12em">
 <span>TEAM · 6</span><span>click to attach</span>
 </div>
-<div style="flex:1;overflow:hidden;display:flex;flex-direction:column;gap:2px;padding:0 8px 8px">
+<div class="tscroll" style="flex:1;display:flex;flex-direction:column;gap:2px;padding:0 8px 8px">
 <sc-for list="{{ team }}" as="a" hint-placeholder-count="6">
 <div onClick="{{ a.sel }}" style="padding:8px 10px;border-radius:var(--radius-sm);cursor:pointer;display:flex;gap:10px;align-items:flex-start;background:{{ a.selBg }};border-left:2px solid {{ a.selBar }}">
 <div style="width:24px;height:24px;position:relative;flex:none;margin-top:1px">
@@ -251,7 +290,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <span style="color:var(--color-neutral-500);font-size:11px">{{ focus.ctx }}</span>
 <span style="color:var(--color-neutral-600);font-size:11px">{{ focus.cost }}</span>
 </div>
-<div style="flex:1;overflow:hidden;padding:12px 18px;display:flex;flex-direction:column;gap:1px;justify-content:flex-end">
+<div class="tscroll" style="flex:1;padding:12px 18px;display:flex;flex-direction:column;gap:1px">
 <sc-for list="{{ focus.wall }}" as="l" hint-placeholder-count="18">
 <div style="display:flex;gap:9px;align-items:baseline;white-space:nowrap">
 <span style="color:var(--color-accent-600);width:10px;flex:none;font-size:11px">{{ l.mark }}</span>
@@ -293,7 +332,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 </div>
 </div>
 </div>
-<div style="flex:1;overflow:hidden;padding:8px 11px;display:flex;flex-direction:column;gap:1px;justify-content:flex-end">
+<div class="tscroll" style="flex:1;padding:8px 11px;display:flex;flex-direction:column;gap:1px">
 <sc-for list="{{ a.wall }}" as="l" hint-placeholder-count="12">
 <div style="display:flex;gap:6px;align-items:baseline;white-space:nowrap">
 <span style="color:var(--color-accent-700);width:8px;flex:none;font-size:10px">{{ l.mark }}</span>
@@ -358,27 +397,55 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <x-import component-from-global-scope="ChromeWindow" from="./browser-window.jsx" width="{{ w }}" height="{{ h3 }}" url="localhost:4823/team/session-8f2a1c" tabs="{{ tabs }}" hint-size="1180px,800px">
 <div style="height:100%;display:flex;flex-direction:column;background:#12141f;color:var(--color-text);font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;line-height:1.55">
 
-<div style="display:flex;align-items:center;gap:14px;padding:9px 14px;border-bottom:1px solid var(--color-neutral-900);background:var(--color-bg);font-size:12.5px">
+<div style="display:flex;align-items:center;flex-wrap:nowrap;gap:10px;padding:9px 14px;border-bottom:1px solid var(--color-neutral-900);background:var(--color-bg);font-size:12.5px">
 <span style="color:var(--color-accent);letter-spacing:.14em;font-weight:700;font-size:11px">TEAM</span>
-<span style="color:var(--color-text)">{{ t.name }}</span>
-<span style="border:1px solid var(--color-accent-700);color:var(--color-accent-300);border-radius:var(--radius-sm);padding:1px 6px;font-size:10px">experimental</span>
-<span style="color:var(--color-neutral-700)">·</span>
-<span style="color:var(--color-accent-400)">feat/session-auth</span>
-<span style="color:var(--color-neutral-600)">PR #142 · +412 −118</span>
+<div style="position:relative;flex:none">
+<div onClick="{{ toggleSess }}" style="display:flex;align-items:center;gap:7px;padding:3px 8px;margin:-3px 0;flex:none;white-space:nowrap;border:1px solid var(--color-neutral-800);border-radius:var(--radius-sm);cursor:pointer" style-hover="border-color:var(--color-accent-700);background:var(--color-accent-900)">
+<span style="color:var(--color-text);white-space:nowrap;flex:none">{{ sessName }}</span>
+<span style="color:var(--color-neutral-600);font-size:10.5px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ sessGoal }}</span>
+<span style="color:var(--color-accent-400);font-size:10px">{{ sessCaret }}</span>
+</div>
+<div style="position:absolute;top:calc(100% + 6px);left:0;z-index:20;display:{{ sessMenu }};flex-direction:column;width:432px;background:var(--color-bg);border:1px solid var(--color-neutral-800);border-radius:var(--radius-md);box-shadow:0 18px 40px rgba(0,0,0,.6);overflow:hidden">
+<div style="padding:8px 12px 7px;color:var(--color-neutral-700);font-size:10px;letter-spacing:.12em;border-bottom:1px solid var(--color-neutral-900)">SESSIONS ON THIS MACHINE · 5</div>
+<sc-for list="{{ sessions }}" as="s" hint-placeholder-count="5">
+<div onClick="{{ s.pick }}" style="padding:8px 12px;display:flex;gap:9px;align-items:flex-start;cursor:pointer;background:{{ s.rowBg }};border-bottom:1px solid var(--color-neutral-900)" style-hover="background:var(--color-neutral-900)">
+<span style="font-size:10px;color:{{ s.dotCol }};margin-top:2px">{{ s.dot }}</span>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+<div style="display:flex;gap:8px;align-items:baseline">
+<span style="color:{{ s.nameCol }};font-size:12px">{{ s.name }}</span>
+<span style="color:var(--color-neutral-700);font-size:10.5px">{{ s.branch }}</span>
 <span style="flex:1"></span>
-<span style="color:var(--color-neutral-600)">tasks {{ t.done }}/{{ t.total }}</span>
-<span style="color:var(--color-neutral-700)">|</span>
-<span style="color:var(--color-neutral-600)">{{ t.windows }} context windows</span>
-<span style="color:var(--color-neutral-500)">{{ t.tok }}</span>
-<span style="color:var(--color-accent-500);letter-spacing:-.5px">{{ t.bar }}</span>
-<span style="color:var(--color-neutral-700)">|</span>
-<span style="color:var(--color-neutral-500)">{{ t.elapsed }}</span>
-<span style="color:var(--color-neutral-500)">{{ t.cost }}</span>
+<span style="color:var(--color-accent-400);font-size:10.5px">{{ s.check }}</span>
+</div>
+<div style="display:flex;gap:8px;align-items:baseline">
+<span style="color:var(--color-neutral-500);font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ s.goal }}</span>
+<span style="flex:1"></span>
+<span style="color:var(--color-neutral-700);font-size:10px;white-space:nowrap">{{ s.agents }}</span>
+<span style="color:var(--color-neutral-600);font-size:10px;white-space:nowrap">{{ s.state }}</span>
+</div>
+</div>
+</div>
+</sc-for>
+<div style="padding:8px 12px;display:flex;gap:12px;color:var(--color-neutral-700);font-size:10px">
+<span>⌘K to search</span><span style="flex:1"></span><span>a session is one team · switching keeps both running</span>
+</div>
+</div>
+</div>
+<span style="border:1px solid var(--color-accent-700);color:var(--color-accent-300);border-radius:var(--radius-sm);padding:1px 6px;font-size:10px">experimental</span>
+<span style="color:var(--color-accent-400);white-space:nowrap;flex:none">{{ sessBranch }}</span>
+<span style="color:var(--color-neutral-600);white-space:nowrap;flex:none">{{ sessDiff }}</span>
+<span style="flex:1"></span>
+<span style="color:var(--color-neutral-600);white-space:nowrap;flex:none">{{ t.done }}/{{ t.total }} tasks</span>
+<span style="color:var(--color-neutral-600);white-space:nowrap;flex:none">{{ t.windows }} ctx</span>
+<span style="color:var(--color-neutral-500);white-space:nowrap;flex:none">{{ t.tok }}</span>
+<span style="color:var(--color-accent-500);letter-spacing:-.5px;white-space:nowrap;flex:none">{{ t.bar }}</span>
+<span style="color:var(--color-neutral-500);white-space:nowrap;flex:none">{{ t.elapsed }}</span>
+<span style="color:var(--color-neutral-500);white-space:nowrap;flex:none">{{ t.cost }}</span>
 </div>
 
 <div class="wall" style="flex:1;display:flex;overflow-x:auto;overflow-y:hidden;min-height:0;gap:1px;background:var(--color-neutral-900)">
 <sc-for list="{{ team }}" as="a" hint-placeholder-count="6">
-<div style="flex:none;width:366px;background:#12141f;display:flex;flex-direction:column;min-height:0" style-hover="background:var(--color-neutral-900)">
+<div style="flex:none;width:{{ a.colW }};background:#12141f;display:flex;flex-direction:column;min-height:0;position:{{ a.colPos }};left:0;z-index:{{ a.colZ }};box-shadow:{{ a.colShadow }}">
 <div style="padding:9px 12px 8px;background:var(--color-bg);border-bottom:1px solid var(--color-neutral-900);display:flex;gap:11px;align-items:flex-start">
 <div style="width:24px;height:24px;position:relative;flex:none;margin-top:3px">
 <div style="position:absolute;top:0;left:0;width:2px;height:2px;background:transparent;box-shadow:{{ a.spr }}"></div>
@@ -407,7 +474,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 </div>
 </div>
 </div>
-<div style="flex:1;overflow:hidden;padding:9px 12px;display:flex;flex-direction:column;gap:1px;justify-content:flex-end">
+<div class="tscroll" style="flex:1;padding:9px 12px;display:flex;flex-direction:column;gap:1px">
 <sc-for list="{{ a.wall }}" as="l" hint-placeholder-count="16">
 <div style="display:flex;gap:7px;align-items:baseline;white-space:nowrap">
 <span style="color:var(--color-accent-600);width:9px;flex:none;font-size:11px">{{ l.mark }}</span>
@@ -421,6 +488,9 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <span style="color:var(--color-neutral-700);font-size:11px">message {{ a.name }}</span>
 <span style="flex:1"></span>
 <span style="color:var(--color-neutral-800);font-size:10px">⌘⏎</span>
+</div>
+<div onMouseDown="{{ a.onGrip }}" onDoubleClick="{{ a.onGripDbl }}" title="drag to resize · double-click to reset" style="position:absolute;top:0;right:-3px;width:7px;height:100%;cursor:col-resize;z-index:4;display:flex;justify-content:center">
+<span style="width:1px;height:100%;background:{{ a.grip }}"></span>
 </div>
 </div>
 </sc-for>
@@ -469,15 +539,46 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <x-import component-from-global-scope="ChromeWindow" from="./browser-window.jsx" width="{{ w }}" height="{{ h4 }}" url="localhost:4823/team/session-8f2a1c/tasks" tabs="{{ tabs }}" hint-size="1180px,660px">
 <div style="height:100%;display:flex;flex-direction:column;background:#12141f;color:var(--color-text);font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;line-height:1.55">
 
-<div style="display:flex;align-items:center;gap:14px;padding:9px 14px;border-bottom:1px solid var(--color-neutral-900);background:var(--color-bg);font-size:12.5px">
+<div style="display:flex;align-items:center;flex-wrap:nowrap;gap:10px;padding:9px 14px;border-bottom:1px solid var(--color-neutral-900);background:var(--color-bg);font-size:12.5px">
 <span style="color:var(--color-accent);letter-spacing:.14em;font-weight:700;font-size:11px">TEAM</span>
-<span style="color:var(--color-text)">{{ t.name }}</span>
+<div style="position:relative;flex:none">
+<div onClick="{{ toggleSess }}" style="display:flex;align-items:center;gap:7px;padding:3px 8px;margin:-3px 0;flex:none;white-space:nowrap;border:1px solid var(--color-neutral-800);border-radius:var(--radius-sm);cursor:pointer" style-hover="border-color:var(--color-accent-700);background:var(--color-accent-900)">
+<span style="color:var(--color-text);white-space:nowrap;flex:none">{{ sessName }}</span>
+<span style="color:var(--color-neutral-600);font-size:10.5px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ sessGoal }}</span>
+<span style="color:var(--color-accent-400);font-size:10px">{{ sessCaret }}</span>
+</div>
+<div style="position:absolute;top:calc(100% + 6px);left:0;z-index:20;display:{{ sessMenu }};flex-direction:column;width:432px;background:var(--color-bg);border:1px solid var(--color-neutral-800);border-radius:var(--radius-md);box-shadow:0 18px 40px rgba(0,0,0,.6);overflow:hidden">
+<div style="padding:8px 12px 7px;color:var(--color-neutral-700);font-size:10px;letter-spacing:.12em;border-bottom:1px solid var(--color-neutral-900)">SESSIONS ON THIS MACHINE · 5</div>
+<sc-for list="{{ sessions }}" as="s" hint-placeholder-count="5">
+<div onClick="{{ s.pick }}" style="padding:8px 12px;display:flex;gap:9px;align-items:flex-start;cursor:pointer;background:{{ s.rowBg }};border-bottom:1px solid var(--color-neutral-900)" style-hover="background:var(--color-neutral-900)">
+<span style="font-size:10px;color:{{ s.dotCol }};margin-top:2px">{{ s.dot }}</span>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+<div style="display:flex;gap:8px;align-items:baseline">
+<span style="color:{{ s.nameCol }};font-size:12px">{{ s.name }}</span>
+<span style="color:var(--color-neutral-700);font-size:10.5px">{{ s.branch }}</span>
+<span style="flex:1"></span>
+<span style="color:var(--color-accent-400);font-size:10.5px">{{ s.check }}</span>
+</div>
+<div style="display:flex;gap:8px;align-items:baseline">
+<span style="color:var(--color-neutral-500);font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ s.goal }}</span>
+<span style="flex:1"></span>
+<span style="color:var(--color-neutral-700);font-size:10px;white-space:nowrap">{{ s.agents }}</span>
+<span style="color:var(--color-neutral-600);font-size:10px;white-space:nowrap">{{ s.state }}</span>
+</div>
+</div>
+</div>
+</sc-for>
+<div style="padding:8px 12px;display:flex;gap:12px;color:var(--color-neutral-700);font-size:10px">
+<span>⌘K to search</span><span style="flex:1"></span><span>a session is one team · switching keeps both running</span>
+</div>
+</div>
+</div>
 <span style="color:var(--color-neutral-700)">·</span>
 <span style="color:var(--color-neutral-500)">coordination</span>
 <span style="flex:1"></span>
-<span style="color:var(--color-neutral-600)">tasks {{ t.done }}/{{ t.total }} · 3 blocked</span>
-<span style="color:var(--color-neutral-500)">{{ t.elapsed }}</span>
-<span style="color:var(--color-neutral-500)">{{ t.cost }}</span>
+<span style="color:var(--color-neutral-600);white-space:nowrap;flex:none">{{ t.done }}/{{ t.total }} tasks · 3 blocked</span>
+<span style="color:var(--color-neutral-500);white-space:nowrap;flex:none">{{ t.elapsed }}</span>
+<span style="color:var(--color-neutral-500);white-space:nowrap;flex:none">{{ t.cost }}</span>
 </div>
 
 <div style="flex:1;display:flex;min-height:0">
@@ -489,7 +590,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <span style="width:80px">OWNER</span>
 <span style="width:88px">DEPENDS ON</span>
 </div>
-<div style="flex:1;overflow:hidden;display:flex;flex-direction:column">
+<div class="tscroll" style="flex:1;display:flex;flex-direction:column">
 <sc-for list="{{ tasks }}" as="k" hint-placeholder-count="11">
 <div style="display:flex;gap:10px;align-items:baseline;padding:7px 16px;border-bottom:1px solid #1b1d2b;font-size:11.5px" style-hover="background:var(--color-bg)">
 <span style="width:44px;color:var(--color-neutral-600)">{{ k.id }}</span>
@@ -509,7 +610,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 
 <div style="width:404px;display:flex;flex-direction:column;background:var(--color-bg)">
 <div style="padding:10px 14px 8px;color:var(--color-neutral-700);font-size:10.5px;letter-spacing:.12em;border-bottom:1px solid var(--color-neutral-900)">MAILBOX TRAFFIC</div>
-<div style="flex:1;overflow:hidden;padding:10px 14px;display:flex;flex-direction:column;gap:9px;justify-content:flex-end">
+<div class="tscroll" style="flex:1;padding:10px 14px;display:flex;flex-direction:column;gap:9px">
 <sc-for list="{{ mail }}" as="m" hint-placeholder-count="10">
 <div style="display:flex;flex-direction:column;gap:2px">
 <div style="display:flex;gap:6px;align-items:baseline;font-size:10.5px">
@@ -579,7 +680,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <span style="color:var(--color-neutral-600);font-size:10.5px">{{ a.cost }}</span>
 </div>
 </div>
-<div style="flex:1;overflow:hidden;padding:9px 12px;display:flex;flex-direction:column;gap:1px;justify-content:flex-end">
+<div class="tscroll" style="flex:1;padding:9px 12px;display:flex;flex-direction:column;gap:1px">
 <sc-for list="{{ a.wall }}" as="l" hint-placeholder-count="12">
 <div style="display:flex;gap:7px;align-items:baseline;white-space:nowrap">
 <span style="color:var(--color-accent-600);width:9px;flex:none;font-size:11px">{{ l.mark }}</span>
@@ -642,7 +743,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <div style="height:100%;background:var(--color-accent-600);width:{{ a.pct }}"></div>
 </div>
 </div>
-<div style="flex:1;overflow:hidden;padding:7px 9px;display:flex;flex-direction:column;gap:1px;justify-content:flex-end">
+<div class="tscroll" style="flex:1;padding:7px 9px;display:flex;flex-direction:column;gap:1px">
 <sc-for list="{{ a.wall }}" as="l" hint-placeholder-count="9">
 <div style="display:flex;gap:5px;align-items:baseline;white-space:nowrap">
 <span style="color:var(--color-accent-700);width:8px;flex:none;font-size:9.5px">{{ l.mark }}</span>
@@ -701,7 +802,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;color:var(--color-neutral-600);font-size:10.5px;letter-spacing:.12em">
 <span>AGENTS · 6</span><span>4 run 1 queue 1 block</span>
 </div>
-<div style="flex:1;overflow:hidden;display:flex;flex-direction:column;gap:2px;padding:0 8px 8px">
+<div class="tscroll" style="flex:1;display:flex;flex-direction:column;gap:2px;padding:0 8px 8px">
 <sc-for list="{{ agents }}" as="a" hint-placeholder-count="6">
 <div style="padding:8px 10px;border-radius:var(--radius-sm);background:var(--color-bg);border-left:2px solid var(--color-neutral-800);display:flex;flex-direction:column;gap:3px" style-hover="background:#1c1f2e">
 <div style="display:flex;align-items:baseline;gap:7px">
@@ -746,7 +847,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <div><span style="color:var(--color-neutral-700)">[ ]</span> <span style="color:var(--color-neutral-500)">regenerate types + docs</span> <span style="color:var(--color-neutral-700)">queued</span></div>
 </div>
 </div>
-<div style="flex:1;overflow:hidden;padding:12px 18px;display:flex;flex-direction:column;gap:1px;justify-content:flex-end">
+<div class="tscroll" style="flex:1;padding:12px 18px;display:flex;flex-direction:column;gap:1px">
 <sc-for list="{{ log }}" as="l" hint-placeholder-count="14">
 <div style="display:flex;gap:9px;align-items:baseline;white-space:nowrap">
 <span style="color:var(--color-neutral-800);font-size:11px">{{ l.ts }}</span>
@@ -835,7 +936,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 </div>
 <div style="white-space:pre;color:var(--color-neutral-400);font-size:12.5px;line-height:1.62;flex:none">{{ tree }}</div>
 <div style="height:1px;background:var(--color-neutral-900);margin:14px 0 10px"></div>
-<div style="flex:1;overflow:hidden;display:flex;flex-direction:column;gap:1px;justify-content:flex-end">
+<div style="flex:1;overflow:hidden;display:flex;flex-direction:column;gap:1px">
 <sc-for list="{{ log }}" as="l" hint-placeholder-count="10">
 <div style="display:flex;gap:9px;align-items:baseline;white-space:nowrap">
 <span style="color:var(--color-neutral-800);font-size:11px">{{ l.ts }}</span>
@@ -1095,6 +1196,19 @@ const TEAM = [
     tool: 'turn ended on an API error', tok: 23900, rate: 0, cost: 0.06, crate: 0, t0: 214 },
 ];
 
+const PRELUDE = [
+  ['⎿', 'spawned by lead · own context window'],
+  ['⎿', 'loaded CLAUDE.md (2.1k tokens)'],
+  ['⎿', 'loaded 3 project skills'],
+  ['⏺', 'Bash git status --porcelain'],
+  ['⎿', '  clean tree at 4f1c9ab'],
+  ['⏺', 'Bash git log --oneline -5'],
+  ['⏺', 'Read TaskList — 11 tasks'],
+  ['⎿', 'claimed my task · marking in_progress'],
+  ['⎿', 'inbox empty'],
+  ['⎿', '——— turn 1 ———'],
+];
+
 const TWALL = {
   lead: [
     ['❯', 'review PR #142 from three angles, then decide'],
@@ -1203,6 +1317,14 @@ const TWALL = {
     ['✗', 'stopped · message me or spawn a replacement'],
   ],
 };
+
+const SESSIONS = [
+  ['session-8f2a1c', 'review PR #142 from three angles', 'feat/session-auth', 6, '4 working', 'live', 'PR #142 · +412 −118'],
+  ['session-3d90b7', 'port the CLI to the new config loader', 'chore/config-loader', 4, '2 working', 'live', 'PR #147 · +263 −341'],
+  ['session-c14e02', 'flake hunt in the e2e suite', 'fix/e2e-flake', 3, '1 blocked', 'live', 'no PR · +38 −12'],
+  ['session-7ab355', 'docs restructure', 'docs/restructure', 5, 'all idle', 'idle', 'PR #139 · +904 −612'],
+  ['session-0f61d8', 'v2.4 release checklist', 'release/2.4', 2, 'ended 41m ago', 'done', 'PR #151 · +12 −4'],
+];
 
 const TASKS = [
   ['T-01', 'split PR #142 into three review lenses', 'done', 'lead', '—'],
@@ -1344,6 +1466,34 @@ class Component extends DCLogic {
   }
   componentWillUnmount() { clearInterval(this.iv); }
 
+  /* keep every pane pinned to its newest line unless the user scrolled up in it */
+  componentDidUpdate() {
+    document.querySelectorAll('.tscroll').forEach((el) => {
+      const slack = el.scrollHeight - el.clientHeight - el.scrollTop;
+      if (slack > 0 && slack < 64) el.scrollTop = el.scrollHeight;
+      else if (el.dataset.init !== '1') { el.scrollTop = el.scrollHeight; el.dataset.init = '1'; }
+    });
+  }
+
+  startResize(name, e) {
+    e.preventDefault();
+    const x0 = e.clientX;
+    const w0 = (this.state.widths || {})[name] || 366;
+    const move = (ev) => {
+      const w = Math.max(232, Math.min(720, w0 + ev.clientX - x0));
+      this.setState((s) => ({ widths: Object.assign({}, s.widths, { [name]: w }) }));
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      document.body.style.cursor = '';
+      this.setState({ dragging: null });
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+    document.body.style.cursor = 'col-resize';
+    this.setState({ dragging: name });
+  }
   sprite(name) {
     const rows = SPRITES[name] || SPRITES.lead;
     const skin = SPR_SKIN[name] || SPR_SKIN.lead;
@@ -1446,16 +1596,23 @@ class Component extends DCLogic {
       const tok = live ? Math.min(197500, a.tok + a.rate * t) : a.tok;
       const p = tok / 200000;
       const off = live ? t : 0;
-      const src = TWALL[a.name];
-      const n = Math.min(src.length, 14 + Math.floor(off / 6));
+      const src = PRELUDE.concat(TWALL[a.name]);
+      const n = Math.min(src.length, 30 + Math.floor(off / 6));
       const st = TST[a.st];
       return {
         name: a.name, type: a.type, model: a.model, tool: a.tool, role: a.role,
         dot: st[0], label: st[1], col: st[2], live, spr: this.sprite(a.name),
         sel: () => this.setState({ sel: i }),
+        colW: ((this.state.widths || {})[a.name] || 366) + 'px',
+        colPos: i === 0 ? 'sticky' : 'relative',
+        colZ: i === 0 ? 2 : 0,
+        colShadow: i === 0 ? '1px 0 0 var(--color-neutral-800),8px 0 18px rgba(0,0,0,.5)' : 'none',
+        grip: this.state.dragging === a.name ? 'var(--color-accent-500)' : 'transparent',
+        onGrip: (e) => this.startResize(a.name, e),
+        onGripDbl: () => this.setState((s) => ({ widths: Object.assign({}, s.widths, { [a.name]: 366 }) })),
         selBg: (this.state.sel ?? 1) === i ? 'var(--color-accent-900)' : 'transparent',
         selBar: (this.state.sel ?? 1) === i ? 'var(--color-accent-500)' : 'var(--color-neutral-800)',
-        wall: src.slice(Math.max(0, n - 24), n).map((r) => ({ mark: r[0], text: r[1] })),
+        wall: src.slice(0, n).map((r) => ({ mark: r[0], text: r[1] })),
         tok: (tok / 1000).toFixed(1) + 'k',
         ctx: (tok / 1000).toFixed(1) + 'k / 200k',
         pct: Math.round(p * 100) + '%',
@@ -1478,6 +1635,18 @@ class Component extends DCLogic {
       from: m[0], to: m[1], text: m[2], ts: this.clock(-((MAIL.length - i) * 47) + t * 3),
     }));
 
+    const si = this.state.sess ?? 0;
+    const sessions = SESSIONS.map((s, i) => ({
+      name: s[0], goal: s[1], branch: s[2], agents: s[3] + ' agents', state: s[4],
+      dot: s[5] === 'live' ? '●' : s[5] === 'idle' ? '○' : '✓',
+      dotCol: s[5] === 'live' ? 'var(--color-accent-400)' : s[5] === 'done' ? 'var(--color-accent-700)' : 'var(--color-neutral-600)',
+      nameCol: i === si ? 'var(--color-accent-300)' : 'var(--color-text)',
+      rowBg: i === si ? 'var(--color-accent-900)' : 'transparent',
+      check: i === si ? '✓' : '',
+      pick: () => this.setState({ sess: i, sessOpen: false }),
+    }));
+    const sessOpen = !!this.state.sessOpen;
+
     const view = this.state.view || 'wall';
     const views = [
       ['wall', 'wall'], ['overview', 'overview'], ['tasks', 'tasks'],
@@ -1485,7 +1654,8 @@ class Component extends DCLogic {
     ].map((v) => ({
       key: v[0], label: v[1],
       col: view === v[0] ? 'var(--color-accent-300)' : 'var(--color-neutral-600)',
-      ul: view === v[0] ? 'var(--color-accent-500)' : 'transparent',
+      ul: view === v[0] ? 'var(--color-accent-700)' : 'transparent',
+      pill: view === v[0] ? 'var(--color-accent-900)' : 'transparent',
       on: () => this.setState({ view: v[0] }),
     }));
 
@@ -1493,6 +1663,15 @@ class Component extends DCLogic {
       w: 1180, h: 760, h2: 560, h3: 800, h4: 660,
       team,
       views,
+      sessions,
+      sessOpen,
+      sessName: sessions[si].name,
+      sessGoal: sessions[si].goal,
+      sessBranch: sessions[si].branch,
+      sessDiff: SESSIONS[si][6],
+      sessCaret: sessOpen ? '▴' : '▾',
+      sessMenu: sessOpen ? 'flex' : 'none',
+      toggleSess: () => this.setState((s) => ({ sessOpen: !s.sessOpen })),
       focus: team[this.state.sel ?? 1],
       isWall: view === 'wall',
       isOver: view === 'overview',
