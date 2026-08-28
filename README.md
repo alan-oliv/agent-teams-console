@@ -93,14 +93,25 @@ cross-origin requests.
 
 - `agent-teams-console/logs/<team>.jsonl` — its own append-only event log, one
   file per team, so a console started for a second team cannot write over the
-  first team's history. Pruned at startup, capped per event kind, and dropped
-  once nothing has touched it for a week. Safe to delete, but only mostly
-  rebuilt from the files above: the roster, transcripts, tasks and mail come
-  back on the next sweep, while what the hooks push in — the status line, the
-  per-agent substatus, the permission and plan cards — exists nowhere else and
-  does not. If you ran an older version, the now-unused
-  `agent-teams-console/events.db` is left where it is; delete it whenever you
-  like.
+  first team's history. Pruned at startup, capped per event kind and, for
+  transcript history, per agent, and dropped once nothing has touched it for a
+  week. Safe to delete, but only mostly rebuilt from the files above: the
+  roster, transcripts, tasks and mail come back on the next sweep, while what
+  the hooks push in — the status line, the per-agent substatus, the permission
+  and plan cards — exists nowhere else and does not.
+- `agent-teams-console/events.db.migrated-<epoch-ms>` — only if you upgraded
+  from a version that kept one shared log. The first start after the upgrade
+  folds `agent-teams-console/events.db` into the per-team logs above — that is
+  how your open permission cards, status line and per-agent substatus survive
+  the upgrade, since nothing under `~/.claude` can rebuild them — and renames
+  the original to this name. Nothing reads it again, it is written once, and it
+  is never cleaned up, so delete it whenever you like: once the console has come
+  back with your cards and status line intact, it holds nothing you cannot
+  already see. Two caveats. If the console reports `events.db is left in place`,
+  another console was writing one of the team logs at that moment; start it
+  again on its own and it will finish. And if you upgraded from a version older
+  still, `events.db` was a SQLite database rather than a log — the console
+  reports `recovered 0 row(s)` and renames it aside unread.
 - `agent-teams-console.log` — the detached server's stdout and stderr
 - `teams/<team>/.console-announced` — a marker so the URL is printed once per team,
   not once per teammate

@@ -25,6 +25,15 @@ afterEach(async () => {
 });
 
 describe('team scoping', () => {
+  const legacyCard = () => ({
+    id: 'card-legacy',
+    kind: 'permission',
+    agent: 'probe-alpha',
+    reason: 'permission',
+    detail: 'Bash — awaiting your decision',
+    expiresAt: Date.now() + 540_000,
+  });
+
   it('keeps one team\'s events out of another team\'s state', async () => {
     const dbPath = path.join(dir, 'teams.db');
 
@@ -116,18 +125,147 @@ describe('team scoping', () => {
     again.close();
   });
 
-  it('leaves a team log a newer run already wrote where migration would land', async () => {
+  it('folds a legacy log into a team log a newer run already wrote', async () => {
     const dbPath = path.join(dir, 'legacy-late.db');
     const fresh = openStore(dbPath, 'session-aaaa1111');
     fresh.append('roster', { config: null, sidecars: [] });
     fresh.close();
 
-    const stale = { seq: 1, ts: 1, kind: 'hook', payload: { id: 'stale' }, team: 'session-aaaa1111' };
-    await fs.writeFile(dbPath, `${JSON.stringify(stale)}\n`);
+    const legacy = [
+      { seq: 1, ts: 1, kind: 'hook', payload: { id: 'stale' }, team: 'session-aaaa1111' },
+      { seq: 2, ts: 2, kind: 'needsyou', payload: legacyCard(), team: 'session-aaaa1111' },
+    ];
+    await fs.writeFile(dbPath, `${legacy.map((r) => JSON.stringify(r)).join('\n')}\n`);
 
     const store = openStore(dbPath, 'session-aaaa1111');
-    expect(store.replay().map((e) => e.kind)).toEqual(['roster']);
-    store.close();
+    try {
+      // Ordered by ts, so the older rows land ahead of the roster rather than
+      // after it, where they would beat it in the last-wins fold.
+      expect(store.replay().map((e) => e.kind)).toEqual(['hook', 'needsyou', 'roster']);
+      expect(project(store.replay(), false).needsYou.map((c) => c.id)).toEqual(['card-legacy']);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('does not duplicate rows when the migration runs a second time', async () => {
+    const dbPath = path.join(dir, 'legacy-twice.db');
+    const legacy = [
+      { seq: 1, ts: 1, kind: 'needsyou', payload: { id: 'card-a' }, team: 'session-aaaa1111' },
+      { seq: 2, ts: 2, kind: 'statusline', payload: { branch: 'main' }, team: 'session-aaaa1111' },
+    ];
+    const raw = `${legacy.map((r) => JSON.stringify(r)).join('\n')}\n`;
+    await fs.writeFile(dbPath, raw);
+
+    const first = openStore(dbPath, 'session-aaaa1111');
+    expect(first.replay()).toHaveLength(2);
+    first.close();
+
+    // A crash between the split and the rename leaves the source in place, so
+    // the next start migrates the same rows again.
+    await fs.writeFile(dbPath, raw);
+    const second = openStore(dbPath, 'session-aaaa1111');
+    try {
+      expect(second.replay().map((e) => e.kind)).toEqual(['needsyou', 'statusline']);
+    } finally {
+      second.close();
+    }
+  });
+
+  it('keeps a resolution ahead of the create it closed', async () => {
+    const dbPath = path.join(dir, 'legacy-resolved.db');
+    const team = 'session-aaaa1111';
+    await fs.mkdir(path.join(dir, 'logs'), { recursive: true });
+    await fs.writeFile(
+      logPathFor(dbPath, team),
+      `${JSON.stringify({ seq: 1, ts: 500, kind: 'needsyou-resolved', payload: { id: 'card-legacy' }, team })}\n`,
+    );
+    await fs.writeFile(
+      dbPath,
+      `${JSON.stringify({ seq: 1, ts: 100, kind: 'needsyou', payload: legacyCard(), team })}\n`,
+    );
+
+    const store = openStore(dbPath, team);
+    try {
+      expect(store.replay().map((e) => e.kind)).toEqual(['needsyou', 'needsyou-resolved']);
+      expect(project(store.replay(), false).needsYou).toEqual([]);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('lets a newer row still win after a merge', async () => {
+    const dbPath = path.join(dir, 'legacy-older.db');
+    const team = 'session-aaaa1111';
+    const fresh = openStore(dbPath, team);
+    fresh.append('statusline', { branch: 'current' });
+    fresh.close();
+    await fs.writeFile(
+      dbPath,
+      `${JSON.stringify({ seq: 1, ts: 100, kind: 'statusline', payload: { branch: 'legacy' }, team })}\n`,
+    );
+
+    const store = openStore(dbPath, team);
+    try {
+      expect(project(store.replay(), false).branch).toBe('current');
+    } finally {
+      store.close();
+    }
+  });
+
+  it('leaves the legacy log in place when another console is writing a team log', async () => {
+    const dbPath = path.join(dir, 'legacy-live.db');
+    const team = 'session-aaaa1111';
+    let appendDuringMerge: (() => void) | undefined;
+
+    // The deferral only shows up when an append lands INSIDE the merge, which
+    // nothing but the merge's own writes can schedule on a synchronous path.
+    vi.resetModules();
+    vi.doMock('node:fs', async () => {
+      const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
+      return {
+        ...actual,
+        default: actual,
+        writeFileSync: (target: unknown, ...rest: unknown[]) => {
+          const written = (actual.writeFileSync as (...args: unknown[]) => unknown)(target, ...rest);
+          if (String(target).endsWith('.tmp')) appendDuringMerge?.();
+          return written;
+        },
+      };
+    });
+    const { openStore: openMocked } = await import('./store');
+
+    try {
+      const live = openMocked(dbPath, team);
+      live.append('hook', { event: 'PreToolUse', agent: 'alpha', toolName: 'LIVE-1' }, 'alpha');
+      await fs.writeFile(
+        dbPath,
+        `${JSON.stringify({ seq: 1, ts: 100, kind: 'needsyou', payload: legacyCard(), team })}\n`,
+      );
+
+      appendDuringMerge = () => {
+        live.append('hook', { event: 'PostToolUse', agent: 'alpha' }, 'alpha');
+      };
+      openMocked(dbPath, team).close();
+      appendDuringMerge = undefined;
+
+      // Nothing was taken and nothing was left behind: the next start retries.
+      await expect(fs.stat(dbPath)).resolves.toBeTruthy();
+      const onDisk = (await fs.readFile(logPathFor(dbPath, team), 'utf8')).trim().split('\n');
+      expect(onDisk.map((l) => JSON.parse(l).kind)).toEqual(['hook', 'hook']);
+      const during = await fs.readdir(path.join(dir, 'logs'));
+      expect(during.filter((n) => n.endsWith('.tmp'))).toEqual([]);
+      live.close();
+
+      const retry = openMocked(dbPath, team);
+      expect(project(retry.replay(), false).needsYou.map((c) => c.id)).toEqual(['card-legacy']);
+      retry.close();
+      await expect(fs.stat(dbPath)).rejects.toThrow();
+      expect((await fs.readdir(dir)).filter((n) => n.includes('.migrated-'))).toHaveLength(1);
+    } finally {
+      vi.doUnmock('node:fs');
+      vi.resetModules();
+    }
   });
 
   it('caps a high-volume kind so a long-lived install cannot degrade forever', () => {

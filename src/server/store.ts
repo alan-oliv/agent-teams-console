@@ -294,32 +294,52 @@ function gcStaleLogs(dir: string, keep: string): void {
   }
 }
 
+/** The bytes of `file`, 0 when it is not there. */
+function sizeOf(file: string): number {
+  try {
+    return statSync(file).size;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Identifies a row by what it says rather than by where it sits, so the same
+ * legacy row can be recognised in a team log it was already merged into. `seq`
+ * is deliberately out: the merge renumbers it. Both sides reach this through
+ * decode(), so JSON.stringify sees identically-ordered keys.
+ */
+function rowKey(e: StoredEvent): string {
+  return `${e.ts} ${e.kind} ${e.agent ?? ''} ${JSON.stringify(e.payload)}`;
+}
+
 /**
  * One-shot upgrade from the single shared log this console kept at `dbPath`
  * before logs were per-team. Its rows already carry the team they belong to,
  * so the file is split by that column — the push-only kinds (cards, statusline,
- * substatus) are the half no sweep of `~/.claude` could rebuild. The rename is
- * also the exclusion: only one process can rename a path, so two consoles
- * starting together cannot both migrate, and doing it FIRST means a crash
- * mid-split leaves the source safe under the aside name rather than looping
- * and duplicating rows on the next open.
+ * substatus) are the half no sweep of `~/.claude` could rebuild.
+ *
+ * Rows are merged into a team log that already exists, ORDERED by `ts`, never
+ * appended: project() is a strictly ordered fold, so a legacy `needsyou` landing
+ * after the `needsyou-resolved` that closed it would resurrect the card, and a
+ * stale roster or branch would win its last-wins case.
+ *
+ * The rename of `dbPath` is the commit, not the claim, so it happens LAST and
+ * only once every team merged: a crash, a full disk or a team log another
+ * console is writing then leaves the source where the next start can retry it.
+ * Retrying is free because the merge is keyed on row content — a second pass
+ * finds every legacy row already there and writes nothing.
  */
-function migrateLegacyLog(dbPath: string): void {
-  const aside = `${dbPath}.migrated-${Date.now()}`;
+function migrateLegacyLog(dbPath: string, runId: string): void {
+  let contents: string;
   try {
-    renameSync(dbPath, aside);
+    contents = readFileSync(dbPath, 'utf8');
   } catch {
-    // No legacy log, or another console migrated it first: the normal case.
+    // No legacy log: the normal case on every start after the first.
     return;
   }
-  let contents = '';
-  try {
-    contents = readFileSync(aside, 'utf8');
-  } catch (err) {
-    logError(`reading ${aside}`, err);
-    return;
-  }
-  const byTeam = new Map<string, string[]>();
+
+  const byTeam = new Map<string, StoredEvent[]>();
   for (const line of contents.split('\n')) {
     if (!line) continue;
     const record = decode(line);
@@ -328,24 +348,76 @@ function migrateLegacyLog(dbPath: string): void {
     // startup sweep reads back off disk.
     if (!record || !isTeamName(record.team)) continue;
     const rows = byTeam.get(record.team) ?? [];
-    rows.push(`${line}\n`);
+    rows.push(record.event);
     byTeam.set(record.team, rows);
   }
-  let migrated = 0;
-  for (const [name, rows] of byTeam) {
+
+  let recovered = 0;
+  let touched = 0;
+  let deferred = 0;
+  for (const [team, legacy] of byTeam) {
+    const file = logPathFor(dbPath, team);
+    const before = sizeOf(file);
+    const tmp = `${file}.${runId}.tmp`;
     try {
-      // `wx`: a team log that already exists was written by a newer run, whose
-      // history supersedes this file's — appending these rows to the end of it
-      // would let a stale roster win the last-wins fold. It is also the
-      // TOCTOU-free form of an existsSync check.
-      writeFileSync(logPathFor(dbPath, name), rows.join(''), { flag: 'wx' });
-      migrated += rows.length;
+      const existing: StoredEvent[] = [];
+      if (before > 0) {
+        for (const line of readFileSync(file, 'utf8').split('\n')) {
+          if (!line) continue;
+          const record = decode(line);
+          if (record) existing.push(record.event);
+        }
+      }
+      const have = new Set(existing.map(rowKey));
+      const fresh = legacy.filter((e) => !have.has(rowKey(e)));
+      if (fresh.length === 0) continue;
+
+      const out: StoredEvent[] = [];
+      let l = 0;
+      let n = 0;
+      while (l < fresh.length || n < existing.length) {
+        // A tie puts the legacy row first: it is the older of the two writers.
+        const takeLegacy =
+          n >= existing.length || (l < fresh.length && fresh[l].ts <= existing[n].ts);
+        out.push(takeLegacy ? fresh[l++] : existing[n++]);
+      }
+      writeFileSync(tmp, out.map((e, i) => encode({ ...e, seq: i + 1 }, team)).join(''));
+      // rewrite()'s check, for rewrite()'s reason: a team log that grew while
+      // we worked has a live console appending rows that are not in `out`.
+      if (sizeOf(file) !== before) {
+        unlinkSync(tmp);
+        deferred++;
+        continue;
+      }
+      renameSync(tmp, file);
+      recovered += fresh.length;
+      touched++;
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') logError(`migrating ${name}`, err);
+      logError(`migrating ${team}`, err);
+      deferred++;
     }
   }
+
+  const base = path.basename(dbPath);
+  if (deferred > 0) {
+    logInfo(
+      `recovered ${recovered} row(s) from ${base} into ${touched} team log(s); ${deferred} team ` +
+        `log(s) are open in another console, so ${base} is left in place and the ` +
+        'next start retries',
+    );
+    return;
+  }
+  const aside = `${dbPath}.migrated-${Date.now()}`;
+  try {
+    renameSync(dbPath, aside);
+  } catch (err) {
+    // ENOENT: another console migrated the same file and renamed it first,
+    // which is a finished migration rather than a failure.
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') logError(`renaming ${base} aside`, err);
+    return;
+  }
   logInfo(
-    `migrated ${migrated} rows from ${path.basename(dbPath)} into ${byTeam.size} team log(s); ` +
+    `recovered ${recovered} row(s) from ${base} into ${touched} team log(s); ` +
       `the original is at ${aside}`,
   );
 }
@@ -407,7 +479,7 @@ export function openStore(dbPath: string, team = ''): Store {
   const runsDir = runsDirFor(dbPath);
   mkdirSync(runsDir, { recursive: true });
 
-  migrateLegacyLog(dbPath);
+  migrateLegacyLog(dbPath, runId);
   // After the migration, so its fresh mtimes keep the GC off what it just wrote.
   gcStaleLogs(logsDir, file);
   gcStaleLogs(runsDir, file);
@@ -466,12 +538,7 @@ export function openStore(dbPath: string, team = ''): Store {
    * writers can do losslessly.
    */
   const rewrite = (): boolean => {
-    let size = 0;
-    try {
-      size = statSync(file).size;
-    } catch {
-      size = 0;
-    }
+    const size = sizeOf(file);
     if (size !== accounted) {
       // Once per run: a second writer does not go away, and this would
       // otherwise print every PRUNE_EVERY appends for the life of the console.
