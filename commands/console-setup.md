@@ -1,9 +1,13 @@
 ---
-description: Set the two env vars and the subagent status line the plugin itself cannot carry, merging with whatever is already in settings.json
+description: Set a machine up for the console — the env vars and subagent status line the plugin itself cannot carry, merged into settings.json without disturbing what is there
 allowed-tools: ["Bash", "Read", "Edit", "Write"]
 ---
 
-# Install what the plugin cannot carry
+# Set this machine up for the console
+
+Run this once per machine, after installing the plugin. It writes the handful of
+keys that make a machine ready and that the plugin itself cannot carry — nothing
+else, and nothing that is already there.
 
 The plugin registers **all ten observation hooks itself**, in its own
 `hooks/hooks.json` — `PreToolUse`, `PostToolUse`, `PermissionRequest`,
@@ -18,6 +22,31 @@ Two things have no plugin-manifest equivalent, and that is all this command does
 - **`subagentStatusLine`** — each teammate's current tool, in its header
 
 It MERGES, and it never overwrites: whatever is already in that file stays.
+
+Setting them in `settings.json` rather than a shell profile is deliberate: it is
+per-machine, survives a change of shell, and applies to every session the operator
+starts, including ones launched by an editor or a launcher that never reads their
+profile.
+
+## 0. Check the machine can run it
+
+```bash
+claude --version                                      # console pins 2.1.231 internals
+node --version                                        # 22 or newer
+claude plugin list 2>/dev/null | grep -A3 agent-teams-console || echo 'PLUGIN MISSING'
+```
+
+If the plugin is missing, **stop and install it first** — the hooks live inside it
+and this command does not write them:
+
+```bash
+claude plugin marketplace add alan-oliv/agent-teams-console
+claude plugin install agent-teams-console@agent-teams-console
+```
+
+If `claude --version` is not the pinned one, say so and carry on: the console reads
+on-disk shapes that an experimental feature may have changed, and the server prints
+the same warning at startup.
 
 ## 1. Read what is there now
 

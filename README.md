@@ -145,11 +145,13 @@ a plugin to put them:
   teams to show, and `CLAUDE_CODE_ENABLE_TODO_TOOLS`, which fills the **tasks** view
 - **`subagentStatusLine`** — each teammate's current tool, in its header
 
-Run **`/console-setup`** for those two and nothing else. It ships with the plugin:
-it reads your `settings.json`, shows you what it would add, and writes only once
-you say yes. If you would rather not edit `settings.json` at all, set the env vars
-in your shell instead and skip the command entirely — you lose only the
-current-tool line.
+Run **`/console-setup`** once per machine for those two and nothing else. It ships
+with the plugin: it checks the machine can run the console, reads your
+`settings.json`, shows you what it would add, and writes only once you say yes.
+
+`settings.json` is the right home for them precisely because it is per-machine: a
+shell export only reaches sessions started from that shell, not ones an editor or
+launcher spawns.
 
 ### Your status line is yours
 
