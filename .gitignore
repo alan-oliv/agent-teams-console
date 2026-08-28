@@ -3,9 +3,6 @@ dist/
 .superpowers/
 .DS_Store
 *.log
-*.sqlite
-*.sqlite-wal
-*.sqlite-shm
 PROGRESS.md
 ui-shot.png
 shot-*.png

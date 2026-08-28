@@ -57,7 +57,7 @@ const of = (events: StoredEvent[], kind: string) => events.filter((e) => e.kind 
 
 describe('substatus scope rule: teammates only', () => {
   it('stores in_process_teammate rows and ignores every other subagent row', async () => {
-    const store = openStore(':memory:');
+    const store = openStore(path.join(dir, 'substatus.db'));
     const handlers = createHookHandlers({ store, permits: stubPermits() });
 
     await handlers.substatus({

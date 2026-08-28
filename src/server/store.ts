@@ -1,5 +1,4 @@
-import Database from 'better-sqlite3';
-import { mkdirSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 export type EventKind =
@@ -32,14 +31,6 @@ export interface Store {
   close(): void;
 }
 
-interface Row {
-  seq: number;
-  ts: number;
-  kind: string;
-  agent: string | null;
-  payload: string;
-}
-
 /**
  * The log is replayed in full on every publish, so it cannot be allowed to grow
  * without bound on a long-lived install. These kinds are all either last-wins
@@ -61,87 +52,128 @@ export const KIND_RETENTION: Partial<Record<EventKind, number>> = {
 
 const PRUNE_EVERY = 250;
 
+function encode(event: StoredEvent, team: string): string {
+  return `${JSON.stringify({ ...event, team })}\n`;
+}
+
+/**
+ * A line that does not parse is dropped rather than fatal. Appends are one
+ * line each, so the only damage a crash can do is truncate the last one — and
+ * an install upgrading from the sqlite era finds a binary blob at this path,
+ * which degrades to an empty log instead of an exception. Losing history costs
+ * nothing: the startup sweep re-reads the source files.
+ */
+function decode(line: string): { team: string; event: StoredEvent } | null {
+  let raw: Partial<StoredEvent & { team: unknown }>;
+  try {
+    raw = JSON.parse(line) as Partial<StoredEvent & { team: unknown }>;
+  } catch {
+    return null;
+  }
+  if (typeof raw?.seq !== 'number' || typeof raw.ts !== 'number' || typeof raw.kind !== 'string') {
+    return null;
+  }
+  return {
+    // A log written before the log was team-scoped has no `team`.
+    team: typeof raw.team === 'string' ? raw.team : '',
+    event: {
+      seq: raw.seq,
+      ts: raw.ts,
+      kind: raw.kind as EventKind,
+      agent: typeof raw.agent === 'string' ? raw.agent : undefined,
+      payload: raw.payload ?? null,
+    },
+  };
+}
+
+/** Drops the oldest events of any kind that is over its retention cap. */
+function trim(events: StoredEvent[]): StoredEvent[] {
+  const counts = new Map<string, number>();
+  for (const e of events) counts.set(e.kind, (counts.get(e.kind) ?? 0) + 1);
+
+  const excess = new Map<string, number>();
+  for (const [kind, keep] of Object.entries(KIND_RETENTION)) {
+    const over = (counts.get(kind) ?? 0) - keep;
+    if (over > 0) excess.set(kind, over);
+  }
+  if (excess.size === 0) return events;
+
+  // Ascending seq order, so the first `over` events of a kind are its oldest.
+  return events.filter((e) => {
+    const over = excess.get(e.kind);
+    if (!over) return true;
+    excess.set(e.kind, over - 1);
+    return false;
+  });
+}
+
 export function openStore(dbPath: string, team = ''): Store {
   mkdirSync(path.dirname(dbPath), { recursive: true });
-  const db = new Database(dbPath);
-  db.pragma('journal_mode = WAL');
-  db.pragma('synchronous = NORMAL');
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS events (
-      seq     INTEGER PRIMARY KEY AUTOINCREMENT,
-      ts      INTEGER NOT NULL,
-      kind    TEXT    NOT NULL,
-      agent   TEXT,
-      payload TEXT    NOT NULL,
-      team    TEXT    NOT NULL DEFAULT ''
-    );
-  `);
-  // A database written before the log was team-scoped has no `team` column.
-  const columns = db.prepare('PRAGMA table_info(events)').all() as Array<{ name: string }>;
-  if (!columns.some((c) => c.name === 'team')) {
-    db.exec(`ALTER TABLE events ADD COLUMN team TEXT NOT NULL DEFAULT ''`);
-  }
-  db.exec('CREATE INDEX IF NOT EXISTS events_team_kind ON events (team, kind, seq)');
-
-  const insert = db.prepare('INSERT INTO events (ts, kind, agent, payload, team) VALUES (?, ?, ?, ?, ?)');
-  const selectTeam = db.prepare(
-    'SELECT seq, ts, kind, agent, payload FROM events WHERE team = ? ORDER BY seq ASC',
-  );
-  const dropOtherTeams = db.prepare('DELETE FROM events WHERE team <> ?');
-  const adoptUnscoped = db.prepare(`UPDATE events SET team = ? WHERE team = ''`);
-  const trimKind = db.prepare(`
-    DELETE FROM events
-     WHERE team = ? AND kind = ? AND seq < (
-       SELECT MIN(seq) FROM (
-         SELECT seq FROM events WHERE team = ? AND kind = ? ORDER BY seq DESC LIMIT ?
-       )
-     )
-  `);
 
   let current = team;
   let sincePrune = 0;
+  let nextSeq = 1;
+  // Everything held here belongs to `current`: the load below drops the other
+  // teams, and every append stamps `current`. Only the file carries the team.
+  let events: StoredEvent[] = [];
 
-  // A second team's run inherited the first's tasks, mail and — worst —
-  // permission cards whose permits died with the previous process, so they
-  // 404'd on allow and could never be dismissed.
-  dropOtherTeams.run(current);
+  let contents = '';
+  try {
+    contents = readFileSync(dbPath, 'utf8');
+  } catch {
+    contents = '';
+  }
+  for (const line of contents.split('\n')) {
+    if (!line) continue;
+    const record = decode(line);
+    if (!record) continue;
+    // seq is never reused, not even by a record the prune below drops.
+    if (record.event.seq >= nextSeq) nextSeq = record.event.seq + 1;
+    // A second team's run inherited the first's tasks, mail and — worst —
+    // permission cards whose permits died with the previous process, so they
+    // 404'd on allow and could never be dismissed.
+    if (record.team === current) events.push(record.event);
+  }
 
-  const trim = () => {
-    for (const [kind, keep] of Object.entries(KIND_RETENTION)) {
-      trimKind.run(current, kind, current, kind, keep);
-    }
+  const rewrite = () => {
+    const tmp = `${dbPath}.tmp`;
+    writeFileSync(tmp, events.map((e) => encode(e, current)).join(''));
+    // A rename is the only whole-file write that cannot leave a torn log.
+    renameSync(tmp, dbPath);
   };
-  trim();
+
+  events = trim(events);
+  rewrite();
 
   return {
     append(kind, payload, agent) {
       const ts = Date.now();
-      const info = insert.run(ts, kind, agent ?? null, JSON.stringify(payload ?? null), current);
+      const seq = nextSeq++;
+      const event: StoredEvent = { seq, ts, kind, agent, payload: payload ?? null };
+      events.push(event);
+      appendFileSync(dbPath, encode(event, current));
       if (++sincePrune >= PRUNE_EVERY) {
         sincePrune = 0;
-        trim();
+        const before = events.length;
+        events = trim(events);
+        if (events.length !== before) rewrite();
       }
-      return { seq: Number(info.lastInsertRowid), ts, kind, agent, payload };
+      return { seq, ts, kind, agent, payload };
     },
     replay() {
-      return (selectTeam.all(current) as Row[]).map((r) => ({
-        seq: r.seq,
-        ts: r.ts,
-        kind: r.kind as EventKind,
-        agent: r.agent ?? undefined,
-        payload: JSON.parse(r.payload) as unknown,
-      }));
+      return events.slice();
     },
     setTeam(next) {
       if (next === current || next === '') return;
-      // Events recorded before the team was known belong to this run.
-      adoptUnscoped.run(next);
+      // Events recorded before the team was known belong to this run; a switch
+      // between two named teams adopts nothing.
+      if (current !== '') events = [];
       current = next;
-      dropOtherTeams.run(current);
-      trim();
+      events = trim(events);
+      rewrite();
     },
     close() {
-      db.close();
+      // Every append is already on disk — there is nothing buffered to flush.
     },
   };
 }

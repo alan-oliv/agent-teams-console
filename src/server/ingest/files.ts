@@ -118,9 +118,9 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
     }
   };
 
-  // store.append can throw (a full or busy sqlite, a handle closed during
-  // shutdown), and an unhandled rejection terminates the process by default —
-  // a silent-death mode for a server started detached.
+  // store.append can throw (a full disk, a read-only log directory), and an
+  // unhandled rejection terminates the process by default — a silent-death
+  // mode for a server started detached.
   const settle = (file: string) => (p: Promise<void>) =>
     p.then(() => mark(file)).catch((err: unknown) => logError(`ingest ${file}`, err));
 

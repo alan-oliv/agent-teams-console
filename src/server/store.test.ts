@@ -135,13 +135,44 @@ describe('openStore', () => {
     store.close();
   });
 
-  it('runs in WAL mode', () => {
-    const dbPath = path.join(dir, 'wal.db');
+  it('keeps a payload intact across a close and reopen', () => {
+    const dbPath = path.join(dir, 'reopen.db');
     const store = openStore(dbPath);
     store.append('substatus', { agent: 'probe-charlie', tokenCount: 23639 });
     store.close();
     const reopened = openStore(dbPath);
     expect(reopened.replay()[0].payload).toEqual({ agent: 'probe-charlie', tokenCount: 23639 });
     reopened.close();
+  });
+
+  it('drops a final line a crash truncated mid-write', async () => {
+    const dbPath = path.join(dir, 'torn.db');
+    const store = openStore(dbPath);
+    store.append('roster', { config: null, sidecars: [] });
+    store.append('task', { id: 'half-written', status: 'in_progress' });
+    store.close();
+
+    const whole = await fs.readFile(dbPath, 'utf8');
+    await fs.writeFile(dbPath, whole.slice(0, whole.length - 12));
+
+    const reopened = openStore(dbPath);
+    expect(reopened.replay().map((e) => e.kind)).toEqual(['roster']);
+    // The next append lands on a whole line, not glued to the torn one.
+    reopened.append('hook', { event: 'PreToolUse' });
+    reopened.close();
+    expect(openStore(dbPath).replay().map((e) => e.kind)).toEqual(['roster', 'hook']);
+  });
+
+  it('prunes the log file itself, so a trim is not undone by a reopen', async () => {
+    const dbPath = path.join(dir, 'trimmed.db');
+    const cap = KIND_RETENTION.substatus!;
+    const store = openStore(dbPath, 'session-trim0000');
+    for (let i = 0; i < cap + 600; i++) store.append('substatus', { n: i }, 'a');
+    const kept = store.replay();
+    store.close();
+
+    const lines = (await fs.readFile(dbPath, 'utf8')).split('\n').filter(Boolean);
+    expect(lines).toHaveLength(kept.length);
+    expect(JSON.parse(lines[0]).seq).toBe(kept[0].seq);
   });
 });
