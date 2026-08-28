@@ -23,6 +23,22 @@ async function waitFor<T>(fn: () => T | undefined, timeoutMs = 10_000): Promise<
   }
 }
 
+describe('watchJsonTree on a missing root', () => {
+  it('does not throw, and keeps working once the root appears', async () => {
+    // fs.watch throws ENOENT synchronously, which watcher.on('error') cannot
+    // catch — this used to kill the server at boot on any machine without
+    // ~/.claude/tasks or ~/.claude/sessions.
+    const absent = path.join(dir, 'never-created');
+    const seen: string[] = [];
+    const watcher = watchJsonTree(absent, (f) => seen.push(f));
+    try {
+      expect(seen).toEqual([]);
+    } finally {
+      watcher.close();
+    }
+  });
+});
+
 describe('readJsonSafe', () => {
   it('parses a well-formed file', async () => {
     const file = path.join(dir, 'ok.json');

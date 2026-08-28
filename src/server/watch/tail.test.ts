@@ -23,6 +23,21 @@ async function waitFor<T>(fn: () => T | undefined, timeoutMs = 10_000): Promise<
   }
 }
 
+describe('watchAppendOnly on a missing root', () => {
+  it('does not throw when the root does not exist', async () => {
+    // Same synchronous-ENOENT crash as watchJsonTree; both watchers shared the
+    // boilerplate and therefore shared the bug.
+    const absent = path.join(dir, 'never-created');
+    const seen: string[] = [];
+    const watcher = watchAppendOnly(absent, (f) => seen.push(f));
+    try {
+      expect(seen).toEqual([]);
+    } finally {
+      watcher.close();
+    }
+  });
+});
+
 describe('drain', () => {
   it('recovers appended lines exactly and advances the offset', async () => {
     const file = path.join(dir, 'a.jsonl');

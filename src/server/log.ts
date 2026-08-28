@@ -19,6 +19,15 @@ export function logError(scope: string, err: unknown): void {
   }
 }
 
+/** An expected-but-worth-saying condition. No stack, because there is no fault. */
+export function logInfo(message: string): void {
+  try {
+    console.error(`[octo] ${message}`);
+  } catch {
+    /* see logError */
+  }
+}
+
 /** Chatter that is only useful when diagnosing; gated on OCTO_DEBUG=1. */
 export function debug(scope: string, message: string): void {
   if (!DEBUG_ON) return;

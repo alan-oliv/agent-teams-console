@@ -1,5 +1,7 @@
-import { promises as fs, watch } from 'node:fs';
+import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { logError } from '../log';
+import { watchRoot } from './root';
 
 export interface TailState {
   inode: number;
@@ -78,19 +80,14 @@ export function watchAppendOnly(
         states.set(file, out.state);
         if (out.lines.length > 0) onLines(file, out.lines);
       })
-      .catch(() => undefined);
+      .catch((err: unknown) => logError(`tail ${file}`, err));
     queues.set(file, next);
   };
 
-  const watcher = watch(root, { recursive: true }, (eventType, filename) => {
-    // macOS reports 'rename' for the first write to a new file; a watcher that
-    // only handles 'change' never sees a teammate transcript appear.
-    if (eventType !== 'rename' && eventType !== 'change') return;
-    if (!filename) return;
+  const watcher = watchRoot(root, (filename) => {
     if (!filename.endsWith('.jsonl')) return;
     pump(path.join(root, filename));
   });
-  watcher.on('error', () => undefined);
 
   return {
     close() {

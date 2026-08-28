@@ -211,6 +211,29 @@ describe('scope rule: agent teams only', () => {
   });
 });
 
+describe('startFileIngest with roots that do not exist', () => {
+  it('starts and sweeps without throwing when every ~/.claude root is missing', async () => {
+    // A fresh install has no ~/.claude/tasks and no ~/.claude/sessions. fs.watch
+    // throws ENOENT synchronously, so this used to take the whole process down
+    // at boot with nothing listening and a stack trace in a detached log.
+    const bare = await fs.mkdtemp(path.join(os.tmpdir(), 'bare-home-'));
+    const missing: IngestPaths = {
+      projects: path.join(bare, 'projects'),
+      teams: path.join(bare, 'teams'),
+      tasks: path.join(bare, 'tasks'),
+      sessions: path.join(bare, 'sessions'),
+    };
+    const ingest = startFileIngest(store, { paths: missing, sweepIntervalMs: 0 });
+    try {
+      await expect(ingest.sweep()).resolves.toBeUndefined();
+      expect(store.replay()).toHaveLength(0);
+    } finally {
+      ingest.close();
+      await fs.rm(bare, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('startFileIngest', () => {
   it('reconciliation sweep ingests every pre-existing file', async () => {
     await layout();

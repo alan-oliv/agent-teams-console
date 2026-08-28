@@ -1,5 +1,6 @@
-import { promises as fs, watch } from 'node:fs';
+import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { watchRoot } from './root';
 
 const RETRY_DELAY_MS = 20;
 const DEBOUNCE_MS = 15;
@@ -28,9 +29,7 @@ export function watchJsonTree(
   const timers = new Map<string, NodeJS.Timeout>();
   let closed = false;
 
-  const watcher = watch(root, { recursive: true }, (eventType, filename) => {
-    if (eventType !== 'rename' && eventType !== 'change') return;
-    if (!filename) return;
+  const watcher = watchRoot(root, (filename) => {
     // `.json.lock` ends in `.lock`, so this also excludes proper-lockfile siblings.
     if (!filename.endsWith('.json')) return;
 
@@ -47,7 +46,6 @@ export function watchJsonTree(
       }, DEBOUNCE_MS),
     );
   });
-  watcher.on('error', () => undefined);
 
   return {
     close() {
