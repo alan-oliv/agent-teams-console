@@ -40,8 +40,10 @@ describe('hookBlock', () => {
     expect(Object.keys(block.hooks)).toEqual([...HOOK_EVENTS]);
     for (const event of HOOK_EVENTS) {
       const entries = block.hooks[event] as HookEntry[];
-      // PostToolUse carries one extra entry: the command-hook launcher.
-      expect(entries).toHaveLength(event === 'PostToolUse' ? 2 : 1);
+      // Both Agent arms carry one extra entry: the command-hook launcher.
+      const carriesLauncher = event === 'PreToolUse' || event === 'PostToolUse';
+      expect(entries).toHaveLength(carriesLauncher ? 2 : 1);
+      expect(entries.filter((e) => e.matcher === 'Agent')).toHaveLength(carriesLauncher ? 1 : 0);
       expect(entries[0].hooks).toHaveLength(1);
       expect(entries[0].hooks[0].type).toBe('http');
       expect(entries[0].hooks[0].url).toBe('http://127.0.0.1:4823/hook');
@@ -88,12 +90,17 @@ describe('hookBlock', () => {
     expect(catalog.version).toBe(PINNED_CLAUDE_VERSION);
   });
 
-  it('registers the launcher as a PostToolUse:Agent command hook with an explicit timeout', () => {
-    const entry = block.hooks.PostToolUse.find((e) => e.matcher === 'Agent');
-    expect(entry).toBeDefined();
-    expect(entry!.hooks[0]).toMatchObject({ type: 'command', timeout: 5000 });
-    expect((entry!.hooks[0] as CommandHook).command).toMatch(/^OCTO_PORT=4823 '.*console-launch\.sh'$/);
-  });
+  it.each(['PreToolUse', 'PostToolUse'] as const)(
+    'registers the launcher as a %s:Agent command hook with an explicit timeout',
+    (event) => {
+      const entry = block.hooks[event].find((e) => e.matcher === 'Agent');
+      expect(entry).toBeDefined();
+      expect(entry!.hooks[0]).toMatchObject({ type: 'command', timeout: 5000 });
+      expect((entry!.hooks[0] as CommandHook).command).toMatch(
+        /^OCTO_PORT=4823 '.*console-launch\.sh'$/,
+      );
+    },
+  );
 
   it('does not register a SubagentStart hook — systemMessage is stripped there', () => {
     expect(hookBlock(4823).hooks.SubagentStart).toBeUndefined();

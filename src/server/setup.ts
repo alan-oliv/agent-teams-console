@@ -82,26 +82,31 @@ export function hookBlock(port: number): HookBlock {
 
   // The launcher runs on EVERY Agent spawn and exits immediately unless a real
   // team exists, so its cost on the common path is one shell process.
-  // It must be PostToolUse, not SubagentStart: SubagentStart runs in the
-  // spawned agent's context, where systemMessage is filtered out of the hook
-  // result and the link never reaches the operator. PostToolUse also fires
-  // AFTER the spawn returns, so config.json already lists the new member.
-  hooks.PostToolUse = [
-    ...(hooks.PostToolUse ?? []),
-    {
-      matcher: 'Agent',
-      hooks: [
-        {
-          type: 'command',
-          // The launcher defaults OCTO_PORT to 4823, so `setup --port 5000`
-          // used to write hooks pointing at 5000 while the launcher started
-          // the server on 4823. Carry the port across the language boundary.
-          command: `OCTO_PORT=${port} '${LAUNCH_SCRIPT}'`,
-          timeout: LAUNCH_HOOK_TIMEOUT_MS,
-        },
-      ],
-    },
-  ];
+  // Never SubagentStart: that runs in the spawned agent's context, where
+  // systemMessage is filtered out of the hook result and the link never
+  // reaches the operator.
+  //
+  // Both arms, matching hooks/hooks.json — the plugin install and this manual
+  // one must announce at the same moment. PreToolUse is the fast path: it
+  // fires BEFORE the teammate spawns, so the operator has the link while the
+  // team is still coming up. PostToolUse is the safety net, gated on the
+  // member count that only exists once the spawn returned. The launcher's
+  // once-per-team marker file makes sure only one of the two announces.
+  const launcher: HookEntry = {
+    matcher: 'Agent',
+    hooks: [
+      {
+        type: 'command',
+        // The launcher defaults OCTO_PORT to 4823, so `setup --port 5000`
+        // used to write hooks pointing at 5000 while the launcher started
+        // the server on 4823. Carry the port across the language boundary.
+        command: `OCTO_PORT=${port} '${LAUNCH_SCRIPT}'`,
+        timeout: LAUNCH_HOOK_TIMEOUT_MS,
+      },
+    ],
+  };
+  hooks.PreToolUse = [...(hooks.PreToolUse ?? []), launcher];
+  hooks.PostToolUse = [...(hooks.PostToolUse ?? []), { ...launcher }];
 
   return {
     hooks,
