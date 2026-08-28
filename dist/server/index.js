@@ -2615,6 +2615,28 @@ function toolOf(rec) {
   toolMemo.set(rec, tool ?? NO_TOOL);
   return tool;
 }
+function transcriptHistory(events, agent) {
+  const records = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const ev of events) {
+    if (ev.kind !== "transcript") continue;
+    const p = ev.payload;
+    if (p.agent !== agent) continue;
+    if (p.fromStart) {
+      records.length = 0;
+      seen.clear();
+    }
+    for (const rec of p.records) {
+      const key = rec.uuid ?? "";
+      if (key && seen.has(key)) continue;
+      if (key) seen.add(key);
+      records.push(rec);
+    }
+  }
+  const lines = [];
+  for (const rec of records) lines.push(...linesOf(rec));
+  return lines;
+}
 function project(events, readOnly) {
   let config = null;
   let sidecars = [];
@@ -3878,6 +3900,15 @@ function createHttpServer(deps) {
           json(res, 200, await deps.listTeams());
           return;
         }
+        if (method === "GET" && route === "/api/history" && deps.history) {
+          const agent = url.searchParams.get("agent") ?? "";
+          if (!agent) {
+            json(res, 400, { error: "bad request", message: "agent is required" });
+            return;
+          }
+          json(res, 200, { agent, lines: deps.history(agent) });
+          return;
+        }
         if (method === "POST" && (route === "/hook" || route === "/statusline" || route === "/substatus")) {
           const body2 = await readBody(req);
           const out = route === "/hook" ? await deps.hooks.hook(body2) : route === "/statusline" ? await deps.hooks.statusline(body2) : await deps.hooks.substatus(body2);
@@ -4304,22 +4335,34 @@ async function discoverTeam(teamsRoot2, sessionsRoot, explicitTeam) {
   }
   return best ? toDiscovered(best) : null;
 }
-async function liveSessionIds(sessionsRoot) {
-  const live = /* @__PURE__ */ new Set();
+async function readSessions(sessionsRoot) {
+  const facts = { live: /* @__PURE__ */ new Set(), names: /* @__PURE__ */ new Map() };
   let entries;
   try {
     entries = await fs8.readdir(sessionsRoot);
   } catch {
-    return live;
+    return facts;
   }
   for (const entry of entries) {
     if (!entry.endsWith(".json")) continue;
-    const doc = await readJsonSafe(path9.join(sessionsRoot, entry));
-    if (typeof doc?.sessionId === "string" && typeof doc.pid === "number" && isPidAlive(doc.pid)) {
-      live.add(doc.sessionId);
-    }
+    const doc = await readJsonSafe(
+      path9.join(sessionsRoot, entry)
+    );
+    if (typeof doc?.sessionId !== "string") continue;
+    if (typeof doc.pid === "number" && isPidAlive(doc.pid)) facts.live.add(doc.sessionId);
+    if (typeof doc.name === "string" && doc.name !== "") facts.names.set(doc.sessionId, doc.name);
   }
-  return live;
+  return facts;
+}
+async function branchOf(cwd) {
+  if (!cwd) return void 0;
+  try {
+    const head = await fs8.readFile(path9.join(cwd, ".git", "HEAD"), "utf8");
+    const ref = /^ref:\s+refs\/heads\/(.+)$/m.exec(head.trim());
+    return ref ? ref[1] : void 0;
+  } catch {
+    return void 0;
+  }
 }
 async function lastActivityOf(teamDir, configMtimeMs) {
   let latest = configMtimeMs;
@@ -4346,7 +4389,7 @@ async function listTeamSummaries(teamsRoot2, sessionsRoot, current) {
   } catch {
     return { current, teams: [] };
   }
-  const liveSessions = await liveSessionIds(sessionsRoot);
+  const sessions = await readSessions(sessionsRoot);
   const now = Date.now();
   const teams = [];
   for (const name of entries) {
@@ -4362,8 +4405,10 @@ async function listTeamSummaries(teamsRoot2, sessionsRoot, current) {
     const config = await readJsonSafe(path9.join(teamDir, "config.json"));
     if (!config || typeof config.name !== "string" || !Array.isArray(config.members)) continue;
     const leadSessionId = typeof config.leadSessionId === "string" ? config.leadSessionId : "";
-    const leadAlive = leadSessionId !== "" && liveSessions.has(leadSessionId);
+    const leadAlive = leadSessionId !== "" && sessions.live.has(leadSessionId);
     const lastActivityAt = await lastActivityOf(teamDir, configMtimeMs);
+    const recent = now - lastActivityAt < IDLE_GRACE_MS;
+    const lead = config.members.find((m) => m.agentId === config.leadAgentId) ?? config.members[0];
     teams.push({
       // The DIRECTORY name, not config.name: the ingest gates its own team's
       // config.json on the directory, so a mismatch would make the team
@@ -4374,8 +4419,13 @@ async function listTeamSummaries(teamsRoot2, sessionsRoot, current) {
       leadSessionId,
       leadAlive,
       lastActivityAt,
-      live: leadAlive || now - lastActivityAt < IDLE_GRACE_MS,
-      current: name === current
+      live: leadAlive || recent,
+      current: name === current,
+      branch: await branchOf(lead?.cwd),
+      goal: sessions.names.get(leadSessionId),
+      // `idle` is a team whose lead process is gone but whose files moved
+      // recently — it can still be paged back into; `done` is finished.
+      state: leadAlive ? "live" : recent ? "idle" : "done"
     });
   }
   teams.sort(
@@ -4519,6 +4569,7 @@ async function main(argv) {
     state: () => project(store.replay(), cli.readOnly),
     readOnly: cli.readOnly,
     listTeams: () => listTeamSummaries(teamsRoot2, sessionsRoot, currentTeam),
+    history: (agent) => transcriptHistory(store.replay(), agent),
     selectTeam,
     onShutdown: stop
   });
