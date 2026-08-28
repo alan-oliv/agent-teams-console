@@ -292,7 +292,7 @@ describe('listTeamSummaries', () => {
     await fs.mkdir(path.join(sessions()), { recursive: true });
     await fs.writeFile(
       path.join(sessions(), `${process.pid}.json`),
-      JSON.stringify({ pid: process.pid, sessionId, cwd }),
+      JSON.stringify({ pid: process.pid, sessionId, cwd, name: 'agents-team-ui' }),
     );
     const subagents = path.join(projects, cwd.replace(/[^a-zA-Z0-9]/g, '-'), sessionId, 'subagents');
     await fs.mkdir(subagents, { recursive: true });
@@ -304,6 +304,9 @@ describe('listTeamSummaries', () => {
     const withProjects = await listTeamSummaries(teams(), sessions(), '', projects);
     expect(withProjects.teams[0].leadAlive).toBe(true);
     expect(withProjects.teams[0].state).toBe('live');
+    // And the row is named after the session actually driving it — read from
+    // the same place, so a re-keyed team stops showing up nameless.
+    expect(withProjects.teams[0].goal).toBe('agents-team-ui');
 
     // Without the sidecar join it is the old, wrong answer.
     const without = await listTeamSummaries(teams(), sessions(), '');

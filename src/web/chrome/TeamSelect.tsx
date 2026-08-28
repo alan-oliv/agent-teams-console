@@ -127,7 +127,12 @@ export function TeamSelect({ current, open, onOpenChange, now }: TeamSelectProps
       .catch(() => setMark({ kind: 'failed', team: name }));
   }
 
-  const rows = teams ?? [];
+  // A finished team is history, not a session on this machine: listing one kept
+  // offering a conversation that had ended hours earlier under a heading that
+  // claims otherwise. The team being VIEWED stays listed even once it ends —
+  // dropping the row you are looking at would leave the picker contradicting
+  // the wall behind it.
+  const rows = (teams ?? []).filter((t) => t.state !== 'done' || t.current);
   const cursorTeam = rows[Math.min(cursor, rows.length - 1)];
 
   function onListKeyDown(e: KeyboardEvent<HTMLDivElement>) {
@@ -354,7 +359,11 @@ export function TeamSelect({ current, open, onOpenChange, now }: TeamSelectProps
                   color: unreadable && !loading ? 'var(--failure-rose)' : 'var(--color-neutral-700)',
                 }}
               >
-                {loading ? 'reading teams…' : unreadable ? 'could not read teams' : 'no teams found'}
+                {loading
+                  ? 'reading teams…'
+                  : unreadable
+                    ? 'could not read teams'
+                    : 'no live teams'}
               </div>
             )}
           </div>

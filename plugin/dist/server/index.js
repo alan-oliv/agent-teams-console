@@ -4471,7 +4471,7 @@ async function lastActivityOf(teamDir, configMtimeMs) {
   return latest;
 }
 async function teamsOfLiveSessions(projectsRoot, sessions) {
-  const teams = /* @__PURE__ */ new Set();
+  const teams = /* @__PURE__ */ new Map();
   for (const sessionId of sessions.live) {
     const cwd = sessions.cwds.get(sessionId);
     if (!cwd) continue;
@@ -4488,7 +4488,9 @@ async function teamsOfLiveSessions(projectsRoot, sessions) {
         path9.join(dir, entry)
       );
       if (meta?.taskKind !== "in_process_teammate") continue;
-      if (typeof meta.teamName === "string" && meta.teamName !== "") teams.add(meta.teamName);
+      if (typeof meta.teamName === "string" && meta.teamName !== "") {
+        teams.set(meta.teamName, sessionId);
+      }
     }
   }
   return teams;
@@ -4501,7 +4503,7 @@ async function listTeamSummaries(teamsRoot2, sessionsRoot, current, projectsRoot
     return { current, teams: [] };
   }
   const sessions = await readSessions(sessionsRoot);
-  const liveTeams = projectsRoot ? await teamsOfLiveSessions(projectsRoot, sessions) : /* @__PURE__ */ new Set();
+  const liveTeams = projectsRoot ? await teamsOfLiveSessions(projectsRoot, sessions) : /* @__PURE__ */ new Map();
   const now = Date.now();
   const teams = [];
   for (const name of entries) {
@@ -4517,6 +4519,7 @@ async function listTeamSummaries(teamsRoot2, sessionsRoot, current, projectsRoot
     const config = await readJsonSafe(path9.join(teamDir, "config.json"));
     if (!config || typeof config.name !== "string" || !Array.isArray(config.members)) continue;
     const leadSessionId = typeof config.leadSessionId === "string" ? config.leadSessionId : "";
+    const leadSession = liveTeams.get(name) ?? leadSessionId;
     const leadAlive = liveTeams.has(name) || leadSessionId !== "" && sessions.live.has(leadSessionId);
     const lastActivityAt = await lastActivityOf(teamDir, configMtimeMs);
     const recent = now - lastActivityAt < IDLE_GRACE_MS;
@@ -4534,7 +4537,10 @@ async function listTeamSummaries(teamsRoot2, sessionsRoot, current, projectsRoot
       live: leadAlive || recent,
       current: name === current,
       branch: await branchOf(lead?.cwd),
-      goal: sessions.names.get(leadSessionId),
+      // Named after the session actually driving the team. Keyed on
+      // config.leadSessionId this was blank for every re-keyed team — the live
+      // one showed no name while a four-hour-dead one showed its own.
+      goal: sessions.names.get(leadSession),
       // `idle` is a team whose lead process is gone but whose files moved
       // recently — it can still be paged back into; `done` is finished.
       state: leadAlive ? "live" : recent ? "idle" : "done"

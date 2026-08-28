@@ -282,8 +282,8 @@ async function lastActivityOf(teamDir: string, configMtimeMs: number): Promise<n
 async function teamsOfLiveSessions(
   projectsRoot: string,
   sessions: SessionFacts,
-): Promise<Set<string>> {
-  const teams = new Set<string>();
+): Promise<Map<string, string>> {
+  const teams = new Map<string, string>();
   for (const sessionId of sessions.live) {
     const cwd = sessions.cwds.get(sessionId);
     if (!cwd) continue;
@@ -300,7 +300,9 @@ async function teamsOfLiveSessions(
         path.join(dir, entry),
       );
       if (meta?.taskKind !== 'in_process_teammate') continue;
-      if (typeof meta.teamName === 'string' && meta.teamName !== '') teams.add(meta.teamName);
+      if (typeof meta.teamName === 'string' && meta.teamName !== '') {
+        teams.set(meta.teamName, sessionId);
+      }
     }
   }
   return teams;
@@ -320,9 +322,11 @@ export async function listTeamSummaries(
   }
 
   const sessions = await readSessions(sessionsRoot);
+  // team -> the REAL session driving it, which is also the only place its name
+  // ("agents-team-ui", whatever `/rename` last wrote) can be read from.
   const liveTeams = projectsRoot
     ? await teamsOfLiveSessions(projectsRoot, sessions)
-    : new Set<string>();
+    : new Map<string, string>();
   const now = Date.now();
   const teams: TeamSummary[] = [];
   for (const name of entries) {
@@ -344,8 +348,8 @@ export async function listTeamSummaries(
     // Either answer proves the lead is there: the sidecars say a live session
     // is driving this team, or config.json's leadSessionId is a real session
     // that is still running (a team that has never been re-keyed).
-    const leadAlive =
-      liveTeams.has(name) || (leadSessionId !== '' && sessions.live.has(leadSessionId));
+    const leadSession = liveTeams.get(name) ?? leadSessionId;
+    const leadAlive = liveTeams.has(name) || (leadSessionId !== '' && sessions.live.has(leadSessionId));
     const lastActivityAt = await lastActivityOf(teamDir, configMtimeMs);
     const recent = now - lastActivityAt < IDLE_GRACE_MS;
     const lead = config.members.find((m) => m.agentId === config.leadAgentId) ?? config.members[0];
@@ -362,7 +366,10 @@ export async function listTeamSummaries(
       live: leadAlive || recent,
       current: name === current,
       branch: await branchOf(lead?.cwd),
-      goal: sessions.names.get(leadSessionId),
+      // Named after the session actually driving the team. Keyed on
+      // config.leadSessionId this was blank for every re-keyed team — the live
+      // one showed no name while a four-hour-dead one showed its own.
+      goal: sessions.names.get(leadSession),
       // `idle` is a team whose lead process is gone but whose files moved
       // recently — it can still be paged back into; `done` is finished.
       state: leadAlive ? 'live' : recent ? 'idle' : 'done',

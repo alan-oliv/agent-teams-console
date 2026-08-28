@@ -9,7 +9,13 @@ import { TeamSelect } from './TeamSelect';
 // matching more than one element.
 afterEach(cleanup);
 
-const LIST = { current: 'session-98b0b4a7', teams: sampleTeams() };
+// The second fixture team is `done`, which the picker now hides; these tests
+// are about rows and switching, so it stands in as an idle team. The hiding
+// rule has its own tests at the bottom.
+const LIST = {
+  current: 'session-98b0b4a7',
+  teams: sampleTeams().map((t, i) => (i === 1 ? { ...t, state: 'idle' as const } : t)),
+};
 
 let fetchMock: ReturnType<typeof vi.fn>;
 
@@ -66,7 +72,7 @@ it('carries the goal, agent count and state on the second line', async () => {
   const rows = await screen.findAllByRole('option');
   expect(rows.map((r) => within(r).getByTestId('team-meta').textContent)).toEqual([
     'agents-team-console-design4 agentslive',
-    '1 agentended 4h 12m ago',
+    '1 agentidle',
   ]);
 });
 
@@ -162,7 +168,7 @@ it('says it is reading while the listing is in flight', () => {
 it('says so when the machine has no teams', async () => {
   fetchMock.mockResolvedValue(new Response(JSON.stringify({ current: '', teams: [] }), { status: 200 }));
   renderSelect();
-  expect(await screen.findByText('no teams found')).toBeTruthy();
+  expect(await screen.findByText('no live teams')).toBeTruthy();
 });
 
 it('says so when the listing cannot be read', async () => {
@@ -191,4 +197,28 @@ it('marks the row gone when the team vanished before the click', async () => {
 
   const mark = await within(rows[1]).findByText('gone');
   expect(mark.style.color).toBe('var(--failure-rose)');
+});
+
+
+it('hides a team whose session has ended — it is history, not a session on this machine', async () => {
+  const done = { current: 'session-98b0b4a7', teams: sampleTeams() };
+  fetchMock = vi.fn(() => Promise.resolve(new Response(JSON.stringify(done), { status: 200 })));
+  vi.stubGlobal('fetch', fetchMock);
+
+  renderSelect();
+  const rows = await screen.findAllByRole('option');
+  expect(rows).toHaveLength(1);
+  expect(within(rows[0]).getByText('session-98b0b4a7')).toBeTruthy();
+  expect(screen.getByText('SESSIONS ON THIS MACHINE · 1')).toBeTruthy();
+});
+
+it('keeps the ended team that is being VIEWED, so the picker cannot contradict the wall', async () => {
+  const teams = sampleTeams().map((t, i) => ({ ...t, current: i === 1 }));
+  const viewing = { current: 'session-b5129c7b', teams };
+  fetchMock = vi.fn(() => Promise.resolve(new Response(JSON.stringify(viewing), { status: 200 })));
+  vi.stubGlobal('fetch', fetchMock);
+
+  renderSelect({ current: 'session-b5129c7b' });
+  const rows = await screen.findAllByRole('option');
+  expect(rows.map((r) => r.getAttribute('id'))).toContain('team-option-session-b5129c7b');
 });
