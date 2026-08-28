@@ -162,28 +162,36 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
   // teammate from an ordinary subagent until the sidecar arrives, so hold the
   // lines in a bounded buffer instead of guessing — and drop them outright once
   // a sidecar proves the agent is not a teammate.
-  const pending = new Map<string, TranscriptRecord[]>();
+  const pending = new Map<string, { agent: string; records: TranscriptRecord[] }>();
   const PENDING_CAP = 500;
 
   /**
-   * Per agent, the best usage record seen for each message id — the same rule
-   * `dedupeUsage` applies, kept incrementally so the snapshot below is exact
-   * however the file arrived: in one drain, in chunks, or read whole again after
-   * a restart. Measured at ~21% of record count, which is ~100x cheaper than
-   * holding the records themselves, but it does grow with the session.
+   * Per transcript FILE, the best usage record seen for each message id — the
+   * same rule `dedupeUsage` applies, kept incrementally so the snapshot below is
+   * exact however the file arrived: in one drain, in chunks, or read whole again
+   * after a restart. Measured at ~21% of record count, which is ~100x cheaper
+   * than holding the records themselves, but it does grow with the session.
    */
   const usageLedger = new Map<string, Map<string, UsageRecord>>();
+  // The transcript files this run has read for each agent. A CANDIDATE set:
+  // which of them actually count is re-decided in totalsFor against the
+  // leadSessionId of the moment, because a file read before config.json landed
+  // was attributed on its name alone.
+  const ledgerFiles = new Map<string, Set<string>>();
 
   // Fed as lines are READ, not as they are stored, so nothing that drops records
   // downstream can discount an agent: PENDING_CAP truncates a late-sidecar
   // teammate's buffer, and the store bounds records per agent.
-  const noteUsage = (agent: string, records: TranscriptRecord[]) => {
-    const ledger = usageLedger.get(agent) ?? new Map<string, UsageRecord>();
+  const noteUsage = (file: string, agent: string, records: TranscriptRecord[]) => {
+    const ledger = usageLedger.get(file) ?? new Map<string, UsageRecord>();
     for (const u of usageRecordsOf(records)) {
       const best = ledger.get(u.messageId);
       if (!best || u.usage.output_tokens > best.usage.output_tokens) ledger.set(u.messageId, u);
     }
-    usageLedger.set(agent, ledger);
+    usageLedger.set(file, ledger);
+    const files = ledgerFiles.get(agent) ?? new Set<string>();
+    files.add(file);
+    ledgerFiles.set(agent, files);
   };
 
   /**
@@ -193,14 +201,43 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
    * a catalog.json price edit takes effect on the next drain.
    */
   const totalsFor = (agent: string): AgentUsageTotals => {
-    const all = [...(usageLedger.get(agent) ?? new Map<string, UsageRecord>()).values()];
+    const candidates = [...(ledgerFiles.get(agent) ?? [])];
+    const attributable = candidates.filter(
+      (f) => agentOfTranscript(f, leadSessionId, leadName) === agent,
+    );
+    // A snapshot is only ever taken for a file whose records we are storing, so
+    // an empty filter means we are storing a file that is no longer the agent's
+    // — a team name reused under a new lead session. Publishing 0 there would
+    // overwrite a correct total with a number the stored records contradict.
+    const files = attributable.length > 0 ? attributable : candidates;
+    let all: UsageRecord[];
+    if (files.length === 1) {
+      all = [...(usageLedger.get(files[0]) ?? new Map<string, UsageRecord>()).values()];
+    } else {
+      // An agent respawned under the same name has a second transcript file;
+      // both are its spend, and a message id in both counts once.
+      const best = new Map<string, UsageRecord>();
+      for (const f of files) {
+        for (const [id, u] of usageLedger.get(f) ?? []) {
+          const prev = best.get(id);
+          if (!prev || u.usage.output_tokens > prev.usage.output_tokens) best.set(id, u);
+        }
+      }
+      all = [...best.values()];
+    }
     return { costUsd: totalCost(all), tokens: tokensOf(all) };
   };
 
-  // A name this run has proven is not a teammate of ours keeps nothing.
-  const forget = (agent: string) => {
-    pending.delete(agent);
-    usageLedger.delete(agent);
+  const transcriptOfSidecar = (file: string) => file.replace(/\.meta\.json$/, '.jsonl');
+
+  // A TRANSCRIPT this run has proven is not a teammate's keeps nothing. Keyed by
+  // the file the sidecar describes, never by the name it carries: a name is not
+  // unique across teams (166 sidecars on one ordinary machine, 13 teammate names
+  // over two sessions), so a stranger that merely shares a teammate's name would
+  // otherwise empty that teammate's buffer and its spend.
+  const forget = (transcript: string) => {
+    pending.delete(transcript);
+    usageLedger.delete(transcript);
   };
 
   /**
@@ -227,12 +264,12 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
     }
   };
 
-  const flushPending = (agent: string) => {
-    const buf = pending.get(agent);
-    pending.delete(agent);
+  const flushPending = (transcript: string) => {
+    const buf = pending.get(transcript);
+    pending.delete(transcript);
     // Never `fromStart`: PENDING_CAP may already have dropped the front of the
     // buffer, so this is not provably the file from its first byte.
-    if (buf && buf.length > 0) appendTranscript(agent, buf, false);
+    if (buf && buf.records.length > 0) appendTranscript(buf.agent, buf.records, false);
   };
 
   const handleLines = (file: string, lines: string[], fromStart: boolean) => {
@@ -245,16 +282,16 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
       if (rec) records.push(rec);
     }
     if (records.length === 0) return;
-    noteUsage(agent, records);
+    noteUsage(file, agent, records);
 
     if (agent === leadName || sidecars.has(agent)) {
-      flushPending(agent);
+      flushPending(file);
       appendTranscript(agent, records, fromStart);
       return;
     }
-    const buf = pending.get(agent) ?? [];
+    const buf = pending.get(file)?.records ?? [];
     buf.push(...records);
-    pending.set(agent, buf.slice(-PENDING_CAP));
+    pending.set(file, { agent, records: buf.slice(-PENDING_CAP) });
   };
 
   const handleTeamsJson = async (file: string) => {
@@ -282,15 +319,15 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
   };
 
   const acceptSidecar = (file: string, meta: Sidecar): boolean => {
+    const transcriptPath = transcriptOfSidecar(file);
     if (meta.teamName !== teamName) {
-      // Not ours — discard anything buffered under that name.
-      if (meta.name) forget(meta.name);
+      // Not ours — discard anything buffered for the transcript it describes.
+      forget(transcriptPath);
       return false;
     }
-    const transcriptPath = file.replace(/\.meta\.json$/, '.jsonl');
     sidecars.set(meta.name, { meta, transcriptPath });
     transcriptPaths.set(meta.name, transcriptPath);
-    flushPending(meta.name);
+    flushPending(transcriptPath);
     return true;
   };
 
@@ -299,8 +336,8 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
     const meta = await readJsonSafe<Sidecar>(file);
     if (!meta) return;
     if (meta.taskKind !== 'in_process_teammate') {
-      // Proven NOT a teammate — discard anything buffered under that name.
-      if (meta.name) forget(meta.name);
+      // Proven NOT a teammate — discard anything buffered for its transcript.
+      forget(transcriptOfSidecar(file));
       return;
     }
     // Fail CLOSED while the team is unresolved: `teamName` unset must reject

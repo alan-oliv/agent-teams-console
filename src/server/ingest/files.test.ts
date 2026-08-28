@@ -761,3 +761,226 @@ describe('transcript batching', () => {
     }
   });
 });
+
+// A NAME is not unique across teams: one ordinary machine holds 166 sidecars
+// carrying 13 teammate names over two sessions, and a second run of the same
+// workflow reuses them. So nothing keyed on a bare name may be dropped or
+// credited on a stranger's say-so — the transcript FILE is the identity.
+describe('a stranger that shares a teammate name', () => {
+  const OTHER_SLUG = `${SLUG}-other`;
+  const OTHER_SESSION = '5cd370e5-2d86-4b64-878e-095f726aea82';
+  const ourDir = () => path.join(paths.projects, SLUG, LEAD_SESSION, 'subagents');
+  const theirDir = () => path.join(paths.projects, OTHER_SLUG, OTHER_SESSION, 'subagents');
+  const stem = 'agent-atwin-1111111111111111';
+
+  const assistant = (i: number) => ({
+    type: 'assistant',
+    uuid: `twin-${i}`,
+    timestamp: new Date(1787843400000 + i * 1000).toISOString(),
+    message: {
+      id: `msg_twin_${i}`,
+      model: 'claude-sonnet-4-5-20250929',
+      role: 'assistant',
+      usage: {
+        input_tokens: 4,
+        output_tokens: 100,
+        cache_read_input_tokens: 2000,
+        cache_creation_input_tokens: 500,
+      },
+      content: [{ type: 'text', text: `turn ${i}` }],
+    },
+  });
+
+  const sidecar = (name: string, teamName: string, taskKind: string) =>
+    JSON.stringify({
+      name,
+      agentType: name,
+      description: 'd',
+      spawnDepth: 0,
+      model: 'claude-sonnet-4-5-20250929',
+      taskKind,
+      teamName,
+    });
+
+  const write = (dir: string, file: string, records: unknown[]) =>
+    fs.writeFile(path.join(dir, file), records.map((r) => JSON.stringify(r)).join('\n') + '\n');
+
+  const start = () =>
+    startFileIngest(store, {
+      paths,
+      teamName: TEAM,
+      leadSessionId: LEAD_SESSION,
+      leadName: 'team-lead',
+      sweepIntervalMs: 0,
+      tailPollMs: 0,
+    });
+
+  const storedTotals = () =>
+    of(store.replay(), 'transcript')
+      .map((e) => e.payload as TranscriptPayload)
+      .filter((p) => p.agent === 'twin' && p.totals)
+      .at(-1)!.totals!;
+
+  const storedRecords = () =>
+    of(store.replay(), 'transcript').reduce(
+      (n, e) => n + (e.payload as TranscriptPayload).records.length,
+      0,
+    );
+
+  beforeEach(async () => {
+    await fs.mkdir(ourDir(), { recursive: true });
+    await fs.mkdir(theirDir(), { recursive: true });
+    await fs.mkdir(path.join(paths.teams, TEAM), { recursive: true });
+    await fs.copyFile(
+      path.join(FIXTURES, 'config-4-members.json'),
+      path.join(paths.teams, TEAM, 'config.json'),
+    );
+  });
+
+  // Phased sweeps on purpose: one sweep over a pre-laid tree decides nothing,
+  // because walk()'s ordering puts `<slug>-other` before `<slug>` and the
+  // stranger would be judged before our own lines were ever read.
+  it("does not empty a teammate's spend", async () => {
+    const records = Array.from({ length: 40 }, (_, i) => assistant(i));
+    await write(ourDir(), `${stem}.jsonl`, records);
+    await fs.writeFile(
+      path.join(ourDir(), `${stem}.meta.json`),
+      sidecar('twin', TEAM, 'in_process_teammate'),
+    );
+
+    const ingest = start();
+    try {
+      await ingest.sweep(); // our teammate, running normally
+
+      await fs.writeFile(
+        path.join(theirDir(), 'agent-atwin-2222222222222222.meta.json'),
+        sidecar('twin', 'session-5cd370e5', 'in_process_teammate'),
+      );
+      await fs.writeFile(
+        path.join(theirDir(), 'agent-atwin-3333333333333333.meta.json'),
+        sidecar('twin', TEAM, 'subagent'),
+      );
+      await ingest.sweep(); // both strangers are discovered
+
+      const all = Array.from({ length: 42 }, (_, i) => assistant(i));
+      await fs.appendFile(
+        path.join(ourDir(), `${stem}.jsonl`),
+        all
+          .slice(40)
+          .map((r) => JSON.stringify(r))
+          .join('\n') + '\n',
+      );
+      await ingest.sweep(); // and our teammate says one more thing
+
+      expect(storedTotals().costUsd).toBeCloseTo(totalCost(dedupeUsage(usageRecordsOf(all))), 12);
+    } finally {
+      ingest.close();
+    }
+  });
+
+  it("does not drop a teammate's buffered lines", async () => {
+    await write(
+      ourDir(),
+      `${stem}.jsonl`,
+      Array.from({ length: 40 }, (_, i) => assistant(i)),
+    );
+
+    const ingest = start();
+    try {
+      await ingest.sweep(); // buffered: our own sidecar has not landed yet
+      expect(of(store.replay(), 'transcript')).toHaveLength(0);
+
+      await fs.writeFile(
+        path.join(theirDir(), 'agent-atwin-2222222222222222.meta.json'),
+        sidecar('twin', 'session-5cd370e5', 'in_process_teammate'),
+      );
+      await ingest.sweep(); // a stranger of the same name is discovered
+
+      await fs.writeFile(
+        path.join(ourDir(), `${stem}.meta.json`),
+        sidecar('twin', TEAM, 'in_process_teammate'),
+      );
+      await ingest.sweep(); // and only now does our own sidecar land
+
+      expect(storedRecords()).toBe(40);
+    } finally {
+      ingest.close();
+    }
+  });
+
+  it("does not credit a stranger's spend to a teammate read before config.json landed", async () => {
+    // The launcher starts the console before the team exists, so the boot sweep
+    // runs with no leadSessionId and every subagent transcript on the machine is
+    // attributable by its bare name.
+    await write(
+      theirDir(),
+      'agent-atwin-2222222222222222.jsonl',
+      Array.from({ length: 40 }, (_, i) => assistant(i)),
+    );
+    await fs.rm(path.join(paths.teams, TEAM, 'config.json'));
+
+    const ingest = startFileIngest(store, { paths, sweepIntervalMs: 0, tailPollMs: 0 });
+    try {
+      await ingest.sweep();
+
+      await fs.copyFile(
+        path.join(FIXTURES, 'config-4-members.json'),
+        path.join(paths.teams, TEAM, 'config.json'),
+      );
+      const ours = [assistant(100), assistant(101)];
+      await write(ourDir(), `${stem}.jsonl`, ours);
+      await fs.writeFile(
+        path.join(ourDir(), `${stem}.meta.json`),
+        sidecar('twin', TEAM, 'in_process_teammate'),
+      );
+      await ingest.sweep();
+
+      expect(storedTotals().costUsd).toBeCloseTo(totalCost(dedupeUsage(usageRecordsOf(ours))), 12);
+      expect(storedRecords()).toBe(2);
+    } finally {
+      ingest.close();
+    }
+  });
+  // The scope rule is what keeps a stranger off the console at all, and keying
+  // the buffers by file must tighten it, never relax it.
+  it('never puts a foreign agent in the roster or its spend in the team total', async () => {
+    const ours = [assistant(100), assistant(101)];
+    await write(ourDir(), `${stem}.jsonl`, ours);
+    await fs.writeFile(
+      path.join(ourDir(), `${stem}.meta.json`),
+      sidecar('twin', TEAM, 'in_process_teammate'),
+    );
+    const theirs = Array.from({ length: 40 }, (_, i) => assistant(i));
+    await write(theirDir(), 'agent-atwin-2222222222222222.jsonl', theirs);
+    await fs.writeFile(
+      path.join(theirDir(), 'agent-atwin-2222222222222222.meta.json'),
+      sidecar('twin', 'session-5cd370e5', 'in_process_teammate'),
+    );
+    await write(theirDir(), 'agent-aghost-4444444444444444.jsonl', theirs);
+    await fs.writeFile(
+      path.join(theirDir(), 'agent-aghost-4444444444444444.meta.json'),
+      sidecar('ghost', 'session-5cd370e5', 'in_process_teammate'),
+    );
+
+    const ingest = start();
+    try {
+      await ingest.sweep();
+      await ingest.sweep();
+    } finally {
+      ingest.close();
+    }
+
+    const state = project(store.replay(), false);
+    expect(state.agents.map((a) => a.name)).toEqual([
+      'team-lead',
+      'probe-alpha',
+      'probe-bravo',
+      'probe-charlie',
+      'twin',
+    ]);
+    const truth = totalCost(dedupeUsage(usageRecordsOf(ours)));
+    expect(state.agents.find((a) => a.name === 'twin')!.costUsd).toBeCloseTo(truth, 12);
+    expect(state.totalCostUsd!).toBeCloseTo(truth, 12);
+    expect(storedRecords()).toBe(ours.length);
+  });
+});

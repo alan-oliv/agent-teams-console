@@ -295,6 +295,11 @@ describe('transcript retention', () => {
       timestamp: '2026-08-27T15:20:00.000Z',
     }));
 
+  // The ingest ends every drain with a cumulative snapshot, and the record bound
+  // only applies to an agent that has one — without it, dropping records drops
+  // that agent's cost with them. See the pre-snapshot log test below.
+  const snapshot = { costUsd: 1.5, tokens: 42 };
+
   const recordsIn = (events: Array<{ kind: string; payload: unknown }>, agent?: string) =>
     events
       .filter((e) => e.kind === 'transcript')
@@ -305,7 +310,11 @@ describe('transcript retention', () => {
     const store = openStore(path.join(dir, 'records.db'), 'session-rec00000');
     try {
       for (let i = 0; i < PRUNE_EVERY; i++) {
-        store.append('transcript', { agent: 'a', records: batch('a', `b${i}`, 200) }, 'a');
+        store.append(
+          'transcript',
+          { agent: 'a', records: batch('a', `b${i}`, 200), totals: snapshot },
+          'a',
+        );
       }
       const kept = store.replay();
       expect(recordsIn(kept)).toBeLessThanOrEqual(TRANSCRIPT_RECORDS_PER_AGENT);
@@ -321,13 +330,48 @@ describe('transcript retention', () => {
   it("does not evict a quiet agent's records to make room for a chatty one's", () => {
     const store = openStore(path.join(dir, 'quiet.db'), 'session-qui00000');
     try {
-      store.append('transcript', { agent: 'quiet', records: batch('quiet', 'only', 3) }, 'quiet');
+      store.append(
+        'transcript',
+        { agent: 'quiet', records: batch('quiet', 'only', 3), totals: snapshot },
+        'quiet',
+      );
       for (let i = 0; i < PRUNE_EVERY - 1; i++) {
-        store.append('transcript', { agent: 'chatty', records: batch('chatty', `b${i}`, 200) }, 'chatty');
+        store.append(
+          'transcript',
+          { agent: 'chatty', records: batch('chatty', `b${i}`, 200), totals: snapshot },
+          'chatty',
+        );
       }
       const kept = store.replay();
       expect(recordsIn(kept, 'quiet')).toBe(3);
       expect(recordsIn(kept, 'chatty')).toBeLessThanOrEqual(TRANSCRIPT_RECORDS_PER_AGENT);
+    } finally {
+      store.close();
+    }
+  });
+
+  // A log written before the cumulative snapshot existed carries records and no
+  // totals, and project() still derives that agent's cost by summing them. The
+  // bound would take the money with the history — and for an agent whose
+  // transcript file is gone, nothing is left to re-derive it from.
+  it('does not apply the record bound to an agent that has no snapshot', () => {
+    const store = openStore(path.join(dir, 'legacy.db'), 'session-leg00000');
+    try {
+      for (let i = 0; i < PRUNE_EVERY; i++) {
+        store.append('transcript', { agent: 'a', records: batch('a', `b${i}`, 200) }, 'a');
+      }
+      expect(recordsIn(store.replay())).toBe(PRUNE_EVERY * 200);
+
+      // ...and the exemption ends the moment that agent gets one.
+      store.append(
+        'transcript',
+        { agent: 'a', records: batch('a', 'new', 1), totals: snapshot },
+        'a',
+      );
+      for (let i = 0; i < PRUNE_EVERY - 1; i++) store.append('hook', { event: 'x' }, 'a');
+      // The budget is checked before each event, so the newest row is admitted
+      // whole — the same overshoot every other bounded agent has.
+      expect(recordsIn(store.replay())).toBeLessThanOrEqual(TRANSCRIPT_RECORDS_PER_AGENT + 200);
     } finally {
       store.close();
     }

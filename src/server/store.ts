@@ -191,6 +191,14 @@ function readsFromStart(payload: unknown): boolean {
   );
 }
 
+function carriesTotals(payload: unknown): boolean {
+  return (
+    payload !== null &&
+    typeof payload === 'object' &&
+    (payload as { totals?: unknown }).totals != null
+  );
+}
+
 /**
  * Per agent, newest first, the transcript rows to drop. Two reasons to drop one:
  * the agent's record (or event) budget is already spent, or the row is older
@@ -202,6 +210,20 @@ function readsFromStart(payload: unknown): boolean {
  * gaining a whole copy of every transcript on each boot, forever.
  */
 function transcriptDrops(events: StoredEvent[]): Set<StoredEvent> {
+  // Agents with a cumulative snapshot somewhere in the log. An agent without one
+  // is a log written before the snapshot existed, and project() still derives
+  // its cost by summing the records it holds — so for that agent the record
+  // bound drops MONEY, not history (measured 78.6% low). It is self-limiting:
+  // the sweep's re-read appends a totals-bearing fromStart batch, and the
+  // pastReset clause below then drops every exempt row in the same pass. The
+  // exemption outlives that only for an agent whose transcript file is gone,
+  // which is exactly the case with no other source of truth. The event backstop
+  // still applies to everyone.
+  const snapshotted = new Set<string>();
+  for (const e of events) {
+    if (e.kind === 'transcript' && carriesTotals(e.payload)) snapshotted.add(e.agent ?? '');
+  }
+
   const drop = new Set<StoredEvent>();
   const keptRecords = new Map<string, number>();
   const keptEvents = new Map<string, number>();
@@ -217,7 +239,8 @@ function transcriptDrops(events: StoredEvent[]): Set<StoredEvent> {
     if (readsFromStart(e.payload)) pastReset.add(agent);
     const records = keptRecords.get(agent) ?? 0;
     const count = keptEvents.get(agent) ?? 0;
-    if (records >= TRANSCRIPT_RECORDS_PER_AGENT || count >= TRANSCRIPT_EVENTS_PER_AGENT) {
+    const overRecords = records >= TRANSCRIPT_RECORDS_PER_AGENT && snapshotted.has(agent);
+    if (overRecords || count >= TRANSCRIPT_EVENTS_PER_AGENT) {
       drop.add(e);
       continue;
     }
