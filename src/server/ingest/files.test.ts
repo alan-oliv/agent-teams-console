@@ -1341,6 +1341,73 @@ describe('a transcript FILE is the identity, not the name it carries', () => {
     }
   });
 
+  // The sweep drains transcripts AFTER its walk, so a sidecar's verdict normally
+  // lands before its transcript is ever read — and a file proven not to be a
+  // teammate's would then be buffered afresh on every append it makes, spending
+  // a budget that belongs to real teammates whose sidecars are merely late.
+  it("never lets a proven stranger's lines displace a teammate's buffered ones", async () => {
+    const STRANGERS = 13;
+    const hex = (i: number) => i.toString(16).padStart(16, '0');
+    // Ours is written first, so it is both the oldest buffer and the first file
+    // the mtime-ordered drain reads.
+    await write(jsonl('0000000000000000'), many(40, 'OURS'));
+    for (let i = 0; i < STRANGERS; i++) {
+      await write(jsonl(hex(i), `zstr${i}`), many(600, `Z${i}`));
+      await fs.writeFile(meta(hex(i), `zstr${i}`), sidecar(`zstr${i}`, 'subagent'));
+    }
+
+    const ingest = await startSweepOnly();
+    try {
+      await ingest.sweep();
+      expect(of(store.replay(), 'transcript')).toHaveLength(0);
+
+      // Our own sidecar finally lands — a median of 10.7 minutes after the
+      // first transcript byte on this machine, which is why the buffer exists.
+      await fs.writeFile(meta('0000000000000000'), sidecar('worker'));
+      await ingest.sweep();
+    } finally {
+      ingest.close();
+    }
+
+    expect(worker().transcript).toHaveLength(40);
+    expect(storedRecords()).toBe(40);
+  });
+
+  // The same displacement in the window before config.json. A teamName we
+  // already have refuses a sidecar on its own — only the DIRECTORY half of the
+  // test needs the lead session id — so a sidecar that is plainly another
+  // team's must not be held, and must not carry its transcript's lines into the
+  // budget with it.
+  it('refuses another team sidecar before config.json rather than holding it', async () => {
+    await fs.rm(path.join(paths.teams, TEAM, 'config.json'));
+    const STRANGERS = 13;
+    const hex = (i: number) => i.toString(16).padStart(16, '0');
+    await write(jsonl('0000000000000000'), many(40, 'OURS'));
+    await fs.writeFile(meta('0000000000000000'), sidecar('worker'));
+    for (let i = 0; i < STRANGERS; i++) {
+      await write(jsonl(hex(i), `zstr${i}`), many(600, `Z${i}`));
+      await fs.writeFile(
+        meta(hex(i), `zstr${i}`),
+        sidecar(`zstr${i}`, 'in_process_teammate', 'session-5cd370e5'),
+      );
+    }
+
+    const ingest = await startSweepOnly({ leadSessionId: undefined });
+    try {
+      await ingest.sweep();
+      expect(of(store.replay(), 'transcript')).toHaveLength(0);
+
+      await writeConfig();
+      await settle(20);
+      await ingest.sweep();
+    } finally {
+      ingest.close();
+    }
+
+    expect(worker().transcript).toHaveLength(40);
+    expect(storedRecords()).toBe(40);
+  });
+
   // PENDING_CAP is a per-FILE bound, and the number of files that can be held is
   // the number of subagent transcripts on the machine, not the size of the team:
   // 165 buffered files retained 309.7 MB of heap against 24.6 MB for 13 —

@@ -303,12 +303,22 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
 
   const transcriptOfSidecar = (file: string) => file.replace(/\.meta\.json$/, '.jsonl');
 
+  // Transcripts a sidecar has proven are not a teammate's. The sweep drains
+  // transcripts AFTER its walk, so the verdict normally lands BEFORE the file is
+  // ever read and there is no buffer for forget() to clear — without this, a
+  // stranger's lines would be buffered again on every append it makes, spending
+  // a budget that belongs to teammates whose sidecars are merely late. Emptied
+  // when config.json changes what "ours" means; every held file is re-judged in
+  // the same breath.
+  const disowned = new Set<string>();
+
   // A TRANSCRIPT this run has proven is not a teammate's keeps nothing. Keyed by
   // the file the sidecar describes, never by the name it carries: a name is not
   // unique across teams (166 sidecars on one ordinary machine, 13 teammate names
   // over two sessions), so a stranger that merely shares a teammate's name would
   // otherwise empty that teammate's buffer and its spend.
   const forget = (transcript: string) => {
+    disowned.add(transcript);
     dropPending(transcript);
     usageLedger.delete(transcript);
     for (const files of ledgerFiles.values()) files.delete(transcript);
@@ -350,6 +360,7 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
   const handleLines = (file: string, lines: string[], fromStart: boolean) => {
     const claim = claimOfTranscript(file, leadSessionId, leadName);
     if (!claim) return;
+    if (disowned.has(file)) return;
     // The sidecar's own `name` is the roster's join key, so it decides the
     // identity of the file it describes; the path-derived name is a fallback for
     // lines read before any sidecar landed.
@@ -408,6 +419,7 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
       // before the sidecars replay, or a sidecar would flush a buffer this is
       // about to disown — and free whatever no longer qualifies.
       if (learned) {
+        disowned.clear();
         for (const f of [...pending.keys()]) {
           if (claimOfTranscript(f, leadSessionId, leadName)?.scoped !== true) forget(f);
         }
@@ -441,6 +453,7 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
       return false;
     }
     sidecars.set(transcriptPath, meta);
+    disowned.delete(transcriptPath);
     own(meta.name, transcriptPath);
     flushPending(meta.name, transcriptPath);
     return true;
@@ -461,6 +474,14 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
     // machine, including other sessions' (seen live: three agents from an
     // unrelated session, with the real teammates all shown as 'departed').
     if (!teamName || !leadSessionId) {
+      // A teamName we already have refuses a sidecar on its own; only the
+      // DIRECTORY half of the test needs the lead session id. Judging that half
+      // here is what keeps another team's sidecar — and the transcript it
+      // describes — out of the buffers for the whole window.
+      if (teamName && meta.teamName !== teamName) {
+        forget(transcriptOfSidecar(file));
+        return;
+      }
       // Rejected for want of a team, not on the file's own merits — and both
       // readers record its mtime either way, so the sweep's gate will never
       // offer this file again. Sidecars are written once, so dropping it here
@@ -511,7 +532,7 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
 
   const sweepTranscript = async (file: string) => {
     const claim = claimOfTranscript(file, leadSessionId, leadName);
-    if (!claim) return;
+    if (!claim || disowned.has(file)) return;
     notePath(sidecars.get(file)?.name ?? claim.agent, file);
     await transcripts.pump(file);
   };
