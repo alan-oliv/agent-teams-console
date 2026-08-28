@@ -1,6 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { currentToolOf, parseLine, toTranscriptLines, type TranscriptRecord } from './transcript';
+import {
+  currentToolOf,
+  parseLine,
+  toTranscriptLines,
+  TRANSCRIPT_TEXT_CAP,
+  type TranscriptRecord,
+} from './transcript';
 
 const raw = readFileSync(
   new URL('../../fixtures/transcript-agent-aprobe-alpha-84fd551b27de6433.jsonl', import.meta.url),
@@ -16,6 +22,13 @@ const frames = (
     readFileSync(new URL('../../fixtures/lead-transcript-teammate-frames.json', import.meta.url), 'utf8'),
   ) as Array<{ frames: string[] }>
 ).flatMap((f) => f.frames);
+
+// a-z on repeat: long, whitespace-free (so flatten() is a no-op) and prefix-comparable
+function pattern(n: number): string {
+  let out = '';
+  while (out.length < n) out += 'abcdefghijklmnopqrstuvwxyz';
+  return out.slice(0, n);
+}
 
 describe('parseLine', () => {
   it('parses all 27 lines of the real alpha transcript', () => {
@@ -207,11 +220,64 @@ describe('currentToolOf', () => {
     expect(currentToolOf(records[4])).toBe('Bash(sleep 10)');
     expect(currentToolOf(records[8])).toBe('TaskList');
     expect(currentToolOf(records[11])).toBe('TaskUpdate(1)');
+
+    const huge: TranscriptRecord = {
+      type: 'assistant',
+      uuid: 'tool-huge',
+      timestamp: '2026-08-27T15:09:55.618Z',
+      message: {
+        content: [{ type: 'tool_use', name: 'Bash', input: { command: pattern(30_000) } }],
+      },
+    };
+    expect(currentToolOf(huge)).toBe(toTranscriptLines(huge)[0].text);
+    expect(currentToolOf(huge)!.length).toBeLessThanOrEqual(TRANSCRIPT_TEXT_CAP);
   });
 
   it('returns undefined for records with no tool call', () => {
     expect(currentToolOf(records[0])).toBeUndefined();
     expect(currentToolOf(records[3])).toBeUndefined();
     expect(currentToolOf(records[7])).toBeUndefined();
+  });
+});
+
+describe('TRANSCRIPT_TEXT_CAP', () => {
+  const toolResult = (content: string): TranscriptRecord => ({
+    type: 'user',
+    uuid: 'cap-1',
+    timestamp: '2026-08-27T15:09:55.618Z',
+    message: { role: 'user', content: [{ type: 'tool_result', content }] },
+  });
+
+  it('caps an oversized tool_result at TRANSCRIPT_TEXT_CAP', () => {
+    const source = pattern(30_000);
+    const line = toTranscriptLines(toolResult(source))[0];
+    expect(line.text).toHaveLength(TRANSCRIPT_TEXT_CAP);
+    expect(line.text.endsWith('…')).toBe(true);
+    expect(line.text.slice(0, 200)).toBe(source.slice(0, 200));
+  });
+
+  it('leaves a line at or under the cap byte-identical', () => {
+    const exact = pattern(TRANSCRIPT_TEXT_CAP);
+    const short = pattern(100);
+    expect(toTranscriptLines(toolResult(exact))[0].text).toBe(exact);
+    expect(toTranscriptLines(toolResult(short))[0].text).toBe(short);
+    expect(toTranscriptLines(toolResult(exact))[0].text.endsWith('…')).toBe(false);
+    expect(toTranscriptLines(toolResult(short))[0].text.endsWith('…')).toBe(false);
+  });
+
+  it('never truncates in the middle of a surrogate pair', () => {
+    // the emoji straddles the cut: its high surrogate lands on the last kept index
+    const text = toTranscriptLines(toolResult(`${pattern(998)}😀${pattern(200)}`))[0].text;
+    expect(text.length).toBeLessThanOrEqual(TRANSCRIPT_TEXT_CAP);
+    expect(text).not.toMatch(/[\uD800-\uDBFF]/);
+    // JSON.stringify escapes a lone surrogate rather than dropping it, and the
+    // browser paints the escape as U+FFFD
+    expect(JSON.stringify(text)).not.toMatch(/\\ud[89ab]/i);
+    expect([...(JSON.parse(JSON.stringify(text)) as string)]).toHaveLength([...text].length);
+  });
+
+  it('keeps a surrogate pair that fits under the cap', () => {
+    const source = `😀${pattern(10)}`;
+    expect(toTranscriptLines(toolResult(source))[0].text).toBe(source);
   });
 });

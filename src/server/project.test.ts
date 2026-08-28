@@ -4,7 +4,7 @@ import path from 'node:path';
 import { project, PROJECTED_TRANSCRIPT_LINES } from './project';
 import type { StoredEvent, EventKind } from './store';
 import type { TeamConfig, Sidecar } from '../shared/roster';
-import { parseLine, type TranscriptRecord } from '../shared/transcript';
+import { parseLine, TRANSCRIPT_TEXT_CAP, type TranscriptRecord } from '../shared/transcript';
 import { contextOccupancy } from '../shared/usage';
 import type { InboxEntry } from '../shared/mailbox';
 
@@ -172,6 +172,88 @@ describe('project', () => {
     }
     const bytes = Buffer.byteLength(JSON.stringify(project(log, false)));
     expect(bytes).toBeLessThan(200 * 1024);
+  });
+
+  const oversized = (uuid: string, chars: number): TranscriptRecord => ({
+    type: 'user',
+    uuid,
+    timestamp: '2026-08-27T15:20:00.000Z',
+    message: { role: 'user', content: [{ type: 'tool_result', content: 'x'.repeat(chars) }] },
+  });
+
+  it('caps every projected transcript line at TRANSCRIPT_TEXT_CAP', () => {
+    const log = buildLog();
+    log.push({
+      seq: log.length + 1,
+      ts: 1787843500000,
+      kind: 'transcript',
+      agent: 'probe-alpha',
+      payload: { agent: 'probe-alpha', records: [oversized('oversized-1', 30_000)] },
+    });
+    const projected = project(log, false);
+    expect(projected.agents.find((a) => a.name === 'probe-alpha')!.transcript.length).toBeGreaterThan(0);
+    for (const a of projected.agents) {
+      for (const l of a.transcript) expect(l.text.length).toBeLessThanOrEqual(TRANSCRIPT_TEXT_CAP);
+    }
+  });
+
+  it('keeps full history in the store and truncates only the projection', () => {
+    const config: TeamConfig = {
+      name: 'session-solo',
+      createdAt: 0,
+      leadAgentId: 'lead-1',
+      leadSessionId: 'lead-1',
+      members: [{ agentId: 'lead-1', name: 'solo', joinedAt: 0, tmuxPaneId: '', subscriptions: [] }],
+    };
+    const records = [oversized('oversized-1', 30_000)];
+    const log: StoredEvent[] = [
+      { seq: 1, ts: 0, kind: 'roster', payload: { config, sidecars: [] } },
+      { seq: 2, ts: 0, kind: 'transcript', agent: 'solo', payload: { agent: 'solo', records } },
+    ];
+    const line = project(log, false).agents[0].transcript[0];
+    expect(line.text).toHaveLength(TRANSCRIPT_TEXT_CAP);
+
+    const stored = (log[1].payload as { records: TranscriptRecord[] }).records[0];
+    const block = (stored.message!.content as Array<{ content: string }>)[0];
+    expect(block.content).toHaveLength(30_000);
+  });
+
+  // The 200 KB guard above uses one 74-char synthetic line per record, so it
+  // cannot see D1: the frame is dominated by the few very long lines, not by
+  // the many average ones. Measured over real transcripts: p50 163 chars,
+  // p90 1789, p99 9401, max 21071. Uncapped, this same frame is ~950 KB.
+  it('keeps a frame of realistic line lengths under 400 KB', () => {
+    const LENGTHS = [163, 163, 163, 163, 163, 400, 400, 900, 1789, 9401];
+    const config: TeamConfig = {
+      name: 'session-load',
+      createdAt: 0,
+      leadAgentId: 'agent-0',
+      leadSessionId: 'agent-0',
+      members: Array.from({ length: 11 }, (_, i) => ({
+        agentId: `agent-${i}`,
+        name: `agent-${i}`,
+        joinedAt: 0,
+        tmuxPaneId: '',
+        subscriptions: [],
+      })),
+    };
+    const log: StoredEvent[] = [{ seq: 1, ts: 0, kind: 'roster', payload: { config, sidecars: [] } }];
+    let seq = 1;
+    for (let i = 0; i < 11; i++) {
+      const lineCount = i === 0 ? 1000 : 200;
+      const records: TranscriptRecord[] = Array.from({ length: lineCount }, (_, j) =>
+        // one worst-case line, at the very end of agent-0 so it survives the 60-line cap
+        i === 0 && j === lineCount - 1
+          ? oversized(`agent-0-outlier`, 21_071)
+          : oversized(`agent-${i}-line-${j}`, LENGTHS[j % LENGTHS.length]),
+      );
+      log.push({ seq: ++seq, ts: 0, kind: 'transcript', agent: `agent-${i}`, payload: { agent: `agent-${i}`, records } });
+    }
+    const projected = project(log, false);
+    for (const a of projected.agents) {
+      for (const l of a.transcript) expect(l.text.length).toBeLessThanOrEqual(TRANSCRIPT_TEXT_CAP);
+    }
+    expect(Buffer.byteLength(JSON.stringify(projected))).toBeLessThan(400 * 1024);
   });
 
   it('folds tasks last-write-wins and derives state', () => {

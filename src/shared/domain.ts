@@ -7,7 +7,7 @@ export type PortraitId = 'lead' | 'security' | 'perf' | 'tests' | 'architect' | 
 export interface TranscriptLine {
   id: string;          // transcript record uuid — React key, dedupe key
   marker: Marker;
-  text: string;        // single line, already flattened; view does the ellipsis
+  text: string;        // single line, flattened, capped at TRANSCRIPT_TEXT_CAP
   ts: number;          // epoch ms
 }
 

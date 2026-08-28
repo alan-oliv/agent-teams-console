@@ -9,6 +9,17 @@ export interface TranscriptRecord {           // one parsed JSONL line, loosely 
   toolUseResult?: unknown;
 }
 
+/**
+ * Hard cap on the length of a projected `TranscriptLine.text` (and of the
+ * `currentTool` string built from the same helper). The widest real render is
+ * the Overview feed on a 5120px 1x panel at 849 characters — JetBrains Mono
+ * advances exactly 0.6em — so 1000 stays lossless up to a 6033px window while
+ * cutting the worst observed line (21,071 chars of raw tool-result JSON,
+ * shipped to draw one ellipsised row) by 95%. The store keeps the raw record,
+ * so raising this brings the text back.
+ */
+export const TRANSCRIPT_TEXT_CAP = 1000;
+
 const TEAMMATE_OPEN = /^<teammate-message\s[^>]*>\r?\n?/;
 const TEAMMATE_CLOSE = /\r?\n?<\/teammate-message>\s*$/;
 
@@ -19,6 +30,13 @@ const TOOL_INPUT_KEYS = [
 
 function flatten(s: string): string {
   return s.replace(/\s+/g, ' ').trim();
+}
+
+function capText(s: string): string {
+  if (s.length <= TRANSCRIPT_TEXT_CAP) return s;
+  // A bare slice can leave a lone high surrogate, which JSON.stringify escapes
+  // faithfully and the browser then paints as U+FFFD.
+  return `${s.slice(0, TRANSCRIPT_TEXT_CAP - 1).replace(/[\uD800-\uDBFF]$/, '')}…`;
 }
 
 export function parseLine(raw: string): TranscriptRecord | null {
@@ -39,7 +57,7 @@ function describeTool(name: string, input: unknown): string {
   const fields = input as Record<string, unknown>;
   for (const key of TOOL_INPUT_KEYS) {
     const value = fields[key];
-    if (typeof value === 'string' && value.trim()) return `${name}(${flatten(value)})`;
+    if (typeof value === 'string' && value.trim()) return capText(`${name}(${flatten(value)})`);
   }
   return name;
 }
@@ -126,7 +144,7 @@ export function toTranscriptLines(rec: TranscriptRecord): TranscriptLine[] {
   return drafts.map((draft, i) => ({
     id: `${rec.uuid}#${i}`,
     marker: draft.marker,
-    text: draft.text,
+    text: capText(draft.text),
     ts,
   }));
 }
