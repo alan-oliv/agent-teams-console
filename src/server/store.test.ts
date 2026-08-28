@@ -350,28 +350,112 @@ describe('transcript retention', () => {
     }
   });
 
+  // Records that cost something, so the assertions below are about money and
+  // not about zero. One assistant line per record, each its own message id.
+  const spend = (agent: string, tag: string, n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      type: 'assistant',
+      uuid: `${agent}-${tag}-${i}`,
+      timestamp: '2026-08-27T15:20:00.000Z',
+      message: {
+        id: `msg-${agent}-${tag}-${i}`,
+        model: 'claude-sonnet-4-5-20250929',
+        usage: { input_tokens: 10, output_tokens: 100, cache_read_input_tokens: 5_000 },
+      },
+    }));
+
+  const roster = {
+    config: {
+      name: 'session-leg00000',
+      leadSessionId: 'lead',
+      createdAt: 0,
+      members: [{ name: 'a', agentId: 'a', model: 'claude-sonnet-4-5-20250929' }],
+    },
+    sidecars: [],
+  };
+  const costOfAgent = (events: ReturnType<ReturnType<typeof openStore>['replay']>) =>
+    project(events, false).agents.find((x) => x.name === 'a')!.costUsd;
+
   // A log written before the cumulative snapshot existed carries records and no
-  // totals, and project() still derives that agent's cost by summing them. The
-  // bound would take the money with the history — and for an agent whose
-  // transcript file is gone, nothing is left to re-derive it from.
-  it('does not apply the record bound to an agent that has no snapshot', () => {
+  // totals, and project() derives that agent's cost by summing them. The bound
+  // has to apply to it all the same — for an agent whose transcript file is
+  // gone nothing else will ever bound it — so the cost is written down as a
+  // snapshot of its own FIRST, and the records go after that, never before.
+  it('bounds an agent with no snapshot, having first written its cost down', () => {
     const store = openStore(path.join(dir, 'legacy.db'), 'session-leg00000');
     try {
-      for (let i = 0; i < PRUNE_EVERY; i++) {
-        store.append('transcript', { agent: 'a', records: batch('a', `b${i}`, 200) }, 'a');
+      store.append('roster', roster);
+      for (let i = 0; i < PRUNE_EVERY - 2; i++) {
+        store.append('transcript', { agent: 'a', records: spend('a', `b${i}`, 200) }, 'a');
       }
-      expect(recordsIn(store.replay())).toBe(PRUNE_EVERY * 200);
+      const before = costOfAgent(store.replay());
+      expect(before).toBeGreaterThan(0);
 
-      // ...and the exemption ends the moment that agent gets one.
+      // The append that crosses PRUNE_EVERY is the one that bounds the agent.
+      store.append('transcript', { agent: 'a', records: spend('a', 'last', 200) }, 'a');
+      const whole = costOfAgent([
+        { seq: 0, ts: 0, kind: 'roster' as const, payload: roster },
+        ...Array.from({ length: PRUNE_EVERY - 1 }, (_, i) => ({
+          seq: i + 1,
+          ts: i + 1,
+          kind: 'transcript' as const,
+          agent: 'a',
+          payload: { agent: 'a', records: spend('a', i === PRUNE_EVERY - 2 ? 'last' : `b${i}`, 200) },
+        })),
+      ]);
+
+      expect(recordsIn(store.replay())).toBe(TRANSCRIPT_RECORDS_PER_AGENT);
+      expect(costOfAgent(store.replay())).toBeCloseTo(whole, 10);
+    } finally {
+      store.close();
+    }
+  });
+
+  // project() reads cost from the NEWEST row that carries `totals` and ignores
+  // the records once it has one. Dropping that row therefore drops the money —
+  // so its snapshot moves to a row that survives instead.
+  it("carries a dropped row's snapshot onto a surviving row", () => {
+    const store = openStore(path.join(dir, 'carry.db'), 'session-leg00000');
+    try {
+      store.append('roster', roster);
+      // Only the OLDEST row carries the snapshot: an interrupted multi-chunk
+      // drain, a downgraded build, or a hand-edited log.
       store.append(
         'transcript',
-        { agent: 'a', records: batch('a', 'new', 1), totals: snapshot },
+        { agent: 'a', records: spend('a', 'b0', 200), totals: { costUsd: 99.5, tokens: 1234 } },
         'a',
       );
-      for (let i = 0; i < PRUNE_EVERY - 1; i++) store.append('hook', { event: 'x' }, 'a');
-      // ...and the bound then holds exactly, however big the rows the exempt
-      // window let through: the one that straddles it is trimmed, not admitted.
+      for (let i = 1; i <= 6; i++) {
+        store.append('transcript', { agent: 'a', records: spend('a', `b${i}`, 200) }, 'a');
+      }
+      expect(costOfAgent(store.replay())).toBe(99.5);
+
+      for (let i = 0; i < PRUNE_EVERY; i++) store.append('hook', { event: 'x' }, 'a');
       expect(recordsIn(store.replay())).toBe(TRANSCRIPT_RECORDS_PER_AGENT);
+      expect(costOfAgent(store.replay())).toBe(99.5);
+      expect(project(store.replay(), false).totalTokens).toBe(1234);
+    } finally {
+      store.close();
+    }
+  });
+
+  // The from-byte-0 cut drops rows the fold can no longer read, which can
+  // include the only row carrying the snapshot. Same rule, same reason.
+  it('carries the snapshot across a from-byte-0 cut that drops the row holding it', () => {
+    const store = openStore(path.join(dir, 'reset-cost.db'), 'session-leg00000');
+    try {
+      store.append('roster', roster);
+      store.append(
+        'transcript',
+        { agent: 'a', records: spend('a', 'old', 200), totals: { costUsd: 50, tokens: 500 } },
+        'a',
+      );
+      store.append('transcript', { agent: 'a', records: spend('a', 'boot', 200), fromStart: true }, 'a');
+      expect(costOfAgent(store.replay())).toBe(50);
+
+      for (let i = 0; i < PRUNE_EVERY; i++) store.append('hook', { event: 'x' }, 'a');
+      expect(store.replay().filter((e) => e.kind === 'transcript')).toHaveLength(1);
+      expect(costOfAgent(store.replay())).toBe(50);
     } finally {
       store.close();
     }

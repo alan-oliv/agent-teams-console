@@ -12,6 +12,13 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { isPidAlive } from './lifecycle';
 import { logError, logInfo } from './log';
+import {
+  dedupeUsage,
+  tokensOf,
+  totalCost,
+  usageRecordsOf,
+} from '../shared/usage';
+import type { TranscriptRecord } from '../shared/transcript';
 
 export type EventKind =
   | 'roster'
@@ -76,15 +83,15 @@ export const KIND_RETENTION: Partial<Record<EventKind, number>> = {
 /**
  * How many transcript records the log keeps PER AGENT. project() is linear in
  * stored records (measured 0.64 us/record) and runs on every publish, up to 4 Hz,
- * against a 5 ms budget at 11 agents — 11,710 records team-wide once the totals
- * snapshot takes the usage pipeline out of the walk, so 1,064 per agent. That
- * "once" is load-bearing: the budget describes the PRODUCTION path, where the
- * ingest supplies the snapshot. Measured on 11,000 stored records, project +
- * stringify is 3.2 ms with the snapshot against 4.4 ms without one — a log too
- * old to carry snapshots is the slower case, and is also the one transcriptDrops
- * exempts from this bound rather than take its cost away. 1,000 is 5x the
- * 200-record window at which the projected 60 lines are still exact on every
- * real transcript, and 91x the worst duplicate-message-id span (11).
+ * against a 5 ms budget at 11 agents — 11,000 records team-wide, so 1,000 per
+ * agent. The bound applies to every agent (transcriptDrops carries or
+ * manufactures a cost snapshot before it drops that agent's records, so bounding
+ * never costs money — see COST IS CARRIED there). Measured at that ceiling,
+ * project + stringify is ~2.5 ms when the ingest's own snapshot is present and
+ * ~5.5 ms worst case when the fold has to sum the records itself, which is now
+ * a bounded worst case rather than an open one. 1,000 is 5x the 200-record
+ * window at which the projected 60 lines are still exact on every real
+ * transcript, and 91x the worst duplicate-message-id span (11).
  * Per agent, not team-wide, so a chatty agent cannot evict a quiet one's history
  * — and tuned for 11 agents, so a much larger team wants a smaller number.
  */
@@ -204,6 +211,45 @@ function carriesTotals(payload: unknown): boolean {
   );
 }
 
+/** The cumulative snapshot a transcript row carries, if it carries one. */
+interface Snapshot {
+  costUsd: number;
+  tokens: number;
+}
+function totalsOf(payload: unknown): Snapshot | undefined {
+  const totals =
+    payload && typeof payload === 'object' ? (payload as { totals?: unknown }).totals : undefined;
+  return totals != null && typeof totals === 'object' ? (totals as Snapshot) : undefined;
+}
+
+function recordsOf(payload: unknown): TranscriptRecord[] {
+  const recs =
+    payload && typeof payload === 'object' ? (payload as { records?: unknown }).records : undefined;
+  return Array.isArray(recs) ? (recs as TranscriptRecord[]) : [];
+}
+
+/**
+ * The snapshot project() would derive from these rows by summing their records
+ * — its own fallback when the log carries none, reproduced here so the store
+ * can write it down before dropping the records it came from. `dedupeUsage`
+ * groups by message id, which is why this sums RECORDS and never adds an
+ * aggregate to them: an aggregate is not a term, and a cut can split a group.
+ */
+function usageFrom(rows: StoredEvent[]): Snapshot {
+  const recs: TranscriptRecord[] = [];
+  // A null row would throw inside usageRecordsOf, and a throw HERE takes the
+  // whole store down rather than one publish. parseLine keeps such rows out,
+  // but the log is a text file an operator can hand-edit.
+  for (const e of rows) for (const r of recordsOf(e.payload)) if (r != null) recs.push(r);
+  const usage = dedupeUsage(usageRecordsOf(recs));
+  return { costUsd: totalCost(usage), tokens: tokensOf(usage) };
+}
+
+/** A copy of `e` carrying `totals`. Everything else on the payload rides along. */
+function withTotals(e: StoredEvent, totals: Snapshot): StoredEvent {
+  return { ...e, payload: { ...(e.payload as object), totals } };
+}
+
 /**
  * A copy of `e` holding only the newest `keep` of its records. The payload is
  * replaced rather than mutated: replay() hands the live rows out, and project()
@@ -219,10 +265,26 @@ function withNewestRecords(e: StoredEvent, keep: number): StoredEvent {
 }
 
 /**
- * Per agent, newest first, the transcript rows to drop, and the oversized ones
- * to replace with a bounded copy. Two reasons to drop a row:
- * the agent's record (or event) budget is already spent, or the row is older
- * than that agent's newest from-byte-0 batch — the fold clears the agent when it
+ * The agent's transcript rows the fold can still read, oldest first: everything
+ * back to and including its newest from-byte-0 batch, which is where project()
+ * clears what it holds. The rows before that one can never be read again.
+ */
+function readableRows(events: StoredEvent[], agent: string): StoredEvent[] {
+  const rows: StoredEvent[] = [];
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e.kind !== 'transcript' || (e.agent ?? '') !== agent) continue;
+    rows.push(e);
+    if (readsFromStart(e.payload)) break;
+  }
+  return rows.reverse();
+}
+
+/**
+ * Per agent, newest first, the transcript rows to drop, and the ones to replace
+ * with a bounded and/or snapshot-bearing copy. Two reasons to drop a row: the
+ * agent's record (or event) budget is already spent, or the row is older than
+ * that agent's newest from-byte-0 batch — the fold clears the agent when it
  * reaches that batch, so nothing before it can ever be read again. The second
  * clause is what stops the log growing by one whole transcript per console
  * restart: measured over five successive boots against 11 unchanged 2,000-record
@@ -233,58 +295,85 @@ function withNewestRecords(e: StoredEvent, keep: number): StoredEvent {
  * batches at 200 records, but migrateLegacyLog recovers rows from a pre-batching
  * events.db verbatim, and that ingest put a whole 2,000-record file in one. A
  * row bigger than the remaining budget is kept as a bounded copy of its newest
- * records instead of being admitted whole — measured on that upgrade shape,
- * 22,600 records held against an 11,000 bound, folding in 6.3 ms not 3.2.
+ * records instead of being admitted whole.
+ *
+ * COST IS CARRIED, NEVER DROPPED. project() reads an agent's spend from the
+ * newest transcript row that carries a cumulative `totals`, and falls back to
+ * summing the records it holds when there is none. So before this drops
+ * anything of an agent's, it makes sure the number project() would report
+ * SURVIVES: the winning snapshot is copied onto the newest surviving row when
+ * the row it sat on is going, and an agent that has no snapshot at all gets one
+ * derived from the records about to go — the same sum project() would have
+ * done. Bounding records then costs history and never money, which is what lets
+ * the bound apply to every agent instead of exempting the ones a snapshot never
+ * reached (a log older than `totals`, or an agent whose transcript file is gone).
  */
 function transcriptDrops(events: StoredEvent[]): {
   drop: Set<StoredEvent>;
   trimmed: Map<StoredEvent, StoredEvent>;
 } {
-  // Agents with a cumulative snapshot somewhere in the log. An agent without one
-  // is a log written before the snapshot existed, and project() still derives
-  // its cost by summing the records it holds — so for that agent the record
-  // bound drops MONEY, not history (measured 78.6% low). It is self-limiting:
-  // the sweep's re-read appends a totals-bearing fromStart batch, and the
-  // pastReset clause below then drops every exempt row in the same pass. The
-  // exemption outlives that only for an agent whose transcript file is gone,
-  // which is exactly the case with no other source of truth. The event backstop
-  // still applies to everyone.
-  const snapshotted = new Set<string>();
-  for (const e of events) {
-    if (e.kind === 'transcript' && carriesTotals(e.payload)) snapshotted.add(e.agent ?? '');
-  }
-
   const drop = new Set<StoredEvent>();
   const trimmed = new Map<StoredEvent, StoredEvent>();
   const keptRecords = new Map<string, number>();
   const keptEvents = new Map<string, number>();
   const pastReset = new Set<string>();
+  // The newest row of each agent that survives this pass. Always exists for an
+  // agent with any row at all: the newest one can never be over budget.
+  const newestKept = new Map<string, StoredEvent>();
+  // The newest row of each agent carrying `totals` — the one project() reads,
+  // whether or not the pastReset cut can still reach its records.
+  const newestTotals = new Map<string, StoredEvent>();
+  // Agents this pass takes records or rows away from.
+  const losing = new Set<string>();
+
   for (let i = events.length - 1; i >= 0; i--) {
     const e = events[i];
     if (e.kind !== 'transcript') continue;
     const agent = e.agent ?? '';
+    if (!newestTotals.has(agent) && carriesTotals(e.payload)) newestTotals.set(agent, e);
     if (pastReset.has(agent)) {
       drop.add(e);
+      losing.add(agent);
       continue;
     }
     if (readsFromStart(e.payload)) pastReset.add(agent);
     const records = keptRecords.get(agent) ?? 0;
     const count = keptEvents.get(agent) ?? 0;
-    const bounded = snapshotted.has(agent);
-    const overRecords = bounded && records >= TRANSCRIPT_RECORDS_PER_AGENT;
-    if (overRecords || count >= TRANSCRIPT_EVENTS_PER_AGENT) {
+    if (records >= TRANSCRIPT_RECORDS_PER_AGENT || count >= TRANSCRIPT_EVENTS_PER_AGENT) {
       drop.add(e);
+      losing.add(agent);
       continue;
     }
     const held = recordCount(e.payload);
     const room = TRANSCRIPT_RECORDS_PER_AGENT - records;
-    if (bounded && held > room) {
+    if (held > room) {
       trimmed.set(e, withNewestRecords(e, room));
       keptRecords.set(agent, TRANSCRIPT_RECORDS_PER_AGENT);
+      losing.add(agent);
     } else {
       keptRecords.set(agent, records + held);
     }
     keptEvents.set(agent, count + 1);
+    // Only a row with an object payload can carry a snapshot; a log whose rows
+    // are not objects is one project() cannot fold at all.
+    if (!newestKept.has(agent) && e.payload !== null && typeof e.payload === 'object') {
+      newestKept.set(agent, e);
+    }
+  }
+
+  // Second pass, over agents only: the first could not know which rows survive
+  // until it had walked them all, and the snapshot has to land on one that does.
+  for (const agent of losing) {
+    const survivor = newestKept.get(agent);
+    if (!survivor) continue;
+    const winner = newestTotals.get(agent);
+    // The snapshot project() reads is still there — nothing to carry.
+    if (winner && !drop.has(winner)) continue;
+    // Deriving one costs a second walk, so it is done HERE rather than
+    // collected in the pass above: an agent needs it at most once in the life
+    // of a log — the row this writes is a snapshot, so the next pass finds one.
+    const carried = (winner && totalsOf(winner.payload)) || usageFrom(readableRows(events, agent));
+    trimmed.set(survivor, withTotals(trimmed.get(survivor) ?? survivor, carried));
   }
   return { drop, trimmed };
 }
