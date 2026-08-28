@@ -2345,9 +2345,10 @@ var TOOL_INPUT_KEYS = [
   "description",
   "taskId"
 ];
-function flatten(s) {
-  return s.replace(/\s+/g, " ").trim();
+function tidy(s) {
+  return s.replace(/[^\S\n]+/g, " ").replace(/ ?\n ?/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
+var LEADING_CD = /^cd[^\S\n]+("[^"]*"|'[^']*'|\S+)[^\S\n]*(?:&&|;|\n)\s*/;
 function capText(s) {
   if (s.length <= TRANSCRIPT_TEXT_CAP) return s;
   return `${s.slice(0, TRANSCRIPT_TEXT_CAP - 1).replace(/[\uD800-\uDBFF]$/, "")}\u2026`;
@@ -2369,7 +2370,10 @@ function describeTool(name, input) {
   const fields = input;
   for (const key of TOOL_INPUT_KEYS) {
     const value = fields[key];
-    if (typeof value === "string" && value.trim()) return capText(`${name}(${flatten(value)})`);
+    if (typeof value === "string" && value.trim()) {
+      const shown = name === "Bash" ? value.replace(LEADING_CD, "") : value;
+      return capText(`${name}(${tidy(shown)})`);
+    }
   }
   return name;
 }
@@ -2393,9 +2397,9 @@ function markerForResult(text, isError) {
   return "\u23BF";
 }
 function resultText(content) {
-  if (typeof content === "string") return flatten(content);
+  if (typeof content === "string") return tidy(content);
   if (Array.isArray(content)) {
-    return flatten(
+    return tidy(
       content.map((block) => {
         if (block && typeof block === "object") {
           const text = block.text;
@@ -2405,7 +2409,7 @@ function resultText(content) {
       }).join(" ")
     );
   }
-  return flatten(JSON.stringify(content ?? ""));
+  return tidy(JSON.stringify(content ?? ""));
 }
 function toTranscriptLines(rec) {
   if (!rec.uuid || !rec.timestamp) return [];
@@ -2416,7 +2420,7 @@ function toTranscriptLines(rec) {
   if (rec.type === "user") {
     if (typeof content === "string") {
       const body = content.replace(TEAMMATE_OPEN, "").replace(TEAMMATE_CLOSE, "");
-      const text = flatten(body);
+      const text = tidy(body);
       if (text) drafts.push({ marker: markerForUserText(body), text });
     } else if (Array.isArray(content)) {
       for (const block of content) {
@@ -2426,7 +2430,7 @@ function toTranscriptLines(rec) {
           const text = resultText(b.content);
           if (text) drafts.push({ marker: markerForResult(text, b.is_error === true), text });
         } else if (b.type === "text" && typeof b.text === "string") {
-          const text = flatten(b.text);
+          const text = tidy(b.text);
           if (text) drafts.push({ marker: "\u276F", text });
         }
       }
@@ -2436,7 +2440,7 @@ function toTranscriptLines(rec) {
       if (!block || typeof block !== "object") continue;
       const b = block;
       if (b.type === "text" && typeof b.text === "string") {
-        const text = flatten(b.text);
+        const text = tidy(b.text);
         if (text) drafts.push({ marker: "\u23FA", text });
       } else if (b.type === "tool_use" && typeof b.name === "string") {
         drafts.push({ marker: "\u23FA", text: describeTool(b.name, b.input) });
@@ -3169,6 +3173,23 @@ function startFileIngest(store, config) {
     pendingRecords += kept.length;
     evictPending();
   };
+  const readOwnInboxes = async () => {
+    if (!teamName) return;
+    const dir = path5.join(config.paths.teams, teamName, "inboxes");
+    let names;
+    try {
+      names = await fs4.readdir(dir);
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      if (!name.endsWith(".json")) continue;
+      const entries = await readJsonSafe(path5.join(dir, name));
+      if (!Array.isArray(entries)) continue;
+      const to = name.replace(/\.json$/, "");
+      store.append("mail", { source: "inbox", to, entries }, to);
+    }
+  };
   const handleTeamsJson = async (file) => {
     const base = path5.basename(file);
     const dirName = path5.basename(path5.dirname(file));
@@ -3197,10 +3218,12 @@ function startFileIngest(store, config) {
       }
       for (const [f, meta] of unresolvedSidecars) acceptSidecar(f, meta);
       unresolvedSidecars.clear();
+      if (learned) await readOwnInboxes();
       appendRoster();
       return;
     }
     if (dirName !== "inboxes") return;
+    if (!teamName || path5.basename(path5.dirname(path5.dirname(file))) !== teamName) return;
     const to = base.replace(/\.json$/, "");
     const entries = await readJsonSafe(file);
     if (!Array.isArray(entries)) return;
@@ -3707,6 +3730,7 @@ import http from "node:http";
 import { promises as fs6 } from "node:fs";
 import path7 from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
+var CONSOLE_SENDER = "console";
 var READ_ONLY_BODY = {
   error: "read-only",
   message: "the console was started with --read-only; control routes are disabled"
@@ -3768,6 +3792,7 @@ async function serveWebBundle(res, webDist, route) {
 var AGENT_ROUTE = /^\/api\/agents\/([^/]+)\/(message|interrupt|stop|respawn)$/;
 var PLAN_ROUTE = /^\/api\/plans\/([^/]+)\/(approve|reject)$/;
 var PERMIT_ROUTE = /^\/api\/permits\/([^/]+)\/(allow|deny)$/;
+var TEAM_SELECT_ROUTE = /^\/api\/teams\/([^/]+)\/select$/;
 var SAFE_SEGMENT = /^[A-Za-z0-9_-]+$/;
 function decodeSegment(raw) {
   let decoded;
@@ -3849,6 +3874,10 @@ function createHttpServer(deps) {
           json(res, 200, { ok: true, team: s.teamName, agents: s.agents.length });
           return;
         }
+        if (method === "GET" && route === "/api/teams" && deps.listTeams) {
+          json(res, 200, await deps.listTeams());
+          return;
+        }
         if (method === "POST" && (route === "/hook" || route === "/statusline" || route === "/substatus")) {
           const body2 = await readBody(req);
           const out = route === "/hook" ? await deps.hooks.hook(body2) : route === "/statusline" ? await deps.hooks.statusline(body2) : await deps.hooks.substatus(body2);
@@ -3862,6 +3891,23 @@ function createHttpServer(deps) {
         }
         if (method !== "POST" || !route.startsWith("/api/")) {
           json(res, 404, { error: "not found", message: `no route for ${method} ${route}` });
+          return;
+        }
+        const selectMatch = TEAM_SELECT_ROUTE.exec(route);
+        if (selectMatch && deps.selectTeam) {
+          const name = decodeSegment(selectMatch[1]);
+          if (name === null) {
+            json(res, 400, BAD_SEGMENT_BODY);
+            return;
+          }
+          const out = await deps.selectTeam(name);
+          if (out.ok) {
+            json(res, 200, { ok: true, team: name, changed: out.changed });
+          } else if (out.reason === "busy") {
+            json(res, 409, { error: "switch in progress", message: out.message });
+          } else {
+            json(res, 404, { error: "not found", message: out.message });
+          }
           return;
         }
         if (deps.readOnly) {
@@ -3889,7 +3935,11 @@ function createHttpServer(deps) {
               json(res, 400, { error: "bad request", message: "text is required" });
               return;
             }
-            const out2 = await sendToInbox(team(), name, { text, summary: str2(body.summary), from: leadName });
+            const out2 = await sendToInbox(team(), name, {
+              text,
+              summary: str2(body.summary),
+              from: name === leadName ? CONSOLE_SENDER : leadName
+            });
             deps.stream.publish();
             json(res, 200, out2);
             return;
@@ -4254,6 +4304,98 @@ async function discoverTeam(teamsRoot2, sessionsRoot, explicitTeam) {
   }
   return best ? toDiscovered(best) : null;
 }
+async function liveSessionIds(sessionsRoot) {
+  const live = /* @__PURE__ */ new Set();
+  let entries;
+  try {
+    entries = await fs8.readdir(sessionsRoot);
+  } catch {
+    return live;
+  }
+  for (const entry of entries) {
+    if (!entry.endsWith(".json")) continue;
+    const doc = await readJsonSafe(path9.join(sessionsRoot, entry));
+    if (typeof doc?.sessionId === "string" && typeof doc.pid === "number" && isPidAlive(doc.pid)) {
+      live.add(doc.sessionId);
+    }
+  }
+  return live;
+}
+async function lastActivityOf(teamDir, configMtimeMs) {
+  let latest = configMtimeMs;
+  let entries;
+  try {
+    entries = await fs8.readdir(path9.join(teamDir, "inboxes"));
+  } catch {
+    return latest;
+  }
+  for (const entry of entries) {
+    if (!entry.endsWith(".json")) continue;
+    try {
+      const st = await fs8.stat(path9.join(teamDir, "inboxes", entry));
+      if (st.mtimeMs > latest) latest = st.mtimeMs;
+    } catch {
+    }
+  }
+  return latest;
+}
+async function listTeamSummaries(teamsRoot2, sessionsRoot, current) {
+  let entries;
+  try {
+    entries = await fs8.readdir(teamsRoot2);
+  } catch {
+    return { current, teams: [] };
+  }
+  const liveSessions = await liveSessionIds(sessionsRoot);
+  const now = Date.now();
+  const teams = [];
+  for (const name of entries) {
+    const teamDir = path9.join(teamsRoot2, name);
+    let configMtimeMs;
+    try {
+      const st = await fs8.stat(path9.join(teamDir, "config.json"));
+      if (!st.isFile()) continue;
+      configMtimeMs = st.mtimeMs;
+    } catch {
+      continue;
+    }
+    const config = await readJsonSafe(path9.join(teamDir, "config.json"));
+    if (!config || typeof config.name !== "string" || !Array.isArray(config.members)) continue;
+    const leadSessionId = typeof config.leadSessionId === "string" ? config.leadSessionId : "";
+    const leadAlive = leadSessionId !== "" && liveSessions.has(leadSessionId);
+    const lastActivityAt = await lastActivityOf(teamDir, configMtimeMs);
+    teams.push({
+      // The DIRECTORY name, not config.name: the ingest gates its own team's
+      // config.json on the directory, so a mismatch would make the team
+      // unselectable in practice.
+      name,
+      members: config.members.length,
+      createdAt: typeof config.createdAt === "number" ? config.createdAt : 0,
+      leadSessionId,
+      leadAlive,
+      lastActivityAt,
+      live: leadAlive || now - lastActivityAt < IDLE_GRACE_MS,
+      current: name === current
+    });
+  }
+  teams.sort(
+    (a, b) => Number(b.current) - Number(a.current) || Number(b.live) - Number(a.live) || b.lastActivityAt - a.lastActivityAt || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
+  );
+  return { current, teams };
+}
+function fencedSink(live, generation, current) {
+  const mine = () => generation === current();
+  return {
+    // No caller reads this event back; the return only satisfies the contract.
+    append: (kind, payload, agent) => mine() ? live.append(kind, payload, agent) : { seq: 0, ts: Date.now(), kind, agent, payload },
+    replay: () => live.replay(),
+    setTeam: (name) => {
+      if (mine()) live.setTeam(name);
+    },
+    close: () => {
+    }
+  };
+}
 async function main(argv) {
   const cli = parseArgs(argv);
   if (cli.command === "setup" || cli.command === "uninstall") {
@@ -4292,21 +4434,65 @@ async function main(argv) {
     setTeam: (name) => store.setTeam(name),
     close: () => store.close()
   };
-  const ingest = startFileIngest(live, {
+  let generation = 0;
+  let currentTeam = teamName ?? "";
+  const startIngest = (gen, team, lead) => startFileIngest(fencedSink(live, gen, () => generation), {
     paths: {
       projects: path9.join(cli.claudeHome, "projects"),
       teams: teamsRoot2,
       tasks: path9.join(cli.claudeHome, "tasks"),
       sessions: path9.join(cli.claudeHome, "sessions")
     },
-    teamName,
-    leadSessionId: discovered?.leadSessionId,
+    teamName: team,
+    leadSessionId: lead,
     onTeam: (info) => {
+      if (gen !== generation) return;
       store.setTeam(info.teamName);
+      currentTeam = info.teamName;
       leadSessionId = info.leadSessionId;
     }
   });
+  let ingest = startIngest(generation, teamName, discovered?.leadSessionId);
   await ingest.sweep();
+  let switching = false;
+  const retarget = async (team, lead) => {
+    const gen = ++generation;
+    ingest.close();
+    store.setTeam(team);
+    leadSessionId = lead;
+    currentTeam = team;
+    ingest = startIngest(gen, team, lead);
+    await ingest.sweep();
+    hub.publish();
+  };
+  const selectTeam = async (team) => {
+    if (team === currentTeam) return { ok: true, changed: false };
+    if (switching) {
+      return { ok: false, reason: "busy", message: `a team switch is already running \u2014 retry ${team}` };
+    }
+    switching = true;
+    try {
+      let exists = false;
+      try {
+        exists = (await fs8.stat(path9.join(teamsRoot2, team))).isDirectory();
+      } catch {
+      }
+      if (!exists) return { ok: false, reason: "missing", message: `no team ${team}` };
+      const config = await readJsonSafe(path9.join(teamsRoot2, team, "config.json"));
+      if (!config || typeof config.name !== "string" || !Array.isArray(config.members)) {
+        logError(`select ${team}`, new Error("config.json is missing or unreadable"));
+        return {
+          ok: false,
+          reason: "missing",
+          message: `teams/${team}/config.json is missing or unreadable`
+        };
+      }
+      await retarget(team, typeof config.leadSessionId === "string" ? config.leadSessionId : "");
+      return { ok: true, changed: true };
+    } finally {
+      switching = false;
+    }
+  };
   let reaper = null;
   let stopping = false;
   const stop = () => {
@@ -4332,6 +4518,8 @@ async function main(argv) {
     stream: hub,
     state: () => project(store.replay(), cli.readOnly),
     readOnly: cli.readOnly,
+    listTeams: () => listTeamSummaries(teamsRoot2, sessionsRoot, currentTeam),
+    selectTeam,
     onShutdown: stop
   });
   const port = await listen(server, cli.port);
@@ -4353,7 +4541,10 @@ if (process.argv[1] && import.meta.url.endsWith(path9.basename(process.argv[1]))
 }
 export {
   DEFAULT_PORT,
+  IDLE_GRACE_MS,
   discoverTeam,
+  fencedSink,
+  listTeamSummaries,
   main,
   parseArgs
 };
