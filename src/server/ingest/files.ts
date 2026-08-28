@@ -547,13 +547,43 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
     store.append('mail', { source: 'inbox', to, entries }, to);
   };
 
+  /**
+   * A team name is NOT the first 8 hex of its lead's session id. Claude Code
+   * re-keys a team the moment it spawns its first real teammate: it deletes the
+   * lead-only directory and writes `teams/session-<fresh id>/config.json` whose
+   * `leadSessionId` belongs to no session on the machine — no session record,
+   * no transcript. Observed on 2.1.231 across three consecutive spawns.
+   *
+   * So a chain seeded from config.json never contains the directory the
+   * teammates actually write into, and every transcript was rejected on the
+   * directory test while the roster rendered fine — a wall of named, idle
+   * agents with empty panes.
+   *
+   * The way out needs TWO agreeing facts, not one. A sidecar naming our team is
+   * not enough on its own — a foreign session's sidecar can carry any teamName
+   * it likes, and admitting those is what once put three agents from an
+   * unrelated session on the wall. So adopt a session directory only when the
+   * sidecar names our team AND the agent it describes is in our own
+   * config.json `members[]`. Both halves are written by the harness, and a
+   * stranger satisfies neither: it is absent from our roster.
+   */
+  const isRosterMember = (name: string): boolean =>
+    (lastConfig?.members ?? []).some((m) => m.name === name);
+
+  const adoptLeadSessionOf = (transcriptPath: string): void => {
+    const sessionDir = path.basename(path.dirname(path.dirname(transcriptPath)));
+    if (sessionDir !== '' && !chain.has(sessionDir)) chain.add(sessionDir);
+  };
+
   const acceptSidecar = (file: string, meta: Sidecar): boolean => {
     const transcriptPath = transcriptOfSidecar(file);
+    // Adopt BEFORE the claim: the directory test below is exactly what a
+    // re-keyed team fails, and this sidecar is the proof that clears it.
+    if (meta.teamName === teamName && isRosterMember(meta.name)) adoptLeadSessionOf(transcriptPath);
     // The same scope rule the transcript reader applies: a sidecar in ANOTHER
-    // session's subagents directory is not ours however its teamName reads, and
-    // a teamName is only the first 8 hex of a lead session id. `scoped !== true`
-    // covers the wrong directory, a workflow fan-out, and the window before
-    // config.json in one clause.
+    // session's subagents directory is not ours however its teamName reads.
+    // `scoped !== true` covers the wrong directory, a workflow fan-out, and the
+    // window before config.json in one clause.
     const claim = claimOfTranscript(transcriptPath, chain, leadName);
     if (meta.teamName !== teamName || claim?.scoped !== true) {
       // Not ours — discard anything buffered for the transcript it describes.

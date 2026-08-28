@@ -1312,6 +1312,43 @@ describe('a transcript FILE is the identity, not the name it carries', () => {
     expect(w.error).toBeUndefined();
   });
 
+  // OBSERVED on 2.1.231, three spawns running: Claude Code re-keys a team the
+  // moment it spawns its first real teammate. It deletes the lead-only team
+  // directory and writes teams/session-<fresh id>/config.json whose
+  // leadSessionId belongs to NO session — no session record, no transcript —
+  // while the teammates write into the real lead session's own subagents
+  // directory. A chain seeded from config.json therefore never contains the
+  // directory the transcripts are in, and the wall rendered named, idle agents
+  // with empty panes.
+  it('reads teammates whose team was re-keyed, so config.leadSessionId names no directory', async () => {
+    const REKEYED = 'deadbeef-0000-0000-0000-000000000000';
+    const records = many(20, 'REKEYED');
+    await write(jsonl('1234567812345678'), records);
+    await fs.writeFile(meta('1234567812345678'), sidecar('worker'));
+
+    // Both halves of the re-key: config.json names a session id that exists
+    // nowhere on disk, and the ingest is told the same, while the transcript
+    // sits in the real lead session's directory.
+    const config = JSON.parse(
+      await fs.readFile(path.join(paths.teams, TEAM, 'config.json'), 'utf8'),
+    ) as { leadSessionId: string };
+    config.leadSessionId = REKEYED;
+    await fs.writeFile(path.join(paths.teams, TEAM, 'config.json'), JSON.stringify(config));
+
+    const ingest = await startSweepOnly({ leadSessionId: REKEYED });
+    try {
+      await ingest.sweep();
+    } finally {
+      ingest.close();
+    }
+
+    const state = project(store.replay(), false);
+    expect(state.agents.map((a) => a.name)).toContain('worker');
+    expect(
+      state.agents.flatMap((a) => a.transcript).filter((l) => l.text.includes('REKEYED')).length,
+    ).toBeGreaterThan(0);
+  });
+
   it('keeps another session sidecar off the roster even when it carries our team name', async () => {
     const ours = many(20, 'OURS');
     await write(jsonl('0000000000000000'), ours);

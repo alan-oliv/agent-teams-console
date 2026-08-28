@@ -3260,8 +3260,14 @@ function startFileIngest(store, config) {
     if (!Array.isArray(entries)) return;
     store.append("mail", { source: "inbox", to, entries }, to);
   };
+  const isRosterMember = (name) => (lastConfig?.members ?? []).some((m) => m.name === name);
+  const adoptLeadSessionOf = (transcriptPath) => {
+    const sessionDir = path5.basename(path5.dirname(path5.dirname(transcriptPath)));
+    if (sessionDir !== "" && !chain.has(sessionDir)) chain.add(sessionDir);
+  };
   const acceptSidecar = (file, meta) => {
     const transcriptPath = transcriptOfSidecar(file);
+    if (meta.teamName === teamName && isRosterMember(meta.name)) adoptLeadSessionOf(transcriptPath);
     const claim = claimOfTranscript(transcriptPath, chain, leadName);
     if (meta.teamName !== teamName || claim?.scoped !== true) {
       forget(transcriptPath);
