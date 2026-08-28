@@ -35,12 +35,13 @@ const LINE: CSSProperties = { display: 'flex', alignItems: 'baseline', gap: '7px
 // Every prop must be stable across frames for that to hold: `isTinted` is passed
 // precomputed rather than the hovered name, and the handlers are hoisted callbacks.
 const Column = memo(function Column({
-  agent, isFocused, isTinted, readOnly, onFocus, onHoverEnter, onHoverLeave,
+  agent, isFocused, isTinted, readOnly, teamLive, onFocus, onHoverEnter, onHoverLeave,
 }: {
   agent: Agent;
   isFocused: boolean;
   isTinted: boolean;
   readOnly: boolean;
+  teamLive: boolean;
   onFocus: (name: string) => void;
   onHoverEnter: (name: string) => void;
   onHoverLeave: (name: string) => void;
@@ -196,7 +197,7 @@ const Column = memo(function Column({
         {agent.currentTool ?? ''}
       </div>
 
-      <Composer agent={agent} variant="wall" readOnly={readOnly} />
+      <Composer agent={agent} variant="wall" readOnly={readOnly} teamLive={teamLive} />
     </div>
   );
 });
@@ -227,6 +228,11 @@ export function Wall({
     ...rest.filter((a) => a.status !== 'departed'),
     ...rest.filter((a) => a.status === 'departed'),
   ];
+
+  // A teammate drains its own inbox; the LEAD's is drained by the team loop,
+  // which stops with the last teammate. The composer says so rather than
+  // queueing in silence.
+  const teamLive = agents.some((a) => !a.isLead && a.status !== 'departed');
 
   const scroller = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -263,6 +269,7 @@ export function Wall({
             isFocused={agent.name === focused}
             isTinted={agent.name === focused || hovered === agent.name}
             readOnly={readOnly}
+            teamLive={teamLive}
             onFocus={onFocus}
             onHoverEnter={onHoverEnter}
             onHoverLeave={onHoverLeave}

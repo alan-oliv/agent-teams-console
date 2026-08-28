@@ -97,3 +97,67 @@ describe('Composer', () => {
     );
   });
 });
+
+describe('Composer delivery honesty', () => {
+  const lead = { ...alpha, name: 'team-lead', isLead: true, status: 'working' as const };
+
+  it('says a message to the lead is queued when no teammate is live to deliver it', () => {
+    render(<Composer agent={lead} variant="wall" teamLive={false} />);
+    const input = screen.getByTestId('composer-input') as HTMLTextAreaElement;
+    expect(input.placeholder).toBe('message team-lead · queued until a teammate is live');
+    // Queueing is real: the message is delivered once a team comes up, so the
+    // composer stays usable rather than pretending it is broken.
+    expect(input.disabled).toBe(false);
+  });
+
+  it('names the lead plainly once a teammate is live', () => {
+    render(<Composer agent={lead} variant="wall" teamLive />);
+    expect((screen.getByTestId('composer-input') as HTMLTextAreaElement).placeholder).toBe(
+      'message team-lead',
+    );
+  });
+
+  it('leaves a teammate composer alone — its own inbox reader delivers it', () => {
+    render(<Composer agent={{ ...alpha, status: 'working' }} variant="wall" teamLive={false} />);
+    expect((screen.getByTestId('composer-input') as HTMLTextAreaElement).placeholder).toBe(
+      'message probe-alpha',
+    );
+  });
+});
+
+describe('Composer send acknowledgement', () => {
+  const live = { ...alpha, status: 'working' as const };
+  const lead = { ...alpha, name: 'team-lead', isLead: true, status: 'working' as const };
+  const ack = () => screen.queryByTestId('composer-ack')?.textContent;
+
+  async function type(el: HTMLElement, value: string) {
+    fireEvent.change(el, { target: { value } });
+    fireEvent.keyDown(el, { key: 'Enter', metaKey: true });
+  }
+
+  it('says nothing until something is sent', () => {
+    render(<Composer agent={live} variant="wall" />);
+    expect(ack()).toBeUndefined();
+  });
+
+  it('confirms a message to a live teammate as sent', async () => {
+    render(<Composer agent={live} variant="wall" teamLive />);
+    await type(screen.getByTestId('composer-input'), 'hello');
+    await waitFor(() => expect(ack()).toBe('sent'));
+  });
+
+  it('says queued when the lead has no teammate to drain its inbox', async () => {
+    render(<Composer agent={lead} variant="wall" teamLive={false} />);
+    await type(screen.getByTestId('composer-input'), 'hello');
+    await waitFor(() => expect(ack()).toBe('queued'));
+  });
+
+  it('says so when the send is refused, and keeps the text to retry', async () => {
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 409, json: async () => ({}) });
+    render(<Composer agent={live} variant="wall" teamLive />);
+    const input = screen.getByTestId('composer-input') as HTMLTextAreaElement;
+    await type(input, 'hello');
+    await waitFor(() => expect(ack()).toBe('not sent'));
+    expect(input.value).toBe('hello');
+  });
+});

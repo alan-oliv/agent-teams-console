@@ -312,6 +312,28 @@ describe('control routes', () => {
     }
   });
 
+  it('sends to the lead under a sender that is not the lead itself', async () => {
+    const { server, url } = await boot(false);
+    try {
+      const res = await fetch(`${url}/api/agents/team-lead/message`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: 'from the console' }),
+      });
+      expect(res.status).toBe(200);
+
+      const entries = JSON.parse(
+        await fs.readFile(path.join(dir, TEAM, 'inboxes', 'team-lead.json'), 'utf8'),
+      ) as InboxEntry[];
+      // Stamped 'team-lead' this was a message from the lead to itself, which is
+      // what the operator's own message to the lead used to become.
+      expect(entries.at(-1)!.from).not.toBe('team-lead');
+      expect(entries.at(-1)!.text).toBe('from the console');
+    } finally {
+      await shutdown(server);
+    }
+  });
+
   it('POST /api/plans/:requestId/approve writes a plan_approval_response frame', async () => {
     const { server, url } = await boot(false);
     try {

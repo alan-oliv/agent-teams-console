@@ -9,6 +9,11 @@ import type { StreamHub } from './stream';
 import { sendToInbox } from './control/mailbox';
 import type { TeamState, TeamsResponse } from '../shared/domain';
 
+// Who the operator is when they speak through the console. Not a team member,
+// so it never collides with a real name, and it survives the SAFE_NAME gate in
+// the inbox writer.
+export const CONSOLE_SENDER = 'console';
+
 export const READ_ONLY_BODY = {
   error: 'read-only',
   message: 'the console was started with --read-only; control routes are disabled',
@@ -318,7 +323,16 @@ export function createHttpServer(deps: HttpDeps): Server {
               json(res, 400, { error: 'bad request', message: 'text is required' });
               return;
             }
-            const out = await sendToInbox(team(), name, { text, summary: str(body.summary), from: leadName });
+            // The operator is not the lead. Messaging a teammate still arrives
+            // as the lead, because that is who directs teammates in the team's
+            // own model — but a message TO the lead stamped as the lead is
+            // addressed from the recipient to itself, which is the one shape
+            // that cannot mean anything.
+            const out = await sendToInbox(team(), name, {
+              text,
+              summary: str(body.summary),
+              from: name === leadName ? CONSOLE_SENDER : leadName,
+            });
             deps.stream.publish();
             json(res, 200, out);
             return;

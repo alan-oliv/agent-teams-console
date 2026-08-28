@@ -30,13 +30,26 @@ export function Composer({
   agent,
   variant,
   readOnly = false,
+  teamLive = true,
 }: {
   agent: Agent;
   variant: 'wall' | 'rail';
   readOnly?: boolean;
+  /**
+   * Whether any teammate is still alive. A teammate drains its OWN inbox, so a
+   * message to one is delivered whenever that one is running. The lead's inbox
+   * is drained by the agent-teams loop instead, and that loop stops with the
+   * last teammate — so a message to the lead with nobody left sits in the file
+   * unread, which looked exactly like the console being broken.
+   */
+  teamLive?: boolean;
 }) {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
+  // A send used to leave no trace anywhere the sender could see: the wall has no
+  // mailbox, so a delivered message and one queued against a stopped reader
+  // looked identical — an empty box either way.
+  const [ack, setAck] = useState<'sent' | 'queued' | 'not sent' | null>(null);
   const v = VARIANT[variant];
   // Read-only 409s every control route, so an enabled composer would look live
   // and swallow the rejection. Departed teammates have no inbox reader left.
@@ -51,6 +64,9 @@ export function Composer({
         text: body,
       });
       if (res.ok) setText('');
+      // A teammate drains its own inbox, so a live one has it already. The
+      // lead's is drained by the team loop, which needs a teammate alive.
+      setAck(!res.ok ? 'not sent' : agent.isLead && !teamLive ? 'queued' : 'sent');
     } finally {
       setBusy(false);
     }
@@ -79,9 +95,18 @@ export function Composer({
         data-testid="composer-input"
         rows={1}
         value={text}
-        placeholder={readOnly ? 'read-only — control routes are disabled' : v.placeholder(agent.name)}
+        placeholder={
+          readOnly
+            ? 'read-only — control routes are disabled'
+            : agent.isLead && !teamLive
+              ? `${v.placeholder(agent.name)} · queued until a teammate is live`
+              : v.placeholder(agent.name)
+        }
         disabled={disabled}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => {
+          setText(e.target.value);
+          setAck(null); // typing again is the operator moving on from the last result
+        }}
         onKeyDown={onKeyDown}
         style={{
           flex: 1,
@@ -97,6 +122,18 @@ export function Composer({
           color: 'var(--color-text)',
         }}
       />
+      {ack && (
+        <span
+          data-testid="composer-ack"
+          style={{
+            flex: 'none',
+            fontSize: '10px',
+            color: ack === 'not sent' ? 'var(--failure-rose)' : 'var(--color-neutral-600)',
+          }}
+        >
+          {ack}
+        </span>
+      )}
       {variant === 'rail' && text === '' && (
         <span
           data-testid="composer-caret"

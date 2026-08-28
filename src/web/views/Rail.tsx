@@ -94,7 +94,9 @@ const Row = memo(function Row({
 // Memoised for the same reason as the row: the attached pane drags a 60-line transcript
 // feed and a composer behind it, so a frame in which its agent did not move must not
 // reconcile any of it.
-const Attached = memo(function Attached({ agent, readOnly }: { agent: Agent; readOnly: boolean }) {
+const Attached = memo(function Attached(
+  { agent, readOnly, teamLive }: { agent: Agent; readOnly: boolean; teamLive: boolean },
+) {
   const status = AGENT_STATUS[agent.status];
 
   return (
@@ -167,7 +169,7 @@ const Attached = memo(function Attached({ agent, readOnly }: { agent: Agent; rea
 
       <TranscriptFeed lines={agent.transcript} size="rail" />
 
-      <Composer agent={agent} variant="rail" readOnly={readOnly} />
+      <Composer agent={agent} variant="rail" readOnly={readOnly} teamLive={teamLive} />
     </div>
   );
 });
@@ -187,6 +189,8 @@ export function Rail({
   if (agents.length === 0) return null;
 
   const attached = agents.find((a) => a.name === focused) ?? agents[0];
+  // See Composer: the lead's inbox is drained by the team loop, not by the lead.
+  const teamLive = agents.some((a) => !a.isLead && a.status !== 'departed');
   const cursorAgent = agents[Math.min(cursor, agents.length - 1)];
 
   function onListKeyDown(e: KeyboardEvent<HTMLDivElement>) {
@@ -272,7 +276,7 @@ export function Rail({
         </div>
       </div>
 
-      <Attached agent={attached} readOnly={readOnly} />
+      <Attached agent={attached} readOnly={readOnly} teamLive={teamLive} />
     </div>
   );
 }
