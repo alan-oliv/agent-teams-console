@@ -2569,6 +2569,7 @@ function mergeMail(existing, incoming) {
 }
 
 // src/shared/status.ts
+var AGENT_STALE_MS = 30 * 60 * 1e3;
 function deriveTaskState(raw, task, agents) {
   if (raw === "completed") return "completed";
   const owner = task.owner ? agents.find((a) => a.name === task.owner) : void 0;
@@ -2727,6 +2728,8 @@ function project(events, readOnly) {
       lastIdle.set(m.from, m.ts);
     }
   }
+  let latestActivity = -1;
+  for (const ts of lastActivity.values()) if (ts > latestActivity) latestActivity = ts;
   const cards = [...needsYou.values()].filter(
     (c) => c.expiresAt === void 0 || c.expiresAt > Date.now()
   );
@@ -2757,6 +2760,7 @@ function project(events, readOnly) {
       const act = lastActivity.get(id.name) ?? -1;
       const idle = lastIdle.get(id.name) ?? -1;
       if (act < 0 || idle >= act) status = "idle";
+      else if (latestActivity - act > AGENT_STALE_MS) status = "departed";
     }
     return {
       name: id.name,
@@ -2966,14 +2970,25 @@ var INGEST_BATCH_RECORDS = 200;
 var PENDING_RECORDS = 6e3;
 var SUBAGENT_FILE = /^agent-a(.+)-[0-9a-f]{16}\.jsonl$/;
 var WORKFLOW_SEGMENT = `${path5.sep}workflows${path5.sep}`;
+function chainHas(chain, sessionId) {
+  if (!chain) return false;
+  return typeof chain === "string" ? chain === sessionId : chain.has(sessionId);
+}
+function chainKnown(chain) {
+  if (!chain) return false;
+  return typeof chain === "string" || chain.size > 0;
+}
 function claimOfTranscript(file, leadSessionId, leadName) {
   if (file.includes(WORKFLOW_SEGMENT)) return null;
   const base = path5.basename(file);
-  if (leadSessionId && base === `${leadSessionId}.jsonl`) return { agent: leadName, scoped: true };
+  const known = chainKnown(leadSessionId);
+  if (known && base.endsWith(".jsonl") && chainHas(leadSessionId, base.slice(0, -".jsonl".length))) {
+    return { agent: leadName, scoped: true };
+  }
   const m = SUBAGENT_FILE.exec(base);
   if (!m) return null;
-  if (!leadSessionId) return { agent: m[1], scoped: false };
-  if (path5.basename(path5.dirname(path5.dirname(file))) !== leadSessionId) return null;
+  if (!known) return { agent: m[1], scoped: false };
+  if (!chainHas(leadSessionId, path5.basename(path5.dirname(path5.dirname(file))))) return null;
   return { agent: m[1], scoped: true };
 }
 async function walk(root) {
@@ -2997,11 +3012,28 @@ async function walk(root) {
     (a, b) => (path5.basename(a) === "config.json" ? 0 : 1) - (path5.basename(b) === "config.json" ? 0 : 1) || a.localeCompare(b)
   );
 }
+var FIRST_LINE_BYTES = 64 * 1024;
+async function readFirstLine(file) {
+  const fh = await fs4.open(file, "r");
+  try {
+    const buf = Buffer.alloc(FIRST_LINE_BYTES);
+    const { bytesRead } = await fh.read(buf, 0, FIRST_LINE_BYTES, 0);
+    const text = buf.subarray(0, bytesRead).toString("utf8");
+    const nl = text.indexOf("\n");
+    return nl === -1 ? text : text.slice(0, nl);
+  } finally {
+    await fh.close();
+  }
+}
 function startFileIngest(store, config) {
   const { paths } = config;
   const leadName = config.leadName ?? "team-lead";
   let teamName = config.teamName;
   let leadSessionId = config.leadSessionId;
+  const chain = new Set(leadSessionId ? [leadSessionId] : []);
+  let leadProjectDir = null;
+  const forkParent = /* @__PURE__ */ new Map();
+  const forkChecked = /* @__PURE__ */ new Set();
   let lastConfig = null;
   const sidecars = /* @__PURE__ */ new Map();
   const ownedFiles = /* @__PURE__ */ new Map();
@@ -3109,7 +3141,7 @@ function startFileIngest(store, config) {
     if (buf && buf.records.length > 0) appendTranscript(agent, buf.records, false);
   };
   const handleLines = (file, lines, fromStart) => {
-    const claim = claimOfTranscript(file, leadSessionId, leadName);
+    const claim = claimOfTranscript(file, chain, leadName);
     if (!claim) return;
     if (disowned.has(file)) return;
     const meta = sidecars.get(file);
@@ -3151,11 +3183,16 @@ function startFileIngest(store, config) {
       if (learned) config.onTeam?.({ teamName: cfg.name, leadSessionId: cfg.leadSessionId });
       if (learned) {
         disowned.clear();
+        chain.clear();
+        if (leadSessionId) chain.add(leadSessionId);
+        leadProjectDir = null;
+        forkParent.clear();
+        forkChecked.clear();
         for (const f of [...pending.keys()]) {
-          if (claimOfTranscript(f, leadSessionId, leadName)?.scoped !== true) forget(f);
+          if (claimOfTranscript(f, chain, leadName)?.scoped !== true) forget(f);
         }
         for (const f of [...usageLedger.keys()]) {
-          if (claimOfTranscript(f, leadSessionId, leadName)?.scoped !== true) forget(f);
+          if (claimOfTranscript(f, chain, leadName)?.scoped !== true) forget(f);
         }
       }
       for (const [f, meta] of unresolvedSidecars) acceptSidecar(f, meta);
@@ -3171,7 +3208,7 @@ function startFileIngest(store, config) {
   };
   const acceptSidecar = (file, meta) => {
     const transcriptPath = transcriptOfSidecar(file);
-    const claim = claimOfTranscript(transcriptPath, leadSessionId, leadName);
+    const claim = claimOfTranscript(transcriptPath, chain, leadName);
     if (meta.teamName !== teamName || claim?.scoped !== true) {
       forget(transcriptPath);
       return false;
@@ -3208,7 +3245,7 @@ function startFileIngest(store, config) {
     store.append("task", task, task.owner);
   };
   const handleSessionJson = async (file) => {
-    if (leadSessionId && path5.basename(file) !== `${leadSessionId}.json`) return;
+    if (chain.size > 0 && !chain.has(path5.basename(file, ".json"))) return;
     const doc = await readJsonSafe(file);
     const branch = doc?.gitBranch ?? doc?.branch;
     if (!branch) return;
@@ -3232,7 +3269,7 @@ function startFileIngest(store, config) {
     );
   });
   const sweepTranscript = async (file) => {
-    const claim = claimOfTranscript(file, leadSessionId, leadName);
+    const claim = claimOfTranscript(file, chain, leadName);
     if (!claim || disowned.has(file)) return;
     notePath(sidecars.get(file)?.name ?? claim.agent, file);
     await transcripts.pump(file);
@@ -3245,10 +3282,51 @@ function startFileIngest(store, config) {
     for (const set of transcriptPaths.values()) for (const file of set) files.add(file);
     await Promise.all([...files].map((file) => transcripts.pump(file)));
   };
+  const growForkChain = async (files) => {
+    if (!leadSessionId) return;
+    if (!leadProjectDir) {
+      const own2 = files.find((f) => path5.basename(f) === `${leadSessionId}.jsonl`);
+      if (own2) leadProjectDir = path5.dirname(own2);
+    }
+    if (!leadProjectDir) return;
+    for (const file of files) {
+      if (!file.endsWith(".jsonl") || path5.dirname(file) !== leadProjectDir) continue;
+      const stem = path5.basename(file, ".jsonl");
+      if (forkChecked.has(stem) || SUBAGENT_FILE.test(path5.basename(file))) continue;
+      let firstLine;
+      try {
+        firstLine = await readFirstLine(file);
+      } catch {
+        continue;
+      }
+      if (firstLine === null) continue;
+      let parsed;
+      try {
+        parsed = JSON.parse(firstLine);
+      } catch {
+        continue;
+      }
+      forkChecked.add(stem);
+      const parent = parsed.forkedFrom?.sessionId;
+      if (parent) forkParent.set(stem, parent);
+    }
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const [id, parent] of forkParent) {
+        if (chain.has(parent) && !chain.has(id)) {
+          chain.add(id);
+          changed = true;
+        }
+      }
+    }
+  };
   const sweep = async () => {
     for (const root of [paths.teams, paths.projects, paths.tasks, paths.sessions]) {
+      const files = await walk(root);
+      if (root === paths.projects) await growForkChain(files);
       const drains = [];
-      for (const file of await walk(root)) {
+      for (const file of files) {
         if (closed) return;
         let st;
         try {
