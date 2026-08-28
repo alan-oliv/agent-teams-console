@@ -152,6 +152,18 @@ describe('Wall column memoisation', () => {
     expect(feed.renders).toBe(1);
   });
 
+  it('does not re-render a column when only the clock advances', () => {
+    const onFocus = vi.fn();
+    const { rerender } = render(<Wall agents={agents} focused="probe-alpha" onFocus={onFocus} now={now} />);
+    const elapsed = () => within(screen.getAllByTestId('wall-column')[1]).getByTestId('wall-elapsed').textContent;
+    expect(elapsed()).toBe('0m 42s');
+
+    feed.renders = 0;
+    rerender(<Wall agents={agents} focused="probe-alpha" onFocus={onFocus} now={now + 1000} />);
+    expect(feed.renders).toBe(0);
+    expect(elapsed()).toBe('0m 43s');
+  });
+
   it('does not re-render unhovered columns when hover moves', () => {
     renderWall();
     feed.renders = 0;

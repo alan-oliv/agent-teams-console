@@ -1,10 +1,11 @@
 import { memo, useCallback, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import type { Agent } from '../../shared/domain';
 import { AGENT_STATUS } from '../../shared/status';
+import { Elapsed, NowContext } from '../components/Elapsed';
 import { Portrait } from '../components/Portrait';
 import { StatusGlyph } from '../components/StatusGlyph';
 import { TranscriptFeed } from '../components/TranscriptFeed';
-import { costLabel, elapsedLabel, pctLabel } from '../format';
+import { costLabel, pctLabel } from '../format';
 
 // Matches the --terminal-ground token (theme.css); kept literal so the tint
 // toggle below reads back as a resolved rgb() in jsdom, not a var() string.
@@ -14,12 +15,11 @@ const GROUND = '#12141f';
 // Every prop must be stable across frames for that to hold: `isTinted` is passed
 // precomputed rather than the hovered name, and the handlers are hoisted callbacks.
 const Tile = memo(function Tile({
-  agent, isFocused, isTinted, now, onFocus, onHoverEnter, onHoverLeave,
+  agent, isFocused, isTinted, onFocus, onHoverEnter, onHoverLeave,
 }: {
   agent: Agent;
   isFocused: boolean;
   isTinted: boolean;
-  now: number;
   onFocus: (name: string) => void;
   onHoverEnter: (name: string) => void;
   onHoverLeave: (name: string) => void;
@@ -131,7 +131,9 @@ const Tile = memo(function Tile({
           fontSize: '9.5px',
         }}
       >
-        <span data-testid="overview-elapsed">{elapsedLabel(agent.startedAt, now)}</span>
+        <span data-testid="overview-elapsed">
+          <Elapsed startedAt={agent.startedAt} />
+        </span>
         <span style={{ flex: 1 }} />
         <span data-testid="overview-cost">{costLabel(agent.costUsd)}</span>
       </div>
@@ -159,18 +161,19 @@ export function Overview({
       data-testid="overview"
       style={{ flex: 1, display: 'flex', gap: '1px', background: 'var(--color-neutral-900)', minHeight: 0 }}
     >
-      {agents.map((agent) => (
-        <Tile
-          key={agent.name}
-          agent={agent}
-          isFocused={agent.name === focused}
-          isTinted={agent.name === focused || hovered === agent.name}
-          now={now}
-          onFocus={onFocus}
-          onHoverEnter={onHoverEnter}
-          onHoverLeave={onHoverLeave}
-        />
-      ))}
+      <NowContext value={now}>
+        {agents.map((agent) => (
+          <Tile
+            key={agent.name}
+            agent={agent}
+            isFocused={agent.name === focused}
+            isTinted={agent.name === focused || hovered === agent.name}
+            onFocus={onFocus}
+            onHoverEnter={onHoverEnter}
+            onHoverLeave={onHoverLeave}
+          />
+        ))}
+      </NowContext>
     </div>
   );
 }

@@ -2,10 +2,11 @@ import { memo, useCallback, useState, type CSSProperties, type KeyboardEvent } f
 import type { Agent } from '../../shared/domain';
 import { AGENT_STATUS } from '../../shared/status';
 import { Composer } from '../components/Composer';
+import { Elapsed, NowContext } from '../components/Elapsed';
 import { Portrait } from '../components/Portrait';
 import { StatusGlyph } from '../components/StatusGlyph';
 import { TranscriptFeed } from '../components/TranscriptFeed';
-import { contextBar, costLabel, ctxLabel, elapsedLabel, pctLabel, warnMark } from '../format';
+import { contextBar, costLabel, ctxLabel, pctLabel, warnMark } from '../format';
 
 // Matches the --terminal-ground token (theme.css); kept literal so the tint
 // toggle below reads back as a resolved rgb() in jsdom, not a var() string.
@@ -26,12 +27,11 @@ const LINE: CSSProperties = { display: 'flex', alignItems: 'baseline', gap: '7px
 // Every prop must be stable across frames for that to hold: `isTinted` is passed
 // precomputed rather than the hovered name, and the handlers are hoisted callbacks.
 const Column = memo(function Column({
-  agent, isFocused, isTinted, now, readOnly, onFocus, onHoverEnter, onHoverLeave,
+  agent, isFocused, isTinted, readOnly, onFocus, onHoverEnter, onHoverLeave,
 }: {
   agent: Agent;
   isFocused: boolean;
   isTinted: boolean;
-  now: number;
   readOnly: boolean;
   onFocus: (name: string) => void;
   onHoverEnter: (name: string) => void;
@@ -130,7 +130,7 @@ const Column = memo(function Column({
               data-testid="wall-elapsed"
               style={{ color: 'var(--color-neutral-700)', fontSize: '10.5px' }}
             >
-              {elapsedLabel(agent.startedAt, now)}
+              <Elapsed startedAt={agent.startedAt} />
             </span>
           </div>
 
@@ -223,19 +223,20 @@ export function Wall({
         background: 'var(--color-neutral-900)',
       }}
     >
-      {ordered.map((agent) => (
-        <Column
-          key={agent.name}
-          agent={agent}
-          isFocused={agent.name === focused}
-          isTinted={agent.name === focused || hovered === agent.name}
-          now={now}
-          readOnly={readOnly}
-          onFocus={onFocus}
-          onHoverEnter={onHoverEnter}
-          onHoverLeave={onHoverLeave}
-        />
-      ))}
+      <NowContext value={now}>
+        {ordered.map((agent) => (
+          <Column
+            key={agent.name}
+            agent={agent}
+            isFocused={agent.name === focused}
+            isTinted={agent.name === focused || hovered === agent.name}
+            readOnly={readOnly}
+            onFocus={onFocus}
+            onHoverEnter={onHoverEnter}
+            onHoverLeave={onHoverLeave}
+          />
+        ))}
+      </NowContext>
     </div>
   );
 }

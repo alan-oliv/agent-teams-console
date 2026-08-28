@@ -1,20 +1,20 @@
 import { memo, type KeyboardEvent } from 'react';
 import type { Agent } from '../../shared/domain';
 import { ContextMeter } from '../components/ContextMeter';
+import { Elapsed, NowContext } from '../components/Elapsed';
 import { Portrait } from '../components/Portrait';
 import { StatusGlyph } from '../components/StatusGlyph';
 import { TranscriptFeed } from '../components/TranscriptFeed';
-import { elapsedLabel, pctLabel } from '../format';
+import { pctLabel } from '../format';
 
 const PANES = 6;
 
 // Memoised so an SSE frame only re-renders the panes whose agent actually moved.
 const Pane = memo(function Pane({
-  agent, isFocused, now, onFocus,
+  agent, isFocused, onFocus,
 }: {
   agent: Agent;
   isFocused: boolean;
-  now: number;
   onFocus: (name: string) => void;
 }) {
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
@@ -90,7 +90,7 @@ const Pane = memo(function Pane({
               data-testid="grid-elapsed"
               style={{ color: 'var(--color-neutral-700)', fontSize: '10px' }}
             >
-              {elapsedLabel(agent.startedAt, now)}
+              <Elapsed startedAt={agent.startedAt} />
             </span>
           </div>
         </div>
@@ -141,15 +141,16 @@ export function Grid({
         minHeight: 0,
       }}
     >
-      {shown.map((agent) => (
-        <Pane
-          key={agent.name}
-          agent={agent}
-          isFocused={agent.name === focused}
-          now={now}
-          onFocus={onFocus}
-        />
-      ))}
+      <NowContext value={now}>
+        {shown.map((agent) => (
+          <Pane
+            key={agent.name}
+            agent={agent}
+            isFocused={agent.name === focused}
+            onFocus={onFocus}
+          />
+        ))}
+      </NowContext>
 
       {overflow > 0 && (
         <span

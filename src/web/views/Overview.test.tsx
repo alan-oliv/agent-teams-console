@@ -109,6 +109,18 @@ describe('Overview tile memoisation', () => {
     expect(feed.renders).toBe(0);
   });
 
+  it('does not re-render a tile when only the clock advances', () => {
+    const onFocus = vi.fn();
+    const { rerender } = render(<Overview agents={four} focused={null} onFocus={onFocus} now={FIXTURE_NOW} />);
+    const elapsed = () => within(screen.getAllByTestId('overview-tile')[1]).getByTestId('overview-elapsed').textContent;
+    expect(elapsed()).toBe('0m 42s');
+
+    feed.renders = 0;
+    rerender(<Overview agents={four} focused={null} onFocus={onFocus} now={FIXTURE_NOW + 1000} />);
+    expect(feed.renders).toBe(0);
+    expect(elapsed()).toBe('0m 43s');
+  });
+
   it('re-renders only the tile whose agent changed', () => {
     const onFocus = vi.fn();
     const { rerender } = render(<Overview agents={four} focused={null} onFocus={onFocus} now={FIXTURE_NOW} />);
