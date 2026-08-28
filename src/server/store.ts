@@ -77,9 +77,14 @@ export const KIND_RETENTION: Partial<Record<EventKind, number>> = {
  * How many transcript records the log keeps PER AGENT. project() is linear in
  * stored records (measured 0.64 us/record) and runs on every publish, up to 4 Hz,
  * against a 5 ms budget at 11 agents — 11,710 records team-wide once the totals
- * snapshot takes the usage pipeline out of the walk, so 1,064 per agent. 1,000
- * is 5x the 200-record window at which the projected 60 lines are still exact on
- * every real transcript, and 91x the worst duplicate-message-id span (11).
+ * snapshot takes the usage pipeline out of the walk, so 1,064 per agent. That
+ * "once" is load-bearing: the budget describes the PRODUCTION path, where the
+ * ingest supplies the snapshot. Measured on 11,000 stored records, project +
+ * stringify is 3.2 ms with the snapshot against 4.4 ms without one — a log too
+ * old to carry snapshots is the slower case, and is also the one transcriptDrops
+ * exempts from this bound rather than take its cost away. 1,000 is 5x the
+ * 200-record window at which the projected 60 lines are still exact on every
+ * real transcript, and 91x the worst duplicate-message-id span (11).
  * Per agent, not team-wide, so a chatty agent cannot evict a quiet one's history
  * — and tuned for 11 agents, so a much larger team wants a smaller number.
  */
@@ -200,7 +205,22 @@ function carriesTotals(payload: unknown): boolean {
 }
 
 /**
- * Per agent, newest first, the transcript rows to drop. Two reasons to drop one:
+ * A copy of `e` holding only the newest `keep` of its records. The payload is
+ * replaced rather than mutated: replay() hands the live rows out, and project()
+ * memoises each record's derived lines on the record object, so the records
+ * themselves have to stay the same objects. Everything else on the payload
+ * rides along — `totals` above all, a cumulative snapshot of the whole
+ * transcript, so trimming records must never trim cost with them.
+ */
+function withNewestRecords(e: StoredEvent, keep: number): StoredEvent {
+  const payload = e.payload as { records: unknown[] };
+  const records = payload.records;
+  return { ...e, payload: { ...payload, records: records.slice(records.length - keep) } };
+}
+
+/**
+ * Per agent, newest first, the transcript rows to drop, and the oversized ones
+ * to replace with a bounded copy. Two reasons to drop a row:
  * the agent's record (or event) budget is already spent, or the row is older
  * than that agent's newest from-byte-0 batch — the fold clears the agent when it
  * reaches that batch, so nothing before it can ever be read again. The second
@@ -208,8 +228,18 @@ function carriesTotals(payload: unknown): boolean {
  * restart: measured over five successive boots against 11 unchanged 2,000-record
  * transcripts, the log reaches a fixed point (105 rows, 6.9 MB) instead of
  * gaining a whole copy of every transcript on each boot, forever.
+ *
+ * The budget is spent WITHIN a row too, not only between rows: this ingest
+ * batches at 200 records, but migrateLegacyLog recovers rows from a pre-batching
+ * events.db verbatim, and that ingest put a whole 2,000-record file in one. A
+ * row bigger than the remaining budget is kept as a bounded copy of its newest
+ * records instead of being admitted whole — measured on that upgrade shape,
+ * 22,600 records held against an 11,000 bound, folding in 6.3 ms not 3.2.
  */
-function transcriptDrops(events: StoredEvent[]): Set<StoredEvent> {
+function transcriptDrops(events: StoredEvent[]): {
+  drop: Set<StoredEvent>;
+  trimmed: Map<StoredEvent, StoredEvent>;
+} {
   // Agents with a cumulative snapshot somewhere in the log. An agent without one
   // is a log written before the snapshot existed, and project() still derives
   // its cost by summing the records it holds — so for that agent the record
@@ -225,6 +255,7 @@ function transcriptDrops(events: StoredEvent[]): Set<StoredEvent> {
   }
 
   const drop = new Set<StoredEvent>();
+  const trimmed = new Map<StoredEvent, StoredEvent>();
   const keptRecords = new Map<string, number>();
   const keptEvents = new Map<string, number>();
   const pastReset = new Set<string>();
@@ -239,20 +270,31 @@ function transcriptDrops(events: StoredEvent[]): Set<StoredEvent> {
     if (readsFromStart(e.payload)) pastReset.add(agent);
     const records = keptRecords.get(agent) ?? 0;
     const count = keptEvents.get(agent) ?? 0;
-    const overRecords = records >= TRANSCRIPT_RECORDS_PER_AGENT && snapshotted.has(agent);
+    const bounded = snapshotted.has(agent);
+    const overRecords = bounded && records >= TRANSCRIPT_RECORDS_PER_AGENT;
     if (overRecords || count >= TRANSCRIPT_EVENTS_PER_AGENT) {
       drop.add(e);
       continue;
     }
-    keptRecords.set(agent, records + recordCount(e.payload));
+    const held = recordCount(e.payload);
+    const room = TRANSCRIPT_RECORDS_PER_AGENT - records;
+    if (bounded && held > room) {
+      trimmed.set(e, withNewestRecords(e, room));
+      keptRecords.set(agent, TRANSCRIPT_RECORDS_PER_AGENT);
+    } else {
+      keptRecords.set(agent, records + held);
+    }
     keptEvents.set(agent, count + 1);
   }
-  return drop;
+  return { drop, trimmed };
 }
 
 /**
  * Drops the oldest events of any kind that is over its retention cap, plus the
- * transcript rows the per-agent record bound has made unreadable.
+ * transcript rows the per-agent record bound has made unreadable — and shrinks
+ * the one row that straddles the bound. Returns `events` itself when there was
+ * nothing to do, which is how the caller knows whether to compact the file:
+ * a shrunk row leaves the row COUNT unchanged.
  */
 function trim(events: StoredEvent[]): StoredEvent[] {
   const counts = new Map<string, number>();
@@ -263,8 +305,8 @@ function trim(events: StoredEvent[]): StoredEvent[] {
     const over = (counts.get(kind) ?? 0) - keep;
     if (over > 0) excess.set(kind, over);
   }
-  const transcripts = transcriptDrops(events);
-  if (excess.size === 0 && transcripts.size === 0) return events;
+  const { drop: transcripts, trimmed } = transcriptDrops(events);
+  if (excess.size === 0 && transcripts.size === 0 && trimmed.size === 0) return events;
 
   // The ids of the `needsyou-resolved` rows this pass is about to drop. Their
   // matching `needsyou` create rows must go with them (below) — a card with no
@@ -280,7 +322,7 @@ function trim(events: StoredEvent[]): StoredEvent[] {
   }
 
   // Ascending seq order, so the first `over` events of a kind are its oldest.
-  return events.filter((e) => {
+  const kept = events.filter((e) => {
     if (transcripts.has(e)) return false;
     if (e.kind === 'needsyou') {
       const id = needsYouId(e.payload);
@@ -291,6 +333,7 @@ function trim(events: StoredEvent[]): StoredEvent[] {
     excess.set(e.kind, over - 1);
     return false;
   });
+  return trimmed.size === 0 ? kept : kept.map((e) => trimmed.get(e) ?? e);
 }
 
 /**
@@ -595,9 +638,9 @@ export function openStore(dbPath: string, team = ''): Store {
   };
 
   load();
-  const loaded = events.length;
+  const loaded = events;
   events = trim(events);
-  if (dirty || events.length !== loaded) {
+  if (dirty || events !== loaded) {
     if (rewrite()) dirty = false;
   }
 
@@ -612,9 +655,9 @@ export function openStore(dbPath: string, team = ''): Store {
       accounted += Buffer.byteLength(encoded);
       if (++sincePrune >= PRUNE_EVERY) {
         sincePrune = 0;
-        const before = events.length;
+        const before = events;
         events = trim(events);
-        if (events.length !== before) rewrite();
+        if (events !== before) rewrite();
       }
       return { seq, ts, kind, agent, payload };
     },
@@ -643,9 +686,9 @@ export function openStore(dbPath: string, team = ''): Store {
         appendFileSync(file, encoded);
         accounted += Buffer.byteLength(encoded);
       }
-      const before = events.length;
+      const before = events;
       events = trim(events);
-      if (dirty || events.length !== before) {
+      if (dirty || events !== before) {
         if (rewrite()) dirty = false;
       }
       // Drained into the team's own log. Removing the file rather than blanking

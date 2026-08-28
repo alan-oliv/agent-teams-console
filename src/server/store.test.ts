@@ -369,9 +369,9 @@ describe('transcript retention', () => {
         'a',
       );
       for (let i = 0; i < PRUNE_EVERY - 1; i++) store.append('hook', { event: 'x' }, 'a');
-      // The budget is checked before each event, so the newest row is admitted
-      // whole — the same overshoot every other bounded agent has.
-      expect(recordsIn(store.replay())).toBeLessThanOrEqual(TRANSCRIPT_RECORDS_PER_AGENT + 200);
+      // ...and the bound then holds exactly, however big the rows the exempt
+      // window let through: the one that straddles it is trimmed, not admitted.
+      expect(recordsIn(store.replay())).toBe(TRANSCRIPT_RECORDS_PER_AGENT);
     } finally {
       store.close();
     }
@@ -395,6 +395,67 @@ describe('transcript retention', () => {
       expect(kept).toHaveLength(PRUNE_EVERY - 200);
       expect((kept[0].payload as { fromStart?: boolean }).fromStart).toBe(true);
       expect(recordsIn(kept)).toBe(PRUNE_EVERY - 200);
+    } finally {
+      store.close();
+    }
+  });
+
+  // A single row can be larger than the whole budget: migrateLegacyLog recovers
+  // rows from a pre-batching events.db verbatim, and that ingest put a whole
+  // 2,000-record file in one event. The budget is checked BEFORE each row, so
+  // such a row used to be admitted whole and the bound silently missed.
+  it('trims an oversized transcript event down to the records that fit', () => {
+    const store = openStore(path.join(dir, 'oversize.db'), 'session-ovr00000');
+    try {
+      const whole = batch('a', 'legacy', 2_600);
+      store.append(
+        'transcript',
+        { agent: 'a', records: whole, fromStart: true, totals: snapshot },
+        'a',
+      );
+      for (let i = 0; i < PRUNE_EVERY - 1; i++) store.append('hook', { event: 'x' }, 'a');
+
+      const kept = store.replay().filter((e) => e.kind === 'transcript');
+      expect(recordsIn(kept)).toBe(TRANSCRIPT_RECORDS_PER_AGENT);
+      const payload = kept[0].payload as {
+        records: Array<{ uuid: string }>;
+        fromStart?: boolean;
+        totals?: unknown;
+      };
+      // The NEWEST records of the row are the ones kept...
+      expect(payload.records[0].uuid).toBe(whole.at(-TRANSCRIPT_RECORDS_PER_AGENT)!.uuid);
+      expect(payload.records.at(-1)!.uuid).toBe(whole.at(-1)!.uuid);
+      // ...and everything that says how to READ the row rides along untouched:
+      // `fromStart` still clears the agent, and `totals` is a snapshot of the
+      // whole transcript, so trimming records must never trim cost with them.
+      expect(payload.fromStart).toBe(true);
+      expect(payload.totals).toEqual(snapshot);
+    } finally {
+      store.close();
+    }
+  });
+
+  // Trimming a row changes no row COUNT, so the compaction has to be driven by
+  // whether trim() rewrote anything at all — otherwise the bound holds in
+  // memory while the log file keeps the whole 36 MB of it on disk forever.
+  it('writes the trimmed row back over the oversized one on disk', async () => {
+    const dbPath = path.join(dir, 'oversize-disk.db');
+    const store = openStore(dbPath, 'session-ovd00000');
+    try {
+      store.append(
+        'transcript',
+        { agent: 'a', records: batch('a', 'legacy', 2_600), totals: snapshot },
+        'a',
+      );
+      for (let i = 0; i < PRUNE_EVERY - 1; i++) store.append('hook', { event: 'x' }, 'a');
+
+      const lines = (await fs.readFile(logPathFor(dbPath, 'session-ovd00000'), 'utf8'))
+        .split('\n')
+        .filter(Boolean)
+        .map((l) => JSON.parse(l) as { kind: string; payload: { records?: unknown[] } });
+      const onDisk = lines.filter((e) => e.kind === 'transcript');
+      expect(onDisk).toHaveLength(1);
+      expect(onDisk[0].payload.records).toHaveLength(TRANSCRIPT_RECORDS_PER_AGENT);
     } finally {
       store.close();
     }
