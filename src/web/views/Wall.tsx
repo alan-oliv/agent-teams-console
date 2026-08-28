@@ -1,4 +1,12 @@
-import { memo, useCallback, useState, type CSSProperties, type KeyboardEvent } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+} from 'react';
 import type { Agent } from '../../shared/domain';
 import { AGENT_STATUS } from '../../shared/status';
 import { Composer } from '../components/Composer';
@@ -68,6 +76,7 @@ const Column = memo(function Column({
   return (
     <div
       data-testid="wall-column"
+      data-agent={agent.name}
       role="button"
       tabIndex={0}
       aria-current={isFocused}
@@ -208,10 +217,33 @@ export function Wall({
     [],
   );
   const lead = agents.find((a) => a.isLead);
-  const ordered = lead ? [lead, ...agents.filter((a) => a !== lead)] : agents;
+  const rest = lead ? agents.filter((a) => a !== lead) : agents;
+  // Live first: the columns are ~366px in a scroller that runs past 5000px on a
+  // real team, so anything ordered after a finished teammate is off-screen. Join
+  // order is preserved WITHIN each group — sorting by recency instead would make
+  // columns swap places under the operator's cursor every time an agent acted.
+  const ordered = [
+    ...(lead ? [lead] : []),
+    ...rest.filter((a) => a.status !== 'departed'),
+    ...rest.filter((a) => a.status === 'departed'),
+  ];
+
+  const scroller = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!focused) return;
+    // Matched by dataset rather than a selector: an agent name is an arbitrary
+    // string, so building one would need escaping to stay correct.
+    const column = [...(scroller.current?.children ?? [])].find(
+      (el) => (el as HTMLElement).dataset.agent === focused,
+    );
+    // `?agent=` and ↑↓ both set focus on a column the viewport may be thousands
+    // of pixels away from; without this the deep link looks like it did nothing.
+    column?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [focused]);
 
   return (
     <div
+      ref={scroller}
       data-testid="wall"
       style={{
         flex: 1,

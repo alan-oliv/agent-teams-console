@@ -171,4 +171,61 @@ describe('Wall column memoisation', () => {
     // Only the entered column's `isTinted` moves, so exactly one column re-renders.
     expect(feed.renders).toBe(1);
   });
+
+  // The wall used to render in config join order, so a teammate that finished
+  // yesterday held a visible column while a live one sat off the right edge of a
+  // 5504px scroller nothing ever scrolled.
+  describe('live agents hold the visible columns', () => {
+    const withDeparted = () => {
+      const [lead, alpha, bravo, charlie] = agents;
+      return [
+        { ...alpha, status: 'departed' as const },
+        { ...bravo, status: 'departed' as const },
+        lead,
+        charlie,
+      ];
+    };
+
+    const names = () =>
+      screen.getAllByTestId('wall-column').map((c) => c.getAttribute('data-agent'));
+
+    it('orders the lead first, then live agents, then departed ones', () => {
+      render(<Wall agents={withDeparted()} focused={null} onFocus={vi.fn()} now={FIXTURE_NOW} />);
+      expect(names()).toEqual(['team-lead', 'probe-charlie', 'probe-alpha', 'probe-bravo']);
+    });
+
+    it('keeps join order within each group, so columns do not reshuffle as agents act', () => {
+      const [lead, alpha, bravo, charlie] = agents;
+      render(
+        <Wall
+          agents={[{ ...bravo, status: 'departed' as const }, alpha, lead, charlie]}
+          focused={null}
+          onFocus={vi.fn()}
+          now={FIXTURE_NOW}
+        />,
+      );
+      expect(names()).toEqual(['team-lead', 'probe-alpha', 'probe-charlie', 'probe-bravo']);
+    });
+
+    it('scrolls the focused column into view, so a ?agent= deep link is reachable', () => {
+      const scrolled: string[] = [];
+      // jsdom has no layout, so scrollIntoView is undefined until we supply it.
+      Element.prototype.scrollIntoView = function scrollIntoView(this: Element) {
+        scrolled.push(this.getAttribute('data-agent') ?? '');
+      };
+      render(
+        <Wall agents={agents} focused="probe-charlie" onFocus={vi.fn()} now={FIXTURE_NOW} />,
+      );
+      expect(scrolled).toEqual(['probe-charlie']);
+    });
+
+    it('does not scroll when nothing is focused', () => {
+      const scrolled: string[] = [];
+      Element.prototype.scrollIntoView = function scrollIntoView(this: Element) {
+        scrolled.push(this.getAttribute('data-agent') ?? '');
+      };
+      render(<Wall agents={agents} focused={null} onFocus={vi.fn()} now={FIXTURE_NOW} />);
+      expect(scrolled).toEqual([]);
+    });
+  });
 });
