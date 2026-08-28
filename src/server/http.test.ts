@@ -7,7 +7,8 @@ import { openStore, type Store } from './store';
 import { createPermits, type Permits } from './control/permits';
 import { createHookHandlers } from './ingest/hooks';
 import { createStream, type StreamHub } from './stream';
-import { createHttpServer, listen, NO_BUNDLE_BODY, READ_ONLY_BODY } from './http';
+import { fileURLToPath } from 'node:url';
+import { createHttpServer, listen, DEFAULT_WEB_DIST, NO_BUNDLE_BODY, READ_ONLY_BODY } from './http';
 import { setTeamsRoot } from './control/mailbox';
 import type { InboxEntry } from '../shared/mailbox';
 import type { TeamState } from '../shared/domain';
@@ -176,6 +177,34 @@ describe('static web bundle', () => {
     } finally {
       await shutdown(server);
       await fs.rm(webDist, { recursive: true, force: true });
+    }
+  });
+
+  // C3 survived review because every case here injected `webDist`, so the
+  // default — the only value production ever uses — was never exercised.
+  it('resolves the default bundle from the module, not the cwd', async () => {
+    expect(DEFAULT_WEB_DIST).toBe(fileURLToPath(new URL('../../dist/web', import.meta.url)));
+
+    const assets = path.join(DEFAULT_WEB_DIST, 'assets');
+    const probe = path.join(assets, '__default-webdist-probe.js');
+    await fs.mkdir(assets, { recursive: true });
+    await fs.writeFile(probe, 'export const servedFromTheModule = true;\n');
+
+    // The launcher never cd's, so production runs from the Claude session's cwd.
+    const cwd = process.cwd();
+    process.chdir(os.tmpdir());
+    try {
+      const { server, url } = await boot(false);
+      try {
+        const res = await fetch(`${url}/assets/__default-webdist-probe.js`);
+        expect(res.status).toBe(200);
+        expect(await res.text()).toContain('servedFromTheModule');
+      } finally {
+        await shutdown(server);
+      }
+    } finally {
+      process.chdir(cwd);
+      await fs.rm(probe, { force: true });
     }
   });
 

@@ -2,6 +2,7 @@ import http, { type IncomingMessage, type Server, type ServerResponse } from 'no
 import type { AddressInfo } from 'node:net';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { Permits } from './control/permits';
 import type { HookHandlers } from './ingest/hooks';
 import type { StreamHub } from './stream';
@@ -32,6 +33,19 @@ export const BAD_SEGMENT_BODY = {
   error: 'bad request',
   message: 'name must match /^[A-Za-z0-9_-]+$/',
 };
+
+/**
+ * Where the built bundle lives, resolved from THIS MODULE rather than from
+ * `process.cwd()`. The launcher starts the server with `nohup node
+ * "$ROOT/dist/server/index.js"` and never cd's, so the server inherits the
+ * Claude session's cwd — the user's project, not this repo — and a cwd-relative
+ * default served `503 {"error":"no build"}` at the announced URL for everyone
+ * whose project is not this one.
+ *
+ * `../../dist/web` is correct from both `src/server/` and the bundled
+ * `dist/server/`, the same trick LAUNCH_SCRIPT already uses.
+ */
+export const DEFAULT_WEB_DIST = fileURLToPath(new URL('../../dist/web', import.meta.url));
 
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -82,7 +96,7 @@ export interface HttpDeps {
   state: () => TeamState;
   readOnly: boolean;
   leadName?: string;
-  /** Directory holding the built web bundle (default: `<cwd>/dist/web`). */
+  /** Directory holding the built web bundle (default: {@link DEFAULT_WEB_DIST}). */
   webDist?: string;
 }
 
@@ -164,7 +178,7 @@ const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : und
 
 export function createHttpServer(deps: HttpDeps): Server {
   const leadName = deps.leadName ?? 'team-lead';
-  const webDist = deps.webDist ?? path.resolve(process.cwd(), 'dist/web');
+  const webDist = deps.webDist ?? DEFAULT_WEB_DIST;
   const team = () => deps.state().teamName;
 
   return http.createServer((req, res) => {
