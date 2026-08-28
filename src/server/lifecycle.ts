@@ -1,9 +1,30 @@
-import { promises as fs } from 'node:fs';
+import { promises as fs, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+/**
+ * The directory that ships as the plugin — `bin/`, `commands/`, `hooks/`,
+ * `dist/`. Resolved from THIS MODULE rather than `process.cwd()`, because the
+ * launcher starts the server without cd'ing and the cwd is the user's project.
+ *
+ * It has to answer from two places whose relative depth differs: `src/server/`
+ * when a clone runs the source through tsx, and `plugin/dist/server/` when the
+ * bundle runs. No single relative path is right for both, so try each and take
+ * the one that is actually on disk.
+ */
+function resolvePluginDir(): string {
+  const candidates = ['../../plugin/', '../../'];
+  for (const rel of candidates) {
+    const dir = fileURLToPath(new URL(rel, import.meta.url));
+    if (existsSync(path.join(dir, 'bin', 'console-launch.sh'))) return dir;
+  }
+  return fileURLToPath(new URL('../../', import.meta.url));
+}
+
+export const PLUGIN_DIR = resolvePluginDir();
+
 /** Absolute path to the PostToolUse(Agent) launcher, used by hookBlock(). */
-export const LAUNCH_SCRIPT = fileURLToPath(new URL('../../bin/console-launch.sh', import.meta.url));
+export const LAUNCH_SCRIPT = path.join(PLUGIN_DIR, 'bin', 'console-launch.sh');
 
 /**
  * The CLI derives the team name from the lead session id. Verified rule:

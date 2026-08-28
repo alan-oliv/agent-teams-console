@@ -1632,10 +1632,19 @@ import { randomUUID } from "node:crypto";
 import path2 from "node:path";
 
 // src/server/lifecycle.ts
-import { promises as fs } from "node:fs";
+import { promises as fs, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-var LAUNCH_SCRIPT = fileURLToPath(new URL("../../bin/console-launch.sh", import.meta.url));
+function resolvePluginDir() {
+  const candidates = ["../../plugin/", "../../"];
+  for (const rel of candidates) {
+    const dir = fileURLToPath(new URL(rel, import.meta.url));
+    if (existsSync(path.join(dir, "bin", "console-launch.sh"))) return dir;
+  }
+  return fileURLToPath(new URL("../../", import.meta.url));
+}
+var PLUGIN_DIR = resolvePluginDir();
+var LAUNCH_SCRIPT = path.join(PLUGIN_DIR, "bin", "console-launch.sh");
 function isPidAlive(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
@@ -3751,7 +3760,6 @@ function createStream(snapshot, coalesceMs = COALESCE_MS) {
 import http from "node:http";
 import { promises as fs6 } from "node:fs";
 import path7 from "node:path";
-import { fileURLToPath as fileURLToPath2 } from "node:url";
 var CONSOLE_SENDER = "console";
 var READ_ONLY_BODY = {
   error: "read-only",
@@ -3773,7 +3781,7 @@ var BAD_SEGMENT_BODY = {
   error: "bad request",
   message: "name must match /^[A-Za-z0-9_-]+$/"
 };
-var DEFAULT_WEB_DIST = fileURLToPath2(new URL("../../dist/web", import.meta.url));
+var DEFAULT_WEB_DIST = path7.join(PLUGIN_DIR, "dist", "web");
 var MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
   ".js": "application/javascript; charset=utf-8",

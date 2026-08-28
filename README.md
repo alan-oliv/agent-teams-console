@@ -143,7 +143,7 @@ lead's `SessionEnd`. Start it with `--read-only` to disable every control route.
 The plugin carries its own hooks. All ten observation events — `PreToolUse`,
 `PostToolUse`, `PermissionRequest`, `UserPromptSubmit`, `Notification`, `Stop`,
 `SubagentStop`, `SessionStart`, `SessionEnd`, `PreCompact` — are registered in the
-plugin's `hooks/hooks.json` and fire from there, so **permission cards, plan
+plugin's `plugin/hooks/hooks.json` and fire from there, so **permission cards, plan
 approvals and tool activity work on a bare install with no `settings.json` edit at
 all.** Timeouts are in seconds, and the hooks cost one refused connection each
 while the console is not running.
@@ -211,23 +211,34 @@ npm test           # vitest
 npm run typecheck
 ```
 
-### `dist/` is committed on purpose
+### Everything that ships lives in `plugin/`
 
-This is unusual and deliberate. A plugin is **just files** — nothing installs
-dependencies or runs a build on the user's machine — so the built server bundle and
-web assets have to be in the repository.
+```
+plugin/                      the entire installed artifact, 1.3M
+├─ .claude-plugin/plugin.json
+├─ bin/  commands/  hooks/
+└─ dist/                     committed on purpose, see below
+```
 
-**Rebuild before publishing a new version:**
+Nothing else in this repository is installed. That boundary is load-bearing:
+`claude plugin install` runs `npm install` when it finds a `package.json` at the
+plugin root, dev dependencies and all — which is how an earlier layout put 141M
+on disk for a console that needs 1.3M. Keeping `package.json` and `src/` at the
+repo root, outside `plugin/`, is what stops that.
+
+**`plugin/dist/` is committed** for the same reason: a plugin is just files, and
+nothing builds on the user's machine. Rebuild before publishing:
 
 ```bash
 npm run build
-git add dist
+git add plugin/dist
 ```
 
 `npm run build` is wired to the `prepare` script, so a plain `npm install` in this
-repo refreshes `dist/` for you. The build is deterministic: if nothing in `src/`
+repo refreshes it for you. The build is deterministic: if nothing in `src/`
 changed, `git status` stays clean.
 
-For the same reason the server has **no runtime native dependencies**. Everything
-it needs is bundled by esbuild into `dist/server/index.js`, which is why it runs
-from a bare copy of this directory with no `node_modules` in sight.
+The server has **no runtime dependencies** either. Everything it needs is bundled
+by esbuild into `plugin/dist/server/index.js`, which is why `plugin/` runs from a
+bare copy with no `node_modules` in sight — verified by running it from a directory
+containing nothing else.

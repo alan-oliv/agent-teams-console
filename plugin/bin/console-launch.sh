@@ -137,7 +137,7 @@ if ! curl -sf -m 1 "$HEALTH" >/dev/null 2>&1; then
       nohup node "$ROOT/dist/server/index.js" --port "$PORT" --team "$team" \
         >>"$CLAUDE_DIR/agent-teams-console.log" 2>&1 &
     else
-      nohup npx --prefix "$ROOT" tsx "$ROOT/src/server/index.ts" --port "$PORT" --team "$team" \
+      nohup npx --prefix "$ROOT/.." tsx "$ROOT/../src/server/index.ts" --port "$PORT" --team "$team" \
         >>"$CLAUDE_DIR/agent-teams-console.log" 2>&1 &
     fi
     i=0

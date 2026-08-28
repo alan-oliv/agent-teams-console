@@ -8,7 +8,7 @@
   "plugins": [
     {
       "name": "agent-teams-console",
-      "source": "./",
+      "source": "./plugin",
       "description": "A live browser console for Claude Code agent teams."
     }
   ]

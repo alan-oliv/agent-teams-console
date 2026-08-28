@@ -106,8 +106,8 @@ describe('hasLiveTeam', () => {
   });
 });
 
-describe('bin/console-launch.sh', () => {
-  const script = path.resolve('bin/console-launch.sh');
+describe('plugin/bin/console-launch.sh', () => {
+  const script = path.resolve('plugin/bin/console-launch.sh');
 
   async function launch(payload: unknown, teamsRoot: string) {
     const { stdout } = await run(

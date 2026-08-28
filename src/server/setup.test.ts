@@ -128,7 +128,7 @@ describe("the plugin's own hooks.json", () => {
   // into settings.json. Both copies have to describe the same observation, or
   // whichever half you happen to have installed silently disagrees.
   const shipped = JSON.parse(
-    readFileSync(new URL('../../hooks/hooks.json', import.meta.url), 'utf8'),
+    readFileSync(new URL('../../plugin/hooks/hooks.json', import.meta.url), 'utf8'),
   ) as { hooks: Record<string, HookEntry[]> };
 
   it('registers every event the settings installer would, on the default port', () => {

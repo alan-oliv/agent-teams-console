@@ -251,7 +251,7 @@ describe('static web bundle', () => {
   // C3 survived review because every case here injected `webDist`, so the
   // default — the only value production ever uses — was never exercised.
   it('resolves the default bundle from the module, not the cwd', async () => {
-    expect(DEFAULT_WEB_DIST).toBe(fileURLToPath(new URL('../../dist/web', import.meta.url)));
+    expect(DEFAULT_WEB_DIST).toBe(fileURLToPath(new URL('../../plugin/dist/web', import.meta.url)));
 
     const assets = path.join(DEFAULT_WEB_DIST, 'assets');
     const probe = path.join(assets, '__default-webdist-probe.js');

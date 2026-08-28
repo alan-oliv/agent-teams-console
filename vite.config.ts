@@ -13,5 +13,5 @@ export default defineConfig({
     // backend (404) — breaking the whole module graph and rendering nothing.
     proxy: { '^/api/': SERVER, '/stream': SERVER, '/hook': SERVER },
   },
-  build: { outDir: '../../dist/web', emptyOutDir: true },
+  build: { outDir: '../../plugin/dist/web', emptyOutDir: true },
 });

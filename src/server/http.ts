@@ -2,12 +2,12 @@ import http, { type IncomingMessage, type Server, type ServerResponse } from 'no
 import type { AddressInfo } from 'node:net';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { Permits } from './control/permits';
 import type { HookHandlers } from './ingest/hooks';
 import type { StreamHub } from './stream';
 import { sendToInbox } from './control/mailbox';
 import type { TeamState, TeamsResponse , TranscriptLine } from '../shared/domain';
+import { PLUGIN_DIR } from './lifecycle';
 
 // Who the operator is when they speak through the console. Not a team member,
 // so it never collides with a real name, and it survives the SAFE_NAME gate in
@@ -47,10 +47,9 @@ export const BAD_SEGMENT_BODY = {
  * default served `503 {"error":"no build"}` at the announced URL for everyone
  * whose project is not this one.
  *
- * `../../dist/web` is correct from both `src/server/` and the bundled
- * `dist/server/`, the same trick LAUNCH_SCRIPT already uses.
+ * PLUGIN_DIR does the same two-layout resolution LAUNCH_SCRIPT relies on.
  */
-export const DEFAULT_WEB_DIST = fileURLToPath(new URL('../../dist/web', import.meta.url));
+export const DEFAULT_WEB_DIST = path.join(PLUGIN_DIR, 'dist', 'web');
 
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
