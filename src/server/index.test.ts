@@ -2,7 +2,15 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { parseArgs, discoverTeam, DEFAULT_PORT } from './index';
+import {
+  parseArgs,
+  discoverTeam,
+  fencedSink,
+  listTeamSummaries,
+  DEFAULT_PORT,
+  IDLE_GRACE_MS,
+} from './index';
+import type { EventKind, StoredEvent, Store } from './store';
 
 const FIXTURES = path.resolve(process.cwd(), 'fixtures');
 
@@ -239,5 +247,185 @@ describe('discoverTeam', () => {
 
     const found = (await discoverTeam(teams(), sessions()))!;
     expect(found.teamName).toBe('session-newer-lead-only');
+  });
+});
+
+describe('listTeamSummaries', () => {
+  const teams = () => path.join(dir, 'teams');
+  const sessions = () => path.join(dir, 'sessions');
+
+  async function writeConfig(name: string, config: unknown) {
+    await fs.mkdir(path.join(teams(), name), { recursive: true });
+    await fs.writeFile(path.join(teams(), name, 'config.json'), JSON.stringify(config));
+  }
+
+  function team(name: string, opts: { createdAt: number; leadSessionId: string; members: number }) {
+    return {
+      name,
+      createdAt: opts.createdAt,
+      leadAgentId: `team-lead@${name}`,
+      leadSessionId: opts.leadSessionId,
+      members: Array.from({ length: opts.members }, (_, i) => ({ agentId: `a${i}`, name: `a${i}` })),
+    };
+  }
+
+  // The REAL on-disk layout: the file is named for the PID and carries the
+  // session id inside. isSessionLive reads sessions/<sessionId>.json, a path
+  // that does not exist on a real machine — see the report's open question Q1.
+  async function writeSession(pid: number, sessionId: string) {
+    await fs.mkdir(sessions(), { recursive: true });
+    await fs.writeFile(path.join(sessions(), `${pid}.json`), JSON.stringify({ pid, sessionId }));
+  }
+
+  it('counts members and marks the current team', async () => {
+    await writeConfig('session-aaaa1111', team('session-aaaa1111', { createdAt: 10, leadSessionId: 'aaaa1111-x', members: 5 }));
+    await writeConfig('session-bbbb2222', team('session-bbbb2222', { createdAt: 20, leadSessionId: 'bbbb2222-x', members: 1 }));
+
+    const listed = await listTeamSummaries(teams(), sessions(), 'session-aaaa1111');
+    expect(listed.current).toBe('session-aaaa1111');
+    expect(listed.teams.map((t) => [t.name, t.members, t.current])).toEqual([
+      ['session-aaaa1111', 5, true],
+      ['session-bbbb2222', 1, false],
+    ]);
+  });
+
+  it('reads leadAlive from the pid inside sessions/<pid>.json, not from its file name', async () => {
+    await writeConfig('session-live0001', team('session-live0001', { createdAt: 10, leadSessionId: 'live0001-x', members: 2 }));
+    await writeConfig('session-dead0002', team('session-dead0002', { createdAt: 20, leadSessionId: 'dead0002-x', members: 2 }));
+    await writeSession(process.pid, 'live0001-x');
+    // A session file that outlived its process: the pid is not running.
+    await writeSession(2 ** 22 - 1, 'dead0002-x');
+
+    const listed = await listTeamSummaries(teams(), sessions(), '');
+    const byName = new Map(listed.teams.map((t) => [t.name, t]));
+    expect(byName.get('session-live0001')!.leadAlive).toBe(true);
+    expect(byName.get('session-dead0002')!.leadAlive).toBe(false);
+  });
+
+  it('calls a team with a dead lead live while it is still recent, and a stale one dead', async () => {
+    await writeConfig('session-recent01', team('session-recent01', { createdAt: 10, leadSessionId: 'recent01-x', members: 2 }));
+    await writeConfig('session-stale002', team('session-stale002', { createdAt: 20, leadSessionId: 'stale002-x', members: 2 }));
+    const old = (Date.now() - IDLE_GRACE_MS * 2) / 1000;
+    await fs.utimes(path.join(teams(), 'session-stale002', 'config.json'), old, old);
+
+    const listed = await listTeamSummaries(teams(), sessions(), '');
+    const byName = new Map(listed.teams.map((t) => [t.name, t]));
+    expect(byName.get('session-recent01')!.live).toBe(true);
+    expect(byName.get('session-stale002')!.live).toBe(false);
+    // Dead teams are still listed — paging back through them is the point.
+    expect(listed.teams).toHaveLength(2);
+  });
+
+  it('takes lastActivityAt from the newest inbox file when config.json is older', async () => {
+    await writeConfig('session-busy0001', team('session-busy0001', { createdAt: 10, leadSessionId: 'busy0001-x', members: 2 }));
+    const old = (Date.now() - IDLE_GRACE_MS * 2) / 1000;
+    await fs.utimes(path.join(teams(), 'session-busy0001', 'config.json'), old, old);
+    await fs.mkdir(path.join(teams(), 'session-busy0001', 'inboxes'), { recursive: true });
+    await fs.writeFile(path.join(teams(), 'session-busy0001', 'inboxes', 'a1.json'), '[]');
+
+    const [busy] = (await listTeamSummaries(teams(), sessions(), '')).teams;
+    // config.json is only rewritten when membership changes, so a team that has
+    // done nothing but exchange mail all day would otherwise read as idle.
+    expect(busy.lastActivityAt).toBeGreaterThan(Date.now() - 60_000);
+    expect(busy.live).toBe(true);
+  });
+
+  it('orders current first, then live, then by last activity', async () => {
+    for (const [name, createdAt] of [['session-cur00001', 10], ['session-live0002', 20], ['session-old00003', 30], ['session-old00004', 40]] as const) {
+      await writeConfig(name, team(name, { createdAt, leadSessionId: `${name}-x`, members: 2 }));
+    }
+    const stale = (Date.now() - IDLE_GRACE_MS * 2) / 1000;
+    // session-old00003 is the older of the two dead teams.
+    await fs.utimes(path.join(teams(), 'session-old00003', 'config.json'), stale - 100, stale - 100);
+    await fs.utimes(path.join(teams(), 'session-old00004', 'config.json'), stale, stale);
+    // The current team is dead too, and still sorts first.
+    await fs.utimes(path.join(teams(), 'session-cur00001', 'config.json'), stale - 200, stale - 200);
+
+    const listed = await listTeamSummaries(teams(), sessions(), 'session-cur00001');
+    expect(listed.teams.map((t) => t.name)).toEqual([
+      'session-cur00001',
+      'session-live0002',
+      'session-old00004',
+      'session-old00003',
+    ]);
+  });
+
+  it('omits a directory with no config, an unreadable one, and one of the wrong shape', async () => {
+    await writeConfig('session-good0001', team('session-good0001', { createdAt: 10, leadSessionId: 'good0001-x', members: 2 }));
+    await fs.mkdir(path.join(teams(), 'session-none0002'), { recursive: true });
+    await writeConfig('session-torn0003', '{ not json' as unknown);
+    await fs.writeFile(path.join(teams(), 'session-torn0003', 'config.json'), '{ not json');
+    await writeConfig('session-shape004', { name: 'session-shape004', createdAt: 1, leadAgentId: 'l', leadSessionId: 's', members: 'nope' });
+
+    const listed = await listTeamSummaries(teams(), sessions(), '');
+    // The listing IS the definition of selectable: an entry that renders but
+    // cannot be selected is a trap.
+    expect(listed.teams.map((t) => t.name)).toEqual(['session-good0001']);
+  });
+
+  it('lists a team whose lead session id is empty — its history is what paging back means', async () => {
+    await writeConfig('session-noneled1', { name: 'session-noneled1', createdAt: 1, leadAgentId: 'l', leadSessionId: '', members: [] });
+
+    const [only] = (await listTeamSummaries(teams(), sessions(), '')).teams;
+    expect(only.name).toBe('session-noneled1');
+    expect(only.leadSessionId).toBe('');
+    expect(only.leadAlive).toBe(false);
+  });
+
+  it('returns an empty listing when there is no teams directory at all', async () => {
+    expect(await listTeamSummaries(teams(), sessions(), '')).toEqual({ current: '', teams: [] });
+  });
+});
+
+describe('fencedSink', () => {
+  function recorder(): { live: Store; kinds: string[]; teams: string[] } {
+    const kinds: string[] = [];
+    const teams: string[] = [];
+    const live: Store = {
+      append(kind: EventKind, payload: unknown, agent?: string): StoredEvent {
+        kinds.push(kind);
+        return { seq: kinds.length, ts: 0, kind, agent, payload };
+      },
+      replay: () => [],
+      setTeam: (name: string) => void teams.push(name),
+      close: () => {},
+    };
+    return { live, kinds, teams };
+  }
+
+  it('drops what a retired ingest writes after the switch has moved past it', () => {
+    const { live, kinds, teams } = recorder();
+    let generation = 0;
+    const boot = fencedSink(live, 0, () => generation);
+    boot.append('roster', {});
+    expect(kinds).toEqual(['roster']);
+
+    // The switch revokes the licence BEFORE ingest.close(), so a sweep already
+    // awaiting a file and a debounce that has already fired are both inert.
+    generation = 1;
+    const next = fencedSink(live, 1, () => generation);
+
+    boot.append('roster', {});
+    boot.append('mail', {});
+    expect(kinds).toEqual(['roster']);
+
+    next.append('task', {});
+    expect(kinds).toEqual(['roster', 'task']);
+  });
+
+  it("refuses a retired ingest's setTeam, which would yank the console back unannounced", () => {
+    const { live, teams } = recorder();
+    let generation = 0;
+    const boot = fencedSink(live, 0, () => generation);
+    generation = 1;
+    const next = fencedSink(live, 1, () => generation);
+
+    // main() wires onTeam to store.setTeam, so this is the dangerous one: the
+    // operator is on team B and the store silently goes back to team A.
+    boot.setTeam('session-98b0b4a7');
+    expect(teams).toEqual([]);
+
+    next.setTeam('session-b5129c7b');
+    expect(teams).toEqual(['session-b5129c7b']);
   });
 });

@@ -41,14 +41,21 @@ function emptyState(): TeamState {
   };
 }
 
+let selectCalls: string[];
+
 async function boot(): Promise<{ server: Server; url: string }> {
   hub = createStream(() => state, 50);
+  selectCalls = [];
   const server = createHttpServer({
     permits,
     hooks: createHookHandlers({ store, permits }),
     stream: hub,
     state: () => state,
     readOnly: false,
+    selectTeam: (name: string) => {
+      selectCalls.push(name);
+      return Promise.resolve({ ok: true as const, changed: true });
+    },
   });
   const port = await listen(server, 0);
   return { server, url: `http://127.0.0.1:${port}` };
@@ -286,6 +293,29 @@ describe('cross-origin and cross-host requests', () => {
       await shutdown(server);
     }
     expect(await tree(root)).toEqual(before);
+  });
+
+  it('fronts the team switch with the same gate, the one control route read-only allows', async () => {
+    const { server, url } = await boot();
+    try {
+      const foreign = await fetch(`${url}/api/teams/session-b5129c7b/select`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: 'https://evil.example' },
+        body: '{}',
+      });
+      expect(foreign.status).toBe(403);
+      expect(await foreign.json()).toEqual(FORBIDDEN_BODY);
+
+      const simple = await fetch(`${url}/api/teams/session-b5129c7b/select`, {
+        method: 'POST',
+        headers: { 'content-type': 'text/plain' },
+        body: '{}',
+      });
+      expect(simple.status).toBe(415);
+      expect(selectCalls).toEqual([]);
+    } finally {
+      await shutdown(server);
+    }
   });
 
   it('rejects a same-origin-looking POST that is not JSON', async () => {

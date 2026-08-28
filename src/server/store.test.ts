@@ -683,6 +683,28 @@ describe('multi-team log safety', () => {
     reopened.close();
   });
 
+  it('replays the team it was last pointed at, and finds its way back', () => {
+    const dbPath = path.join(dir, 'events.db');
+
+    const earlier = openStore(dbPath, 'session-bbbb0002');
+    earlier.append('task', { id: 'b-history', status: 'in_progress' });
+    earlier.close();
+
+    const store = openStore(dbPath, 'session-aaaa0001');
+    store.append('task', { id: 'a-only', status: 'in_progress' });
+
+    // A named -> named switch is the whole team switch: nothing of A survives
+    // in state, and B's own history is picked up from its log.
+    store.setTeam('session-bbbb0002');
+    expect(store.replay().map((e) => (e.payload as { id: string }).id)).toEqual(['b-history']);
+
+    // And it is reversible — which is what makes paging back through teams
+    // safe, and what makes a needs-you card resolvable after a round trip.
+    store.setTeam('session-aaaa0001');
+    expect(store.replay().map((e) => (e.payload as { id: string }).id)).toEqual(['a-only']);
+    store.close();
+  });
+
   it('repairs a torn tail in the team log it adopts into', async () => {
     const dbPath = path.join(dir, 'events.db');
     const teamLog = logPathFor(dbPath, 'session-torn0001');

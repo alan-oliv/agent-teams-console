@@ -7,7 +7,7 @@ import type { Permits } from './control/permits';
 import type { HookHandlers } from './ingest/hooks';
 import type { StreamHub } from './stream';
 import { sendToInbox } from './control/mailbox';
-import type { TeamState } from '../shared/domain';
+import type { TeamState, TeamsResponse } from '../shared/domain';
 
 export const READ_ONLY_BODY = {
   error: 'read-only',
@@ -89,6 +89,16 @@ async function serveWebBundle(res: ServerResponse, webDist: string, route: strin
   }
 }
 
+/**
+ * Why `missing` covers both an absent team and an unreadable one: from the
+ * client's side they are a single branch — refresh the listing and the entry is
+ * gone, since the listing omits an unusable config for the same reason. The
+ * difference is worth a message and a log line, not a second status code.
+ */
+export type SelectTeamOutcome =
+  | { ok: true; changed: boolean }
+  | { ok: false; reason: 'missing' | 'busy'; message: string };
+
 export interface HttpDeps {
   permits: Permits;
   hooks: HookHandlers;
@@ -96,6 +106,10 @@ export interface HttpDeps {
   state: () => TeamState;
   readOnly: boolean;
   leadName?: string;
+  /** Every team on the machine, live and dead — the selector's options. */
+  listTeams?: () => Promise<TeamsResponse>;
+  /** Re-points the console at another team; the SSE frame carries the result. */
+  selectTeam?: (name: string) => Promise<SelectTeamOutcome>;
   /** Spec §5.4's shutdown action, shared with the SessionEnd hook handler. */
   onShutdown?: () => void;
   /** Directory holding the built web bundle (default: {@link DEFAULT_WEB_DIST}). */
@@ -105,6 +119,7 @@ export interface HttpDeps {
 const AGENT_ROUTE = /^\/api\/agents\/([^/]+)\/(message|interrupt|stop|respawn)$/;
 const PLAN_ROUTE = /^\/api\/plans\/([^/]+)\/(approve|reject)$/;
 const PERMIT_ROUTE = /^\/api\/permits\/([^/]+)\/(allow|deny)$/;
+const TEAM_SELECT_ROUTE = /^\/api\/teams\/([^/]+)\/select$/;
 
 /**
  * The route patterns exclude a literal `/`, but every id below is
@@ -216,6 +231,13 @@ export function createHttpServer(deps: HttpDeps): Server {
           return;
         }
 
+        // Beside /health rather than below: every other non-API GET is the SPA
+        // bundle, and a `/api/` path reaching that branch falls through to 404.
+        if (method === 'GET' && route === '/api/teams' && deps.listTeams) {
+          json(res, 200, await deps.listTeams());
+          return;
+        }
+
         if (method === 'POST' && (route === '/hook' || route === '/statusline' || route === '/substatus')) {
           const body = await readBody(req);
           const out =
@@ -238,6 +260,31 @@ export function createHttpServer(deps: HttpDeps): Server {
 
         if (method !== 'POST' || !route.startsWith('/api/')) {
           json(res, 404, { error: 'not found', message: `no route for ${method} ${route}` });
+          return;
+        }
+
+        // ABOVE the read-only gate, and the only control POST there: a switch
+        // writes nothing into Claude Code's own state, only into the console's
+        // own log directory — which read-only already writes to continuously.
+        // It changes what the console OBSERVES, the one thing read-only exists
+        // to preserve.
+        const selectMatch = TEAM_SELECT_ROUTE.exec(route);
+        if (selectMatch && deps.selectTeam) {
+          const name = decodeSegment(selectMatch[1]);
+          if (name === null) {
+            json(res, 400, BAD_SEGMENT_BODY);
+            return;
+          }
+          const out = await deps.selectTeam(name);
+          if (out.ok) {
+            // An ack, not a TeamState: the client has /stream open and the
+            // frame published by the switch already carries the new state.
+            json(res, 200, { ok: true, team: name, changed: out.changed });
+          } else if (out.reason === 'busy') {
+            json(res, 409, { error: 'switch in progress', message: out.message });
+          } else {
+            json(res, 404, { error: 'not found', message: out.message });
+          }
           return;
         }
 

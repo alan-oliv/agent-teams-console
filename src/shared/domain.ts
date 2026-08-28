@@ -86,3 +86,27 @@ export interface TeamState {
   needsYou: NeedsYouItem[];
   readOnly: boolean;
 }
+
+/**
+ * One entry of `GET /api/teams`. Deliberately metadata only: folding a team's
+ * event log to report its cost measured 48x the cost of this whole listing per
+ * team, and another team's spend is a fact you learn by switching to it.
+ */
+export interface TeamSummary {
+  name: string;              // the teams/ DIRECTORY name — what /select takes
+  members: number;
+  createdAt: number;         // epoch ms
+  leadSessionId: string;
+  leadAlive: boolean;        // a running pid in sessions/*.json carries this session id
+  lastActivityAt: number;    // epoch ms — max mtime over config.json and inboxes/*.json
+  // `/branch` moves the live conversation to a new session id without touching
+  // config.json, so a genuinely live team can report leadAlive false. Recency
+  // covers that case; the pid covers a team idle longer than the grace window.
+  live: boolean;             // leadAlive || within IDLE_GRACE_MS of lastActivityAt
+  current: boolean;
+}
+
+export interface TeamsResponse {
+  current: string;           // '' when the console has not resolved a team yet
+  teams: TeamSummary[];      // current first, then live, then lastActivityAt desc, then name
+}

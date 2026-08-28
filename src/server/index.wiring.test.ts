@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { agentNameFrom } from './ingest/hooks';
 import { agentOfTranscript, TAIL_POLL_MS } from './ingest/files';
-import type { TeamState } from '../shared/domain';
+import type { TeamState, TeamsResponse } from '../shared/domain';
 import type { Sidecar } from '../shared/roster';
 
 const FIXTURES = path.resolve(process.cwd(), 'fixtures');
@@ -18,6 +18,17 @@ const LEAD_SESSION = '98b0b4a7-3206-455b-aaf6-a5a81ad1e283';
 const SLUG = '-Users-alanoliv-code-agents-team-ui';
 const AGENT = 'probe-alpha';
 const SPAWN_ID = `a${AGENT}-84fd551b27de6433`;
+
+// The second team the selector switches to. Its teammate name appears in no
+// other team's roster, so "nothing of A survives" is decidable by name alone.
+const TEAM_B = 'session-b5129c7b';
+const LEAD_SESSION_B = 'b5129c7b-1f0a-4a2e-9b3c-6d5e4f3a2b1c';
+const AGENT_B = 'probe-delta';
+const SPAWN_ID_B = `a${AGENT_B}-babf58016882bc72`;
+// A third, so two racing selects can name different teams.
+const TEAM_C = 'session-cccc3333';
+const LEAD_SESSION_C = 'cccc3333-2b1a-4c3d-8e7f-1a2b3c4d5e6f';
+const B_LINE = "team B's own line";
 
 /**
  * How long after the hook the drained line is allowed to take. It has to stay
@@ -74,11 +85,56 @@ async function layout(): Promise<string> {
   const transcript = path.join(dir, 'outside', 'transcript.jsonl');
   await fs.writeFile(transcript, '');
   await fs.symlink(transcript, path.join(subagents, `agent-${SPAWN_ID}.jsonl`));
+
+  // Teams B and C are ORDINARY files: the symlink above exists to defeat the
+  // sweep's walk and the watcher, which is exactly the machinery a switch has
+  // to exercise.
+  await writeTeamConfig(dir, TEAM_B, LEAD_SESSION_B, AGENT_B);
+  await writeTeamConfig(dir, TEAM_C, LEAD_SESSION_C, 'probe-echo');
+
+  const subagentsB = path.join(dir, 'projects', SLUG, LEAD_SESSION_B, 'subagents');
+  await fs.mkdir(subagentsB, { recursive: true });
+  await fs.writeFile(
+    path.join(subagentsB, `agent-${SPAWN_ID_B}.meta.json`),
+    JSON.stringify({
+      agentType: AGENT_B,
+      description: 'the second team',
+      name: AGENT_B,
+      spawnDepth: 0,
+      model: 'claude-opus-5',
+      taskKind: 'in_process_teammate',
+      teamName: TEAM_B,
+      color: 'green',
+    } satisfies Sidecar),
+  );
+  await fs.writeFile(
+    path.join(subagentsB, `agent-${SPAWN_ID_B}.jsonl`),
+    assistantLine('33333333-3333-3333-3333-333333333333', B_LINE),
+  );
   return dir;
 }
 
-async function boot(claudeHome: string): Promise<string> {
-  const proc = spawn(process.execPath, [TSX, ENTRY, '--claude-home', claudeHome, '--team', TEAM, '--port', '0'], {
+
+async function writeTeamConfig(dir: string, team: string, leadSessionId: string, teammate: string) {
+  await fs.mkdir(path.join(dir, 'teams', team), { recursive: true });
+  await fs.writeFile(
+    path.join(dir, 'teams', team, 'config.json'),
+    JSON.stringify({
+      name: team,
+      createdAt: 1787798107581,
+      leadAgentId: `team-lead@${team}`,
+      leadSessionId,
+      members: [
+        { agentId: `team-lead@${team}`, name: 'team-lead', joinedAt: 1, tmuxPaneId: 'in-process', subscriptions: [] },
+        { agentId: `${teammate}@${team}`, name: teammate, joinedAt: 2, tmuxPaneId: 'in-process', subscriptions: [] },
+      ],
+    }),
+  );
+}
+
+async function boot(claudeHome: string, extra: string[] = []): Promise<string> {
+  const args = [TSX, ENTRY, '--claude-home', claudeHome, '--team', TEAM, '--port', '0', ...extra];
+  const proc = spawn(process.execPath, args, {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   child = proc;
@@ -156,6 +212,29 @@ function postHook(url: string, body: unknown): Promise<Response> {
   });
 }
 
+function selectTeam(url: string, team: string): Promise<Response> {
+  return fetch(`${url}/api/teams/${team}/select`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}',
+  });
+}
+
+// A statusline row exists only because a hook posted it: no file under the temp
+// ~/.claude can re-derive it, so `branch` is the one field that proves whose LOG
+// the console is reading rather than whose files it just swept.
+function postBranch(url: string, branch: string): Promise<Response> {
+  return fetch(`${url}/statusline`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ agent_id: `team-lead@${TEAM}`, gitBranch: branch }),
+  });
+}
+
+function names(state: TeamState): string[] {
+  return state.agents.map((a) => a.name).sort();
+}
+
 describe('push -> pull wiring', () => {
   it(
     "a hook drains that agent's transcript immediately, without waiting for the tail poll",
@@ -193,6 +272,197 @@ describe('push -> pull wiring', () => {
         `the hook did not drain ${AGENT}'s transcript within ${HOOK_DEADLINE_MS}ms — ` +
           'onAgentActivity is optional on HookDeps, so an unwired drain typechecks',
       ).toBe(true);
+    },
+    20_000,
+  );
+
+  it(
+    'switches the console to another team at runtime, roster and transcript',
+    async () => {
+      home = await layout();
+      const url = await boot(home);
+      expect((await snapshot(url)).teamName).toBe(TEAM);
+
+      const res = await selectTeam(url, TEAM_B);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true, team: TEAM_B, changed: true });
+
+      // The select awaits the new ingest's own sweep, so the state is finished
+      // by the time it answers — no FSEvents delivery on the critical path.
+      const after = await snapshot(url);
+      expect(after.teamName).toBe(TEAM_B);
+      expect(names(after)).toEqual(['team-lead', AGENT_B].sort());
+      expect(transcriptOf(after, AGENT_B)).toContain(B_LINE);
+    },
+    20_000,
+  );
+
+  it(
+    'leaves nothing of the team it left behind, then or 400ms later',
+    async () => {
+      home = await layout();
+      const url = await boot(home);
+      // Only a hook can produce this row, so no sweep of the new team can
+      // re-derive it — it is present exactly while team A's log is the one
+      // being read.
+      expect((await postBranch(url, 'branch-of-team-a')).status).toBe(200);
+      expect((await snapshot(url)).branch).toBe('branch-of-team-a');
+      expect(names(await snapshot(url))).toContain(AGENT);
+
+      expect((await selectTeam(url, TEAM_B)).status).toBe(200);
+
+      const after = await snapshot(url);
+      expect(names(after)).toEqual(['team-lead', AGENT_B].sort());
+      expect(after.branch).toBeUndefined();
+
+      // The retired ingest's sweep only tests `closed` between files and its
+      // debounced watcher callbacks never test it at all, so a stale roster
+      // append lands AFTER close() — measured inside 300ms. Without the
+      // generation fence this second read flips teamName back to team A.
+      await new Promise((r) => setTimeout(r, 400));
+      const settled = await snapshot(url);
+      expect(settled.teamName).toBe(TEAM_B);
+      expect(names(settled)).toEqual(['team-lead', AGENT_B].sort());
+      expect(settled.branch).toBeUndefined();
+    },
+    20_000,
+  );
+
+  it(
+    "keeps the team it left behind readable — switching back restores its history",
+    async () => {
+      home = await layout();
+      const url = await boot(home);
+      expect((await postBranch(url, 'branch-of-team-a')).status).toBe(200);
+
+      expect((await selectTeam(url, TEAM_B)).status).toBe(200);
+      expect((await snapshot(url)).branch).toBeUndefined();
+
+      const back = await selectTeam(url, TEAM);
+      expect(back.status).toBe(200);
+      expect(await back.json()).toEqual({ ok: true, team: TEAM, changed: true });
+
+      const after = await snapshot(url);
+      expect(after.teamName).toBe(TEAM);
+      expect(names(after)).toContain(AGENT);
+      // Nothing on disk can produce this: the round trip proves the store was
+      // re-pointed rather than reopened or discarded.
+      expect(after.branch).toBe('branch-of-team-a');
+    },
+    20_000,
+  );
+
+  it(
+    'treats re-selecting the current team as a no-op, with no empty-roster blink',
+    async () => {
+      home = await layout();
+      const url = await boot(home);
+      const before = names(await snapshot(url));
+
+      const res = await selectTeam(url, TEAM);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true, team: TEAM, changed: false });
+
+      // A rebuilt ingest starts with lastConfig = null, so a needless rebuild
+      // is VISIBLE: teamName '' and zero agents until its sweep lands.
+      const deadline = Date.now() + 400;
+      while (Date.now() < deadline) {
+        const state = await snapshot(url);
+        expect(state.teamName).toBe(TEAM);
+        expect(names(state)).toEqual(before);
+      }
+    },
+    20_000,
+  );
+
+  it(
+    '404s a team that is not there and one whose config cannot be read',
+    async () => {
+      home = await layout();
+      const url = await boot(home);
+
+      const missing = await selectTeam(url, 'session-nope0001');
+      expect(missing.status).toBe(404);
+      expect((await missing.json()).error).toBe('not found');
+
+      await fs.mkdir(path.join(home, 'teams', 'session-torn0002'), { recursive: true });
+      await fs.writeFile(path.join(home, 'teams', 'session-torn0002', 'config.json'), '{ not json');
+      const torn = await selectTeam(url, 'session-torn0002');
+      expect(torn.status).toBe(404);
+      expect((await torn.json()).message).toContain('config.json');
+
+      // Neither attempt tore anything down.
+      expect((await snapshot(url)).teamName).toBe(TEAM);
+    },
+    20_000,
+  );
+
+  it(
+    'lets exactly one of two racing selects win, and lands coherently on it',
+    async () => {
+      home = await layout();
+      const url = await boot(home);
+
+      const [b, c] = await Promise.all([selectTeam(url, TEAM_B), selectTeam(url, TEAM_C)]);
+      expect([b.status, c.status].sort()).toEqual([200, 409]);
+      const loser = b.status === 409 ? b : c;
+      expect((await loser.json()).error).toBe('switch in progress');
+
+      const winner = b.status === 200 ? TEAM_B : TEAM_C;
+      const after = await snapshot(url);
+      expect(after.teamName).toBe(winner);
+      expect(names(after)).toEqual(['team-lead', winner === TEAM_B ? AGENT_B : 'probe-echo'].sort());
+    },
+    20_000,
+  );
+
+  it(
+    'switches in --read-only, which still writes nothing into ~/.claude',
+    async () => {
+      home = await layout();
+      const url = await boot(home, ['--read-only']);
+      expect((await snapshot(url)).readOnly).toBe(true);
+
+      const res = await selectTeam(url, TEAM_B);
+      expect(res.status).toBe(200);
+      const after = await snapshot(url);
+      expect(after.teamName).toBe(TEAM_B);
+      expect(after.readOnly).toBe(true);
+
+      // Every other control route is still refused, and no inbox was written.
+      const message = await fetch(`${url}/api/agents/${AGENT_B}/message`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: 'hi' }),
+      });
+      expect(message.status).toBe(409);
+      for (const team of [TEAM, TEAM_B]) {
+        await expect(fs.stat(path.join(home, 'teams', team, 'inboxes'))).rejects.toThrow();
+      }
+    },
+    20_000,
+  );
+
+  it(
+    'lists every team on the machine, and moves the current flag on a switch',
+    async () => {
+      home = await layout();
+      const url = await boot(home);
+
+      const listed = (await (await fetch(`${url}/api/teams`)).json()) as TeamsResponse;
+      expect(listed.current).toBe(TEAM);
+      expect(listed.teams.map((t) => t.name).sort()).toEqual([TEAM, TEAM_B, TEAM_C].sort());
+      const byName = new Map(listed.teams.map((t) => [t.name, t]));
+      expect(byName.get(TEAM)!.members).toBe(4);
+      expect(byName.get(TEAM_B)!.members).toBe(2);
+      expect(byName.get(TEAM)!.current).toBe(true);
+      // The current team sorts first so the dropdown opens on it.
+      expect(listed.teams[0].name).toBe(TEAM);
+
+      expect((await selectTeam(url, TEAM_B)).status).toBe(200);
+      const again = (await (await fetch(`${url}/api/teams`)).json()) as TeamsResponse;
+      expect(again.current).toBe(TEAM_B);
+      expect(again.teams.filter((t) => t.current).map((t) => t.name)).toEqual([TEAM_B]);
     },
     20_000,
   );

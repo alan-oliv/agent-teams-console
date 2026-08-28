@@ -8,10 +8,18 @@ import { createPermits, type Permits } from './control/permits';
 import { createHookHandlers } from './ingest/hooks';
 import { createStream, type StreamHub } from './stream';
 import { fileURLToPath } from 'node:url';
-import { createHttpServer, listen, DEFAULT_WEB_DIST, NO_BUNDLE_BODY, READ_ONLY_BODY } from './http';
+import {
+  createHttpServer,
+  listen,
+  BAD_SEGMENT_BODY,
+  DEFAULT_WEB_DIST,
+  NO_BUNDLE_BODY,
+  READ_ONLY_BODY,
+  type SelectTeamOutcome,
+} from './http';
 import { setTeamsRoot } from './control/mailbox';
 import type { InboxEntry } from '../shared/mailbox';
-import type { TeamState } from '../shared/domain';
+import type { TeamState, TeamsResponse } from '../shared/domain';
 
 const FIXTURES = path.resolve(process.cwd(), 'fixtures');
 const TEAM = 'session-98b0b4a7';
@@ -40,10 +48,31 @@ function emptyState(readOnly: boolean): TeamState {
 }
 
 let shutdowns: number;
+let listed: TeamsResponse;
+let selectCalls: string[];
+let selectOutcome: (name: string) => SelectTeamOutcome;
+
 
 async function boot(readOnly: boolean, webDist?: string): Promise<{ server: Server; url: string }> {
   state = emptyState(readOnly);
   shutdowns = 0;
+  listed = {
+    current: TEAM,
+    teams: [
+      {
+        name: TEAM,
+        members: 4,
+        createdAt: 1787798107581,
+        leadSessionId: '98b0b4a7-3206-455b-aaf6-a5a81ad1e283',
+        leadAlive: true,
+        lastActivityAt: 1787798107581,
+        live: true,
+        current: true,
+      },
+    ],
+  };
+  selectCalls = [];
+  selectOutcome = () => ({ ok: true, changed: true });
   hub = createStream(() => state, 50);
   const server = createHttpServer({
     permits,
@@ -52,6 +81,11 @@ async function boot(readOnly: boolean, webDist?: string): Promise<{ server: Serv
     state: () => state,
     readOnly,
     webDist,
+    listTeams: () => Promise.resolve(listed),
+    selectTeam: (name: string) => {
+      selectCalls.push(name);
+      return Promise.resolve(selectOutcome(name));
+    },
     onShutdown: () => {
       shutdowns++;
     },
@@ -404,6 +438,89 @@ describe('POST /api/shutdown', () => {
   });
 });
 
+describe('the team selector', () => {
+  it('lists the teams the console can switch to', async () => {
+    const { server, url } = await boot(false);
+    try {
+      const res = await fetch(`${url}/api/teams`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual(listed);
+    } finally {
+      await shutdown(server);
+    }
+  });
+
+  it('acks a switch without repeating the state the SSE frame already carries', async () => {
+    const { server, url } = await boot(false);
+    try {
+      const res = await post(`${url}/api/teams/session-b5129c7b/select`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true, team: 'session-b5129c7b', changed: true });
+      expect(selectCalls).toEqual(['session-b5129c7b']);
+    } finally {
+      await shutdown(server);
+    }
+  });
+
+  it('answers 200 changed:false for the team already showing', async () => {
+    const { server, url } = await boot(false);
+    try {
+      selectOutcome = () => ({ ok: true, changed: false });
+      const res = await post(`${url}/api/teams/${TEAM}/select`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true, team: TEAM, changed: false });
+    } finally {
+      await shutdown(server);
+    }
+  });
+
+  it('404s a team that is not there, unusable and absent alike', async () => {
+    const { server, url } = await boot(false);
+    try {
+      selectOutcome = () => ({ ok: false, reason: 'missing', message: 'no team session-nope0001' });
+      const res = await post(`${url}/api/teams/session-nope0001/select`);
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ error: 'not found', message: 'no team session-nope0001' });
+    } finally {
+      await shutdown(server);
+    }
+  });
+
+  it('409s the loser of a race rather than queueing it behind a team it changed its mind about', async () => {
+    const { server, url } = await boot(false);
+    try {
+      selectOutcome = () => ({ ok: false, reason: 'busy', message: 'a switch is already running' });
+      const res = await post(`${url}/api/teams/session-b5129c7b/select`);
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({
+        error: 'switch in progress',
+        message: 'a switch is already running',
+      });
+      // A different error field from READ_ONLY_BODY's, so the client can tell a
+      // busy console from a disabled one.
+      expect(await (await post(`${url}/api/teams/session-b5129c7b/select`)).json()).not.toEqual(
+        READ_ONLY_BODY,
+      );
+    } finally {
+      await shutdown(server);
+    }
+  });
+
+  it('rejects a name that would smuggle a separator past the guard, before calling anything', async () => {
+    const { server, url } = await boot(false);
+    try {
+      for (const hostile of ['%2e%2e%2f', '%zz', 'has%20space']) {
+        const res = await post(`${url}/api/teams/${hostile}/select`);
+        expect(res.status).toBe(400);
+        expect(await res.json()).toEqual(BAD_SEGMENT_BODY);
+      }
+      expect(selectCalls).toEqual([]);
+    } finally {
+      await shutdown(server);
+    }
+  });
+});
+
 describe('--read-only', () => {
   it('409s every control route with an explanatory body', async () => {
     const { server, url } = await boot(true);
@@ -429,6 +546,22 @@ describe('--read-only', () => {
       }
       await expect(fs.stat(path.join(dir, TEAM, 'inboxes', 'probe-alpha.json'))).rejects.toThrow();
       expect(shutdowns).toBe(0);
+    } finally {
+      await shutdown(server);
+    }
+  });
+
+  it('still lists and still switches — a switch changes what is watched, not ~/.claude', async () => {
+    const { server, url } = await boot(true);
+    try {
+      const list = await fetch(`${url}/api/teams`);
+      expect(list.status).toBe(200);
+      expect(await list.json()).toEqual(listed);
+
+      const res = await post(`${url}/api/teams/session-b5129c7b/select`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true, team: 'session-b5129c7b', changed: true });
+      expect(selectCalls).toEqual(['session-b5129c7b']);
     } finally {
       await shutdown(server);
     }

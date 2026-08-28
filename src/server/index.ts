@@ -8,15 +8,22 @@ import { createHookHandlers } from './ingest/hooks';
 import { createPermits } from './control/permits';
 import { setTeamsRoot } from './control/mailbox';
 import { createStream } from './stream';
-import { createHttpServer, listen } from './http';
+import { createHttpServer, listen, type SelectTeamOutcome } from './http';
 import { readJsonSafe } from './watch/jsonfile';
 import { checkClaudeVersion, readClaudeVersion, runSetup } from './setup';
 import { isPidAlive, startIdleReaper } from './lifecycle';
 import { logError, logInfo } from './log';
 import type { TeamConfig } from '../shared/roster';
+import type { TeamsResponse, TeamSummary } from '../shared/domain';
 
 export const DEFAULT_PORT = 4823;
-const IDLE_GRACE_MS = 10 * 60 * 1000;
+/**
+ * How long the machine may be quiet before the reaper exits, and — reused by
+ * the team listing — how recently a team must have moved to still read as
+ * live. One window, so "live" in the dropdown and "live" to the reaper cannot
+ * drift apart.
+ */
+export const IDLE_GRACE_MS = 10 * 60 * 1000;
 
 export interface Cli {
   command: 'run' | 'setup' | 'uninstall';
@@ -149,6 +156,151 @@ export async function discoverTeam(
   return best ? toDiscovered(best) : null;
 }
 
+/**
+ * Session ids whose recorded pid is still running. The file is named for the
+ * PID and carries the session id INSIDE it — `sessions/<sessionId>.json`, which
+ * isSessionLive above reads, does not exist on a real machine.
+ */
+async function liveSessionIds(sessionsRoot: string): Promise<Set<string>> {
+  const live = new Set<string>();
+  let entries: string[];
+  try {
+    entries = await fs.readdir(sessionsRoot);
+  } catch {
+    return live;
+  }
+  for (const entry of entries) {
+    if (!entry.endsWith('.json')) continue;
+    const doc = await readJsonSafe<{ sessionId?: string; pid?: number }>(path.join(sessionsRoot, entry));
+    if (typeof doc?.sessionId === 'string' && typeof doc.pid === 'number' && isPidAlive(doc.pid)) {
+      live.add(doc.sessionId);
+    }
+  }
+  return live;
+}
+
+/**
+ * config.json is rewritten only when membership changes, so a team that has
+ * done nothing all day but exchange mail would read as idle on its mtime alone.
+ * The team's own event log is not usable here: it exists only for teams this
+ * console has already watched, which is the opposite of the paging-back case.
+ */
+async function lastActivityOf(teamDir: string, configMtimeMs: number): Promise<number> {
+  let latest = configMtimeMs;
+  let entries: string[];
+  try {
+    entries = await fs.readdir(path.join(teamDir, 'inboxes'));
+  } catch {
+    return latest;
+  }
+  for (const entry of entries) {
+    // `.json.lock` ends in `.lock`, so this also excludes the lockfile siblings.
+    if (!entry.endsWith('.json')) continue;
+    try {
+      const st = await fs.stat(path.join(teamDir, 'inboxes', entry));
+      if (st.mtimeMs > latest) latest = st.mtimeMs;
+    } catch {
+      // Vanished between readdir and stat.
+    }
+  }
+  return latest;
+}
+
+/**
+ * Every team on the machine, dead ones included — paging back through a team
+ * that has ended is the point of the selector, and `departed` already renders
+ * one. Metadata only: folding each team's log to report cost or tokens measured
+ * 48x this whole listing PER TEAM, on the same thread as the SSE flush.
+ *
+ * A team is omitted only when it could not be selected: no config.json, one
+ * that survives readJsonSafe's retry still unparseable, or one whose name and
+ * members are not the right shape. The listing is the definition of selectable,
+ * so an entry that renders but cannot be picked would be a trap.
+ */
+export async function listTeamSummaries(
+  teamsRoot: string,
+  sessionsRoot: string,
+  current: string,
+): Promise<TeamsResponse> {
+  let entries: string[];
+  try {
+    entries = await fs.readdir(teamsRoot);
+  } catch {
+    return { current, teams: [] };
+  }
+
+  const liveSessions = await liveSessionIds(sessionsRoot);
+  const now = Date.now();
+  const teams: TeamSummary[] = [];
+  for (const name of entries) {
+    const teamDir = path.join(teamsRoot, name);
+    let configMtimeMs: number;
+    try {
+      const st = await fs.stat(path.join(teamDir, 'config.json'));
+      if (!st.isFile()) continue;
+      configMtimeMs = st.mtimeMs;
+    } catch {
+      continue;
+    }
+    const config = await readJsonSafe<TeamConfig>(path.join(teamDir, 'config.json'));
+    if (!config || typeof config.name !== 'string' || !Array.isArray(config.members)) continue;
+
+    // A team whose lead session id is missing is still selectable: its log
+    // history is exactly what paging back means.
+    const leadSessionId = typeof config.leadSessionId === 'string' ? config.leadSessionId : '';
+    const leadAlive = leadSessionId !== '' && liveSessions.has(leadSessionId);
+    const lastActivityAt = await lastActivityOf(teamDir, configMtimeMs);
+    teams.push({
+      // The DIRECTORY name, not config.name: the ingest gates its own team's
+      // config.json on the directory, so a mismatch would make the team
+      // unselectable in practice.
+      name,
+      members: config.members.length,
+      createdAt: typeof config.createdAt === 'number' ? config.createdAt : 0,
+      leadSessionId,
+      leadAlive,
+      lastActivityAt,
+      live: leadAlive || now - lastActivityAt < IDLE_GRACE_MS,
+      current: name === current,
+    });
+  }
+
+  teams.sort(
+    (a, b) =>
+      Number(b.current) - Number(a.current) ||
+      Number(b.live) - Number(a.live) ||
+      b.lastActivityAt - a.lastActivityAt ||
+      (a.name < b.name ? -1 : a.name > b.name ? 1 : 0),
+  );
+  return { current, teams };
+}
+
+/**
+ * A store wrapper that only writes while its generation is the current one.
+ *
+ * `FileIngest.close()` stops the timers and the watchers, but it does not stop
+ * work already in flight: `sweep()` tests its `closed` flag between files, so
+ * the file it is awaiting completes, and a debounced watcher callback that has
+ * already fired never tests it at all. A retired ingest therefore keeps writing
+ * — measured, one roster row landing in the NEXT team's log — and its `onTeam`
+ * can call `setTeam` and yank the console back to the team the operator just
+ * left, with nothing on screen to explain it. Since the generation is bumped
+ * BEFORE close(), everything already scheduled is inert from that instant.
+ */
+export function fencedSink(live: Store, generation: number, current: () => number): Store {
+  const mine = () => generation === current();
+  return {
+    // No caller reads this event back; the return only satisfies the contract.
+    append: (kind: EventKind, payload: unknown, agent?: string): StoredEvent =>
+      mine() ? live.append(kind, payload, agent) : { seq: 0, ts: Date.now(), kind, agent, payload },
+    replay: () => live.replay(),
+    setTeam: (name: string) => {
+      if (mine()) live.setTeam(name);
+    },
+    close: () => {},
+  };
+}
+
 export async function main(argv: string[]): Promise<number> {
   const cli = parseArgs(argv);
 
@@ -204,21 +356,96 @@ export async function main(argv: string[]): Promise<number> {
     close: () => store.close(),
   };
 
-  const ingest = startFileIngest(live, {
-    paths: {
-      projects: path.join(cli.claudeHome, 'projects'),
-      teams: teamsRoot,
-      tasks: path.join(cli.claudeHome, 'tasks'),
-      sessions: path.join(cli.claudeHome, 'sessions'),
-    },
-    teamName,
-    leadSessionId: discovered?.leadSessionId,
-    onTeam: (info) => {
-      store.setTeam(info.teamName);
-      leadSessionId = info.leadSessionId;
-    },
-  });
+  // The ingest's licence to write — see fencedSink.
+  let generation = 0;
+  // The authoritative answer to "which team is showing". NOT state().teamName,
+  // which is '' for the whole window between setTeam and the sweep landing.
+  let currentTeam = teamName ?? '';
+
+  const startIngest = (gen: number, team: string | undefined, lead: string | undefined) =>
+    startFileIngest(fencedSink(live, gen, () => generation), {
+      paths: {
+        projects: path.join(cli.claudeHome, 'projects'),
+        teams: teamsRoot,
+        tasks: path.join(cli.claudeHome, 'tasks'),
+        sessions: path.join(cli.claudeHome, 'sessions'),
+      },
+      teamName: team,
+      leadSessionId: lead,
+      onTeam: (info) => {
+        if (gen !== generation) return;
+        store.setTeam(info.teamName);
+        currentTeam = info.teamName;
+        leadSessionId = info.leadSessionId;
+      },
+    });
+
+  // `let`, so the closures below — and `stop`'s close, and the hook's drain —
+  // follow the rebind instead of staying frozen on the boot ingest.
+  let ingest = startIngest(generation, teamName, discovered?.leadSessionId);
   await ingest.sweep();
+
+  let switching = false;
+
+  /**
+   * Only the ingest is rebuilt. The store is RE-POINTED: setTeam already clears
+   * the events, loads the target team's log and hands the owner stamp over,
+   * while reopening it would orphan the hub's snapshot closure, `live`, and the
+   * hook handlers' destructured copy. The rebuild is what matters for the
+   * ingest: its mtime marks alone would make the new team's config.json look
+   * already-seen, and the sweep would skip it forever.
+   */
+  const retarget = async (team: string, lead: string): Promise<void> => {
+    const gen = ++generation;
+    ingest.close();
+    store.setTeam(team);
+    leadSessionId = lead;
+    currentTeam = team;
+    ingest = startIngest(gen, team, lead);
+    // Answering before the sweep lands would return a console with no team name
+    // — which is also what http.ts's team() reads, so a control request racing
+    // that window would throw inside sendToInbox's name guard.
+    await ingest.sweep();
+    hub.publish();
+  };
+
+  const selectTeam = async (team: string): Promise<SelectTeamOutcome> => {
+    // A rebuild for nothing is visible, not just wasteful: a fresh ingest has no
+    // config until its sweep lands, so the console would blink empty.
+    if (team === currentTeam) return { ok: true, changed: false };
+    // Claimed synchronously with the check, before the reads below await — a
+    // second request landing in that window would otherwise pass the guard too.
+    // Rejected rather than queued: a queued second click resolves after the
+    // first and lands the operator on the team they changed their mind about.
+    if (switching) {
+      return { ok: false, reason: 'busy', message: `a team switch is already running — retry ${team}` };
+    }
+    switching = true;
+    try {
+      let exists = false;
+      try {
+        exists = (await fs.stat(path.join(teamsRoot, team))).isDirectory();
+      } catch {
+        // Absent, or vanished under us — either way there is nothing to show.
+      }
+      if (!exists) return { ok: false, reason: 'missing', message: `no team ${team}` };
+
+      const config = await readJsonSafe<TeamConfig>(path.join(teamsRoot, team, 'config.json'));
+      if (!config || typeof config.name !== 'string' || !Array.isArray(config.members)) {
+        logError(`select ${team}`, new Error('config.json is missing or unreadable'));
+        return {
+          ok: false,
+          reason: 'missing',
+          message: `teams/${team}/config.json is missing or unreadable`,
+        };
+      }
+      await retarget(team, typeof config.leadSessionId === 'string' ? config.leadSessionId : '');
+      return { ok: true, changed: true };
+    } finally {
+      // In a finally, so a throw cannot wedge the console into permanent 409s.
+      switching = false;
+    }
+  };
 
   let reaper: { stop(): void } | null = null;
   let stopping = false;
@@ -246,6 +473,8 @@ export async function main(argv: string[]): Promise<number> {
     stream: hub,
     state: () => project(store.replay(), cli.readOnly),
     readOnly: cli.readOnly,
+    listTeams: () => listTeamSummaries(teamsRoot, sessionsRoot, currentTeam),
+    selectTeam,
     onShutdown: stop,
   });
 
