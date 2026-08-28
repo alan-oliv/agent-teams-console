@@ -25,7 +25,7 @@ import {
   parseTeammateFrames,
   type InboxEntry,
 } from '../shared/mailbox';
-import { deriveTaskState } from '../shared/status';
+import { AGENT_STALE_MS, deriveTaskState } from '../shared/status';
 
 /**
  * How many transcript lines PER AGENT survive into the projected `TeamState`
@@ -296,6 +296,16 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
     }
   }
 
+  // The team's own most recent pulse, not the wall clock: project() is a pure
+  // fold over the log elsewhere, and a replayed historical log (a fixture, a
+  // restart replaying old events) must not have every agent go 'departed' just
+  // because real time moved on since it was written. In the live server this
+  // tracks real time closely regardless — the lead's own session is polled
+  // every 250ms while anyone has the console open — so a genuinely silent
+  // straggler still reads as stale against it.
+  let latestActivity = -1;
+  for (const ts of lastActivity.values()) if (ts > latestActivity) latestActivity = ts;
+
   // A permission card outlives the permit it stands for when the process that
   // held it is gone, and `allow` then 404s forever. Expiry is the only thing
   // that can retire one, so it is enforced here rather than trusted to arrive.
@@ -344,6 +354,11 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
       const act = lastActivity.get(id.name) ?? -1;
       const idle = lastIdle.get(id.name) ?? -1;
       if (act < 0 || idle >= act) status = 'idle';
+      // Still in config.members, but silent well past any turn this system
+      // ever lets run unattended, with no idle frame to explain the silence —
+      // config.json survives a crashed process, so membership alone cannot
+      // tell 'working' from 'gone'.
+      else if (latestActivity - act > AGENT_STALE_MS) status = 'departed';
     }
 
     return {

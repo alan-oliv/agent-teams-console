@@ -11,6 +11,18 @@ export const AGENT_STATUS: Record<AgentStatus, StatusStyle> = {
   departed: { glyph: '◌', label: 'departed', color: 'var(--color-neutral-800)' },
 };
 
+/**
+ * How long a teammate can go with no transcript activity and no idle signal
+ * before the console stops calling it 'working' and calls it 'departed'
+ * instead. The system's own longest legitimate single stall is 600_000ms —
+ * DEFAULT_PERMISSION_TIMEOUT_MS in server/ingest/hooks.ts, matched by the
+ * Bash tool's own 10-minute cap — so this is 3x that: one maxed-out
+ * permission hold plus ordinary slack can never trip it, but a process that
+ * is really gone (seen live: silent 19h, no shutdown or idle frame ever
+ * sent) does, in minutes rather than hours.
+ */
+export const AGENT_STALE_MS = 30 * 60 * 1000;
+
 export const TASK_STATUS: Record<TaskState, StatusStyle> = {
   pending: { glyph: '○', label: 'pending', color: 'var(--color-neutral-500)' },
   in_progress: { glyph: '●', label: 'in progress', color: 'var(--color-accent-400)' },

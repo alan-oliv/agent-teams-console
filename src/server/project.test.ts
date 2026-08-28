@@ -7,6 +7,7 @@ import type { TeamConfig, Sidecar } from '../shared/roster';
 import { parseLine, TRANSCRIPT_TEXT_CAP, type TranscriptRecord } from '../shared/transcript';
 import { contextOccupancy, dedupeUsage, totalCost, tokensOf, usageRecordsOf } from '../shared/usage';
 import type { InboxEntry } from '../shared/mailbox';
+import { AGENT_STALE_MS } from '../shared/status';
 
 // Counts every real derivation the fold performs, so the tests below can assert
 // how much work project() does — not just what it returns. The wrappers delegate,
@@ -521,6 +522,49 @@ describe('departed status', () => {
     const state = project(buildLog(null), false);
     expect(state.agents.length).toBeGreaterThan(0);
     expect(state.agents.every((a) => a.status === 'departed')).toBe(true);
+  });
+
+  it('marks a still-listed member departed once it goes silent well past any turn with no idle frame', () => {
+    const config: TeamConfig = {
+      name: 'session-stale',
+      createdAt: 0,
+      leadAgentId: 'lead',
+      leadSessionId: 'lead',
+      members: [
+        { agentId: 'lead', name: 'lead', joinedAt: 0, tmuxPaneId: '', subscriptions: [] },
+        { agentId: 'straggler', name: 'straggler', joinedAt: 0, tmuxPaneId: '', subscriptions: [] },
+      ],
+    };
+    const recordAt = (agent: string, ts: number): TranscriptRecord => ({
+      type: 'assistant',
+      uuid: `${agent}-1`,
+      timestamp: new Date(ts).toISOString(),
+      message: { content: [{ type: 'text', text: 'hi' }] },
+    });
+    const base = 1787843400000;
+    // The lead's activity stands in for the team's pulse: it lands well after
+    // the straggler's only record, past the point silence stops being a turn.
+    const log: StoredEvent[] = [
+      { seq: 1, ts: 0, kind: 'roster', payload: { config, sidecars: [] } },
+      {
+        seq: 2,
+        ts: 0,
+        kind: 'transcript',
+        agent: 'lead',
+        payload: { agent: 'lead', records: [recordAt('lead', base + AGENT_STALE_MS + 60_000)] },
+      },
+      {
+        seq: 3,
+        ts: 0,
+        kind: 'transcript',
+        agent: 'straggler',
+        payload: { agent: 'straggler', records: [recordAt('straggler', base)] },
+      },
+    ];
+
+    const byName = Object.fromEntries(project(log, false).agents.map((a) => [a.name, a]));
+    expect(byName['straggler'].status).toBe('departed');
+    expect(byName['lead'].status).not.toBe('departed');
   });
 });
 
