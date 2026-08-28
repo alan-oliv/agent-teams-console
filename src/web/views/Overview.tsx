@@ -1,4 +1,4 @@
-import { useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { memo, useCallback, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import type { Agent } from '../../shared/domain';
 import { AGENT_STATUS } from '../../shared/status';
 import { Portrait } from '../components/Portrait';
@@ -10,6 +10,135 @@ import { costLabel, elapsedLabel, pctLabel } from '../format';
 // toggle below reads back as a resolved rgb() in jsdom, not a var() string.
 const GROUND = '#12141f';
 
+// Memoised so an SSE frame only re-renders the tiles whose agent actually moved.
+// Every prop must be stable across frames for that to hold: `isTinted` is passed
+// precomputed rather than the hovered name, and the handlers are hoisted callbacks.
+const Tile = memo(function Tile({
+  agent, isFocused, isTinted, now, onFocus, onHoverEnter, onHoverLeave,
+}: {
+  agent: Agent;
+  isFocused: boolean;
+  isTinted: boolean;
+  now: number;
+  onFocus: (name: string) => void;
+  onHoverEnter: (name: string) => void;
+  onHoverLeave: (name: string) => void;
+}) {
+  const status = AGENT_STATUS[agent.status];
+  const pct = pctLabel(agent.contextTokens, agent.contextLimit);
+
+  const tile: CSSProperties = {
+    flex: 1,
+    minWidth: '0px',
+    background: isTinted ? 'var(--color-bg)' : GROUND,
+    display: 'flex',
+    flexDirection: 'column',
+    minHeight: 0,
+    cursor: 'pointer',
+    opacity: agent.status === 'departed' ? 0.55 : 1,
+  };
+
+  function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onFocus(agent.name);
+    }
+  }
+
+  return (
+    <div
+      data-testid="overview-tile"
+      role="button"
+      tabIndex={0}
+      aria-current={isFocused}
+      style={tile}
+      onClick={() => onFocus(agent.name)}
+      onKeyDown={onKeyDown}
+      onMouseEnter={() => onHoverEnter(agent.name)}
+      onMouseLeave={() => onHoverLeave(agent.name)}
+    >
+      <div
+        style={{
+          padding: '9px 10px 8px',
+          borderBottom: '1px solid var(--color-neutral-900)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '6px',
+        }}
+      >
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+          <Portrait agent={agent} />
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            <div style={{ display: 'flex', gap: '5px', alignItems: 'baseline' }}>
+              <StatusGlyph status={agent.status} size={10} />
+              <span
+                data-testid="overview-name"
+                style={{ color: 'var(--color-text)', fontWeight: 500, fontSize: '12px' }}
+              >
+                {agent.name}
+              </span>
+            </div>
+            <span
+              data-testid="overview-type"
+              style={{
+                color: 'var(--color-neutral-600)',
+                fontSize: '9.5px',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {agent.agentType}
+            </span>
+          </div>
+        </div>
+
+        <div
+          data-testid="overview-status-row"
+          style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px' }}
+        >
+          <span data-testid="overview-status" style={{ color: status.color }}>{status.label}</span>
+          <span data-testid="overview-pct" style={{ color: 'var(--color-neutral-600)' }}>{pct}</span>
+        </div>
+
+        <div
+          data-testid="overview-track"
+          style={{
+            height: '4px',
+            borderRadius: '2px',
+            background: 'var(--color-neutral-900)',
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            data-testid="overview-fill"
+            style={{ height: '100%', background: 'var(--color-accent-600)', width: pct }}
+          />
+        </div>
+      </div>
+
+      <TranscriptFeed lines={agent.transcript} size="overview" />
+
+      <div
+        data-testid="overview-footer"
+        style={{
+          borderTop: '1px solid var(--color-neutral-900)',
+          padding: '6px 10px',
+          display: 'flex',
+          gap: '6px',
+          color: 'var(--color-neutral-700)',
+          fontSize: '9.5px',
+        }}
+      >
+        <span data-testid="overview-elapsed">{elapsedLabel(agent.startedAt, now)}</span>
+        <span style={{ flex: 1 }} />
+        <span data-testid="overview-cost">{costLabel(agent.costUsd)}</span>
+      </div>
+    </div>
+  );
+});
+
 export function Overview({
   agents, focused, onFocus, now,
 }: {
@@ -19,129 +148,29 @@ export function Overview({
   now: number;
 }) {
   const [hovered, setHovered] = useState<string | null>(null);
+  const onHoverEnter = useCallback((name: string) => setHovered(name), []);
+  const onHoverLeave = useCallback(
+    (name: string) => setHovered((h) => (h === name ? null : h)),
+    [],
+  );
 
   return (
     <div
       data-testid="overview"
       style={{ flex: 1, display: 'flex', gap: '1px', background: 'var(--color-neutral-900)', minHeight: 0 }}
     >
-      {agents.map((agent) => {
-        const status = AGENT_STATUS[agent.status];
-        const pct = pctLabel(agent.contextTokens, agent.contextLimit);
-        const isTinted = agent.name === focused || hovered === agent.name;
-
-        const tile: CSSProperties = {
-          flex: 1,
-          minWidth: '0px',
-          background: isTinted ? 'var(--color-bg)' : GROUND,
-          display: 'flex',
-          flexDirection: 'column',
-          minHeight: 0,
-          cursor: 'pointer',
-          opacity: agent.status === 'departed' ? 0.55 : 1,
-        };
-
-        function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-          if (e.target !== e.currentTarget) return;
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            onFocus(agent.name);
-          }
-        }
-
-        return (
-          <div
-            key={agent.name}
-            data-testid="overview-tile"
-            role="button"
-            tabIndex={0}
-            aria-current={agent.name === focused}
-            style={tile}
-            onClick={() => onFocus(agent.name)}
-            onKeyDown={onKeyDown}
-            onMouseEnter={() => setHovered(agent.name)}
-            onMouseLeave={() => setHovered((h) => (h === agent.name ? null : h))}
-          >
-            <div
-              style={{
-                padding: '9px 10px 8px',
-                borderBottom: '1px solid var(--color-neutral-900)',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '6px',
-              }}
-            >
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
-                <Portrait agent={agent} />
-                <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                  <div style={{ display: 'flex', gap: '5px', alignItems: 'baseline' }}>
-                    <StatusGlyph status={agent.status} size={10} />
-                    <span
-                      data-testid="overview-name"
-                      style={{ color: 'var(--color-text)', fontWeight: 500, fontSize: '12px' }}
-                    >
-                      {agent.name}
-                    </span>
-                  </div>
-                  <span
-                    data-testid="overview-type"
-                    style={{
-                      color: 'var(--color-neutral-600)',
-                      fontSize: '9.5px',
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                    }}
-                  >
-                    {agent.agentType}
-                  </span>
-                </div>
-              </div>
-
-              <div
-                data-testid="overview-status-row"
-                style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px' }}
-              >
-                <span data-testid="overview-status" style={{ color: status.color }}>{status.label}</span>
-                <span data-testid="overview-pct" style={{ color: 'var(--color-neutral-600)' }}>{pct}</span>
-              </div>
-
-              <div
-                data-testid="overview-track"
-                style={{
-                  height: '4px',
-                  borderRadius: '2px',
-                  background: 'var(--color-neutral-900)',
-                  overflow: 'hidden',
-                }}
-              >
-                <div
-                  data-testid="overview-fill"
-                  style={{ height: '100%', background: 'var(--color-accent-600)', width: pct }}
-                />
-              </div>
-            </div>
-
-            <TranscriptFeed lines={agent.transcript} size="overview" />
-
-            <div
-              data-testid="overview-footer"
-              style={{
-                borderTop: '1px solid var(--color-neutral-900)',
-                padding: '6px 10px',
-                display: 'flex',
-                gap: '6px',
-                color: 'var(--color-neutral-700)',
-                fontSize: '9.5px',
-              }}
-            >
-              <span data-testid="overview-elapsed">{elapsedLabel(agent.startedAt, now)}</span>
-              <span style={{ flex: 1 }} />
-              <span data-testid="overview-cost">{costLabel(agent.costUsd)}</span>
-            </div>
-          </div>
-        );
-      })}
+      {agents.map((agent) => (
+        <Tile
+          key={agent.name}
+          agent={agent}
+          isFocused={agent.name === focused}
+          isTinted={agent.name === focused || hovered === agent.name}
+          now={now}
+          onFocus={onFocus}
+          onHoverEnter={onHoverEnter}
+          onHoverLeave={onHoverLeave}
+        />
+      ))}
     </div>
   );
 }

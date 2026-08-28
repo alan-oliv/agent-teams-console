@@ -1,4 +1,4 @@
-import type { KeyboardEvent } from 'react';
+import { memo, type KeyboardEvent } from 'react';
 import type { Agent } from '../../shared/domain';
 import { ContextMeter } from '../components/ContextMeter';
 import { Portrait } from '../components/Portrait';
@@ -7,6 +7,114 @@ import { TranscriptFeed } from '../components/TranscriptFeed';
 import { elapsedLabel, pctLabel } from '../format';
 
 const PANES = 6;
+
+// Memoised so an SSE frame only re-renders the panes whose agent actually moved.
+const Pane = memo(function Pane({
+  agent, isFocused, now, onFocus,
+}: {
+  agent: Agent;
+  isFocused: boolean;
+  now: number;
+  onFocus: (name: string) => void;
+}) {
+  function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onFocus(agent.name);
+    }
+  }
+
+  return (
+    <div
+      data-testid="grid-pane"
+      role="button"
+      tabIndex={0}
+      aria-current={isFocused}
+      onClick={() => onFocus(agent.name)}
+      onKeyDown={onKeyDown}
+      style={{
+        background: '#12141f',
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: 0,
+        minWidth: 0,
+        cursor: 'pointer',
+        opacity: agent.status === 'departed' ? 0.55 : 1,
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          gap: '9px',
+          alignItems: 'center',
+          padding: '8px 11px',
+          background: 'var(--color-bg)',
+          borderBottom: '1px solid var(--color-neutral-900)',
+        }}
+      >
+        <Portrait agent={agent} />
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '1px' }}>
+          <div style={{ display: 'flex', gap: '6px', alignItems: 'baseline' }}>
+            <StatusGlyph status={agent.status} size={10} />
+            <span
+              data-testid="grid-name"
+              style={{ color: 'var(--color-text)', fontWeight: 500, fontSize: '12.5px' }}
+            >
+              {agent.name}
+            </span>
+            <span style={{ flex: 1 }} />
+            <span
+              data-testid="grid-model"
+              style={{ color: 'var(--color-neutral-700)', fontSize: '10px' }}
+            >
+              {agent.model}
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: '7px', alignItems: 'baseline' }}>
+            <ContextMeter
+              contextTokens={agent.contextTokens}
+              contextLimit={agent.contextLimit}
+              compactAt={agent.compactAt}
+              barSize={10}
+              textSize={10}
+            />
+            <span
+              data-testid="grid-pct"
+              style={{ color: 'var(--color-neutral-600)', fontSize: '10px' }}
+            >
+              {pctLabel(agent.contextTokens, agent.contextLimit)}
+            </span>
+            <span style={{ flex: 1 }} />
+            <span
+              data-testid="grid-elapsed"
+              style={{ color: 'var(--color-neutral-700)', fontSize: '10px' }}
+            >
+              {elapsedLabel(agent.startedAt, now)}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <TranscriptFeed lines={agent.transcript} size="grid" />
+
+      <div
+        data-testid="grid-tool"
+        style={{
+          borderTop: '1px solid var(--color-neutral-900)',
+          padding: '6px 11px',
+          color: 'var(--color-neutral-700)',
+          fontSize: '10px',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}
+      >
+        {agent.currentTool ?? ''}
+      </div>
+    </div>
+  );
+});
 
 export function Grid({
   agents, focused, onFocus, now,
@@ -33,106 +141,15 @@ export function Grid({
         minHeight: 0,
       }}
     >
-      {shown.map((agent) => {
-        function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-          if (e.target !== e.currentTarget) return;
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            onFocus(agent.name);
-          }
-        }
-
-        return (
-          <div
-            key={agent.name}
-            data-testid="grid-pane"
-            role="button"
-            tabIndex={0}
-            aria-current={agent.name === focused}
-            onClick={() => onFocus(agent.name)}
-            onKeyDown={onKeyDown}
-            style={{
-              background: '#12141f',
-              display: 'flex',
-              flexDirection: 'column',
-              minHeight: 0,
-              minWidth: 0,
-              cursor: 'pointer',
-              opacity: agent.status === 'departed' ? 0.55 : 1,
-            }}
-          >
-            <div
-              style={{
-                display: 'flex',
-                gap: '9px',
-                alignItems: 'center',
-                padding: '8px 11px',
-                background: 'var(--color-bg)',
-                borderBottom: '1px solid var(--color-neutral-900)',
-              }}
-            >
-              <Portrait agent={agent} />
-              <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '1px' }}>
-                <div style={{ display: 'flex', gap: '6px', alignItems: 'baseline' }}>
-                  <StatusGlyph status={agent.status} size={10} />
-                  <span
-                    data-testid="grid-name"
-                    style={{ color: 'var(--color-text)', fontWeight: 500, fontSize: '12.5px' }}
-                  >
-                    {agent.name}
-                  </span>
-                  <span style={{ flex: 1 }} />
-                  <span
-                    data-testid="grid-model"
-                    style={{ color: 'var(--color-neutral-700)', fontSize: '10px' }}
-                  >
-                    {agent.model}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', gap: '7px', alignItems: 'baseline' }}>
-                  <ContextMeter
-                    contextTokens={agent.contextTokens}
-                    contextLimit={agent.contextLimit}
-                    compactAt={agent.compactAt}
-                    barSize={10}
-                    textSize={10}
-                  />
-                  <span
-                    data-testid="grid-pct"
-                    style={{ color: 'var(--color-neutral-600)', fontSize: '10px' }}
-                  >
-                    {pctLabel(agent.contextTokens, agent.contextLimit)}
-                  </span>
-                  <span style={{ flex: 1 }} />
-                  <span
-                    data-testid="grid-elapsed"
-                    style={{ color: 'var(--color-neutral-700)', fontSize: '10px' }}
-                  >
-                    {elapsedLabel(agent.startedAt, now)}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <TranscriptFeed lines={agent.transcript} size="grid" />
-
-            <div
-              data-testid="grid-tool"
-              style={{
-                borderTop: '1px solid var(--color-neutral-900)',
-                padding: '6px 11px',
-                color: 'var(--color-neutral-700)',
-                fontSize: '10px',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}
-            >
-              {agent.currentTool ?? ''}
-            </div>
-          </div>
-        );
-      })}
+      {shown.map((agent) => (
+        <Pane
+          key={agent.name}
+          agent={agent}
+          isFocused={agent.name === focused}
+          now={now}
+          onFocus={onFocus}
+        />
+      ))}
 
       {overflow > 0 && (
         <span

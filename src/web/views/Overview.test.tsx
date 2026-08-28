@@ -6,6 +6,21 @@ import { Overview } from './Overview';
 
 afterEach(cleanup);
 
+// Counts per-column renders: every column renders exactly one TranscriptFeed, and the
+// real one is still rendered so the DOM assertions above are unaffected.
+const feed = vi.hoisted(() => ({ renders: 0 }));
+vi.mock('../components/TranscriptFeed', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../components/TranscriptFeed')>();
+  return {
+    ...actual,
+    TranscriptFeed(props: Parameters<typeof actual.TranscriptFeed>[0]) {
+      feed.renders += 1;
+      return <actual.TranscriptFeed {...props} />;
+    },
+  };
+});
+
+
 const four = fixtureAgents();
 const six = padAgents(four, 6);
 
@@ -79,5 +94,28 @@ describe('Overview', () => {
     expect(charlie.style.opacity).toBe('0.55');
     const alpha = tiles.find((t) => within(t).getByTestId('overview-name').textContent === 'probe-alpha')!;
     expect(alpha.style.opacity).toBe('1');
+  });
+});
+
+describe('Overview tile memoisation', () => {
+  it('does not re-render a tile whose agent object did not change', () => {
+    const onFocus = vi.fn();
+    feed.renders = 0;
+    const { rerender } = render(<Overview agents={four} focused={null} onFocus={onFocus} now={FIXTURE_NOW} />);
+    expect(feed.renders).toBe(4);
+
+    feed.renders = 0;
+    rerender(<Overview agents={four} focused={null} onFocus={onFocus} now={FIXTURE_NOW} />);
+    expect(feed.renders).toBe(0);
+  });
+
+  it('re-renders only the tile whose agent changed', () => {
+    const onFocus = vi.fn();
+    const { rerender } = render(<Overview agents={four} focused={null} onFocus={onFocus} now={FIXTURE_NOW} />);
+    const changed = four.map((a) => (a.name === 'probe-bravo' ? { ...a, status: 'idle' as const } : a));
+
+    feed.renders = 0;
+    rerender(<Overview agents={changed} focused={null} onFocus={onFocus} now={FIXTURE_NOW} />);
+    expect(feed.renders).toBe(1);
   });
 });

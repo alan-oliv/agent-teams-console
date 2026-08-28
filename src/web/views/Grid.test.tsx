@@ -7,6 +7,21 @@ import { Grid } from './Grid';
 
 afterEach(cleanup);
 
+// Counts per-column renders: every column renders exactly one TranscriptFeed, and the
+// real one is still rendered so the DOM assertions above are unaffected.
+const feed = vi.hoisted(() => ({ renders: 0 }));
+vi.mock('../components/TranscriptFeed', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../components/TranscriptFeed')>();
+  return {
+    ...actual,
+    TranscriptFeed(props: Parameters<typeof actual.TranscriptFeed>[0]) {
+      feed.renders += 1;
+      return <actual.TranscriptFeed {...props} />;
+    },
+  };
+});
+
+
 const four = fixtureAgents();
 const six = padAgents(four, 6);
 const seven = padAgents(four, 7);
@@ -74,5 +89,28 @@ describe('Grid', () => {
     expect(charlie.style.opacity).toBe('0.55');
     const alpha = panes.find((p) => within(p).getByTestId('grid-name').textContent === 'probe-alpha')!;
     expect(alpha.style.opacity).toBe('1');
+  });
+});
+
+describe('Grid pane memoisation', () => {
+  it('does not re-render a pane whose agent object did not change', () => {
+    const onFocus = vi.fn();
+    feed.renders = 0;
+    const { rerender } = render(<Grid agents={six} focused={null} onFocus={onFocus} now={FIXTURE_NOW} />);
+    expect(feed.renders).toBe(6);
+
+    feed.renders = 0;
+    rerender(<Grid agents={six} focused={null} onFocus={onFocus} now={FIXTURE_NOW} />);
+    expect(feed.renders).toBe(0);
+  });
+
+  it('re-renders only the pane whose agent changed', () => {
+    const onFocus = vi.fn();
+    const { rerender } = render(<Grid agents={six} focused={null} onFocus={onFocus} now={FIXTURE_NOW} />);
+    const changed = six.map((a) => (a.name === 'probe-bravo' ? { ...a, status: 'idle' as const } : a));
+
+    feed.renders = 0;
+    rerender(<Grid agents={changed} focused={null} onFocus={onFocus} now={FIXTURE_NOW} />);
+    expect(feed.renders).toBe(1);
   });
 });

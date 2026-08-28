@@ -6,6 +6,21 @@ import { Wall } from './Wall';
 
 afterEach(cleanup);
 
+// Counts per-column renders: every column renders exactly one TranscriptFeed, and the
+// real one is still rendered so the DOM assertions above are unaffected.
+const feed = vi.hoisted(() => ({ renders: 0 }));
+vi.mock('../components/TranscriptFeed', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../components/TranscriptFeed')>();
+  return {
+    ...actual,
+    TranscriptFeed(props: Parameters<typeof actual.TranscriptFeed>[0]) {
+      feed.renders += 1;
+      return <actual.TranscriptFeed {...props} />;
+    },
+  };
+});
+
+
 const agents = fixtureAgents();
 
 function renderWall(onFocus = vi.fn()) {
@@ -110,5 +125,37 @@ describe('Wall', () => {
     expect(charlie.style.opacity).toBe('0.55');
     const alpha = columns.find((c) => within(c).getByTestId('wall-name').textContent === 'probe-alpha')!;
     expect(alpha.style.opacity).toBe('1');
+  });
+});
+
+describe('Wall column memoisation', () => {
+  const now = FIXTURE_NOW;
+
+  it('does not re-render a column whose agent object did not change', () => {
+    const onFocus = vi.fn();
+    feed.renders = 0;
+    const { rerender } = render(<Wall agents={agents} focused="probe-alpha" onFocus={onFocus} now={now} />);
+    expect(feed.renders).toBe(4);
+
+    feed.renders = 0;
+    rerender(<Wall agents={agents} focused="probe-alpha" onFocus={onFocus} now={now} />);
+    expect(feed.renders).toBe(0);
+  });
+
+  it('re-renders only the column whose agent changed', () => {
+    const onFocus = vi.fn();
+    const { rerender } = render(<Wall agents={agents} focused="probe-alpha" onFocus={onFocus} now={now} />);
+    const changed = agents.map((a) => (a.name === 'probe-bravo' ? { ...a, status: 'idle' as const } : a));
+
+    feed.renders = 0;
+    rerender(<Wall agents={changed} focused="probe-alpha" onFocus={onFocus} now={now} />);
+    expect(feed.renders).toBe(1);
+  });
+
+  it('does not re-render unhovered columns when hover moves', () => {
+    renderWall();
+    feed.renders = 0;
+    fireEvent.mouseEnter(screen.getAllByTestId('wall-column')[3]);
+    expect(feed.renders).toBeLessThanOrEqual(2);
   });
 });
