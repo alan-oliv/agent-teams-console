@@ -7,6 +7,33 @@ import { Rail } from './Rail';
 
 afterEach(cleanup);
 
+// Counts per-row renders: every row renders exactly one rail-row Portrait, and the real
+// one is still rendered so the DOM assertions below are unaffected. The attached pane is
+// counted by its single TranscriptFeed the same way.
+const row = vi.hoisted(() => ({ renders: 0 }));
+vi.mock('../components/Portrait', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../components/Portrait')>();
+  return {
+    ...actual,
+    Portrait(props: Parameters<typeof actual.Portrait>[0]) {
+      if (props.slot === 'rail-row') row.renders += 1;
+      return <actual.Portrait {...props} />;
+    },
+  };
+});
+
+const feed = vi.hoisted(() => ({ renders: 0 }));
+vi.mock('../components/TranscriptFeed', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../components/TranscriptFeed')>();
+  return {
+    ...actual,
+    TranscriptFeed(props: Parameters<typeof actual.TranscriptFeed>[0]) {
+      feed.renders += 1;
+      return <actual.TranscriptFeed {...props} />;
+    },
+  };
+});
+
 const agents = fixtureAgents();
 
 function renderRail(onFocus = vi.fn(), focused: string | null = 'team-lead') {
@@ -139,5 +166,71 @@ describe('Rail — attached pane', () => {
     expect(charlie.style.opacity).toBe('0.55');
     const alpha = rows.find((r) => within(r).getByTestId('rail-name').textContent === 'probe-alpha')!;
     expect(alpha.style.opacity).toBe('1');
+  });
+});
+
+describe('Rail row memoisation', () => {
+  it('does not re-render a row whose agent object did not change', () => {
+    const onFocus = vi.fn();
+    row.renders = 0;
+    const { rerender } = render(<Rail agents={agents} focused="probe-alpha" onFocus={onFocus} now={FIXTURE_NOW} />);
+    expect(row.renders).toBe(4);
+
+    row.renders = 0;
+    rerender(<Rail agents={agents} focused="probe-alpha" onFocus={onFocus} now={FIXTURE_NOW} />);
+    expect(row.renders).toBe(0);
+  });
+
+  it('re-renders only the row whose agent changed', () => {
+    const onFocus = vi.fn();
+    const { rerender } = render(<Rail agents={agents} focused="probe-alpha" onFocus={onFocus} now={FIXTURE_NOW} />);
+    const changed = agents.map((a) => (a.name === 'probe-bravo' ? { ...a, status: 'idle' as const } : a));
+
+    row.renders = 0;
+    rerender(<Rail agents={changed} focused="probe-alpha" onFocus={onFocus} now={FIXTURE_NOW} />);
+    expect(row.renders).toBe(1);
+  });
+
+  it('does not re-render a row when only the clock advances', () => {
+    const onFocus = vi.fn();
+    const { rerender } = render(<Rail agents={agents} focused="probe-alpha" onFocus={onFocus} now={FIXTURE_NOW} />);
+    const elapsed = () => within(screen.getAllByRole('option')[1]).getByTestId('rail-elapsed').textContent;
+    expect(elapsed()).toBe('0m 42s');
+
+    row.renders = 0;
+    rerender(<Rail agents={agents} focused="probe-alpha" onFocus={onFocus} now={FIXTURE_NOW + 1000} />);
+    expect(row.renders).toBe(0);
+    expect(elapsed()).toBe('0m 43s');
+  });
+});
+
+describe('Rail attached-pane memoisation', () => {
+  it('does not re-render the attached pane when no agent changed', () => {
+    const onFocus = vi.fn();
+    feed.renders = 0;
+    const { rerender } = render(<Rail agents={agents} focused="probe-alpha" onFocus={onFocus} now={FIXTURE_NOW} />);
+    expect(feed.renders).toBe(1);
+
+    feed.renders = 0;
+    rerender(<Rail agents={agents} focused="probe-alpha" onFocus={onFocus} now={FIXTURE_NOW} />);
+    expect(feed.renders).toBe(0);
+  });
+
+  it('does not re-render the attached pane when only the clock advances', () => {
+    const onFocus = vi.fn();
+    const { rerender } = render(<Rail agents={agents} focused="probe-alpha" onFocus={onFocus} now={FIXTURE_NOW} />);
+    feed.renders = 0;
+    rerender(<Rail agents={agents} focused="probe-alpha" onFocus={onFocus} now={FIXTURE_NOW + 1000} />);
+    expect(feed.renders).toBe(0);
+  });
+
+  it('re-renders the attached pane when its own agent changed', () => {
+    const onFocus = vi.fn();
+    const { rerender } = render(<Rail agents={agents} focused="probe-alpha" onFocus={onFocus} now={FIXTURE_NOW} />);
+    const changed = agents.map((a) => (a.name === 'probe-alpha' ? { ...a, status: 'idle' as const } : a));
+
+    feed.renders = 0;
+    rerender(<Rail agents={changed} focused="probe-alpha" onFocus={onFocus} now={FIXTURE_NOW} />);
+    expect(feed.renders).toBe(1);
   });
 });
