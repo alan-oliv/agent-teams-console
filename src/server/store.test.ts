@@ -553,6 +553,36 @@ describe('openStore', () => {
     last.close();
   });
 
+  // project() memoises the derived transcript lines of a record on the record
+  // object itself, which only pays off because replay() hands back the rows —
+  // not copies of them. If this ever becomes a defensive deep copy the console
+  // stays correct and silently gets slow again, so the invariant is pinned here.
+  it('replays the same row objects, so a memo keyed on them stays warm', () => {
+    const store = openStore(path.join(dir, 'identity.db'), 'session-ident000');
+    try {
+      const records = [{ uuid: 'r-1', type: 'assistant', timestamp: '2026-08-27T15:20:00.000Z' }];
+      store.append('transcript', { agent: 'probe-alpha', records }, 'probe-alpha');
+
+      const first = store.replay();
+      const second = store.replay();
+      expect(first).not.toBe(second);
+      expect(first[0]).toBe(second[0]);
+      expect(first[0].payload).toBe(second[0].payload);
+      expect((first[0].payload as { records: unknown[] }).records[0]).toBe(records[0]);
+
+      // Crossing PRUNE_EVERY with roster over its own cap forces a real trim and
+      // a whole-file rewrite; the rows it keeps must survive as the same objects.
+      const rosterCap = KIND_RETENTION.roster!;
+      for (let i = 0; i < PRUNE_EVERY; i++) store.append('roster', { config: null, sidecars: [] });
+      const roster = store.replay().filter((e) => e.kind === 'roster');
+      expect(roster.length).toBeLessThan(PRUNE_EVERY);
+      expect(roster.length).toBeGreaterThanOrEqual(rosterCap);
+      expect(store.replay().find((e) => e.kind === 'transcript')).toBe(first[0]);
+    } finally {
+      store.close();
+    }
+  });
+
   it('prunes the log file itself, so a trim is not undone by a reopen', async () => {
     const dbPath = path.join(dir, 'trimmed.db');
     const cap = KIND_RETENTION.substatus!;

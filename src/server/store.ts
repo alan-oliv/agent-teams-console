@@ -451,6 +451,9 @@ export function openStore(dbPath: string, team = ''): Store {
       }
       return { seq, ts, kind, agent, payload };
     },
+    // The array is a copy; the rows in it are not. project() memoises each
+    // record's derived lines on the record object, so handing back copies here
+    // would leave the console correct and silently 18x slower.
     replay() {
       return events.slice();
     },

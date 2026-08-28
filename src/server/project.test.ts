@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { project, PROJECTED_TRANSCRIPT_LINES } from './project';
@@ -7,6 +7,25 @@ import type { TeamConfig, Sidecar } from '../shared/roster';
 import { parseLine, TRANSCRIPT_TEXT_CAP, type TranscriptRecord } from '../shared/transcript';
 import { contextOccupancy } from '../shared/usage';
 import type { InboxEntry } from '../shared/mailbox';
+
+// Counts every real derivation the fold performs, so the tests below can assert
+// how much work project() does — not just what it returns. The wrappers delegate,
+// so every other test in this file sees the unmodified behaviour.
+const derivations = vi.hoisted(() => ({ lines: 0, tools: 0 }));
+vi.mock('../shared/transcript', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../shared/transcript')>();
+  return {
+    ...actual,
+    toTranscriptLines: (rec: TranscriptRecord) => {
+      derivations.lines++;
+      return actual.toTranscriptLines(rec);
+    },
+    currentToolOf: (rec: TranscriptRecord) => {
+      derivations.tools++;
+      return actual.currentToolOf(rec);
+    },
+  };
+});
 
 const FIXTURES = path.resolve(process.cwd(), 'fixtures');
 const fx = (name: string) => path.join(FIXTURES, name);
@@ -348,6 +367,73 @@ describe('project', () => {
       },
     });
     expect(project(log, false).needsYou.map((n) => n.id)).toEqual(['live']);
+  });
+
+  const soloConfig = (name: string): TeamConfig => ({
+    name,
+    createdAt: 0,
+    leadAgentId: 'lead-1',
+    leadSessionId: 'lead-1',
+    members: [{ agentId: 'lead-1', name: 'solo', joinedAt: 0, tmuxPaneId: '', subscriptions: [] }],
+  });
+
+  const soloLog = (records: TranscriptRecord[]): StoredEvent[] => [
+    { seq: 1, ts: 0, kind: 'roster', payload: { config: soloConfig('session-solo'), sidecars: [] } },
+    { seq: 2, ts: 0, kind: 'transcript', agent: 'solo', payload: { agent: 'solo', records } },
+  ];
+
+  // Every record is unique to this call, so the memo inside project() is cold
+  // for them and the counters below measure a first derivation, not a cache hit.
+  const freshRecords = (tag: string, count: number): TranscriptRecord[] =>
+    Array.from({ length: count }, (_, i) => ({
+      type: 'assistant',
+      uuid: `${tag}-${i}`,
+      timestamp: new Date(1787843400000 + i).toISOString(),
+      message:
+        i % 3 === 0
+          ? { content: [{ type: 'tool_use', name: 'Bash', input: { command: `echo ${i}` } }] }
+          : { content: [{ type: 'text', text: `line ${i}` }] },
+    }));
+
+  it('derives only the lines it projects, not one per stored record', () => {
+    const records = freshRecords('window', 2000);
+    derivations.lines = 0;
+    const solo = project(soloLog(records), false).agents.find((a) => a.name === 'solo')!;
+
+    expect(solo.transcript).toHaveLength(PROJECTED_TRANSCRIPT_LINES);
+    expect(solo.transcript.at(-1)!.id).toBe('window-1999#0');
+    expect(derivations.lines).toBeGreaterThan(0);
+    expect(derivations.lines).toBeLessThanOrEqual(PROJECTED_TRANSCRIPT_LINES + 1);
+  });
+
+  it('re-derives nothing on the next publish of the same records', () => {
+    const log = soloLog(freshRecords('memo', 2000));
+    project(log, false);
+    derivations.lines = 0;
+    derivations.tools = 0;
+    const again = project(log, false).agents.find((a) => a.name === 'solo')!;
+
+    expect(derivations.lines).toBe(0);
+    expect(derivations.tools).toBe(0);
+    expect(again.transcript).toHaveLength(PROJECTED_TRANSCRIPT_LINES);
+    expect(again.currentTool).toBe('Bash(echo 1998)');
+  });
+
+  it('projects the last 60 lines of a single record that yields more', () => {
+    const record: TranscriptRecord = {
+      type: 'assistant',
+      uuid: 'fat',
+      timestamp: '2026-08-27T15:20:00.000Z',
+      message: {
+        content: Array.from({ length: 200 }, (_, i) => ({ type: 'text', text: `block ${i}` })),
+      },
+    };
+    const solo = project(soloLog([record]), false).agents.find((a) => a.name === 'solo')!;
+
+    expect(solo.transcript).toHaveLength(PROJECTED_TRANSCRIPT_LINES);
+    expect(solo.transcript.map((l) => l.text)).toEqual(
+      Array.from({ length: PROJECTED_TRANSCRIPT_LINES }, (_, i) => `block ${140 + i}`),
+    );
   });
 
   it('deduplicates transcript records re-read by the reconciliation sweep', () => {

@@ -126,6 +126,40 @@ function lastAssistantModel(records: TranscriptRecord[]): string | undefined {
   return undefined;
 }
 
+/**
+ * `toTranscriptLines` and `currentToolOf` are pure functions of one record, and
+ * `store.replay()` hands back the SAME record objects on every publish — it
+ * copies the array, not the rows, and `trim()`/`setTeam()` re-wrap the event but
+ * keep the payload. Without these the fold re-derived byte-identical strings
+ * four times a second: 53 ms of a 56 ms publish at the transcript retention cap.
+ * Keyed on the record, so an entry dies with the row `trim()` drops.
+ *
+ * `linesOf` hands back the memoised array itself. Nothing may mutate it or the
+ * lines in it — every later frame would carry the damage, and the projection
+ * tests would not see it.
+ */
+const lineMemo = new WeakMap<TranscriptRecord, TranscriptLine[]>();
+function linesOf(rec: TranscriptRecord): TranscriptLine[] {
+  let lines = lineMemo.get(rec);
+  if (!lines) {
+    lines = toTranscriptLines(rec);
+    lineMemo.set(rec, lines);
+  }
+  return lines;
+}
+
+// `describeTool` can render a falsy string, which the fold treats as "no tool"
+// rather than as a clear — so undefined needs a distinct miss marker.
+const NO_TOOL = Symbol('no tool');
+const toolMemo = new WeakMap<TranscriptRecord, string | typeof NO_TOOL>();
+function toolOf(rec: TranscriptRecord): string | undefined {
+  const hit = toolMemo.get(rec);
+  if (hit !== undefined) return hit === NO_TOOL ? undefined : hit;
+  const tool = currentToolOf(rec);
+  toolMemo.set(rec, tool ?? NO_TOOL);
+  return tool;
+}
+
 export function project(events: StoredEvent[], readOnly: boolean): TeamState {
   let config: TeamConfig | null = null;
   let sidecars: Array<{ meta: Sidecar; transcriptPath: string }> = [];
@@ -167,14 +201,14 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
           if (key) seen.add(key);
           list.push(rec);
 
-          const tool = currentToolOf(rec);
+          const tool = toolOf(rec);
           if (tool) currentTool.set(p.agent, tool);
           else if (rec.type === 'user' && rec.toolUseResult !== undefined) {
             currentTool.set(p.agent, undefined);
           }
           if (rec.type === 'assistant') {
             if (rec.isApiErrorMessage) {
-              errors.set(p.agent, toTranscriptLines(rec)[0]?.text ?? 'api error');
+              errors.set(p.agent, linesOf(rec)[0]?.text ?? 'api error');
             } else {
               errors.delete(p.agent);
             }
@@ -266,8 +300,21 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
     const usage = dedupeUsage(usageRecordsOf(recs));
     totalTokens += tokensOf(usage);
 
+    // Only the last PROJECTED_TRANSCRIPT_LINES survive the slice below, so walk
+    // backwards and stop once there are enough: an agent with 9,000 records
+    // costs ~60 conversions, not 9,000. The records collected are a suffix of
+    // the list, so their lines are a suffix of the full line list at least 60
+    // long — and slice(-60) of that is slice(-60) of the whole.
+    const tail: TranscriptLine[][] = [];
+    let have = 0;
+    for (let i = recs.length - 1; i >= 0 && have < PROJECTED_TRANSCRIPT_LINES; i--) {
+      const some = linesOf(recs[i]);
+      if (some.length === 0) continue;
+      tail.push(some);
+      have += some.length;
+    }
     const lines: TranscriptLine[] = [];
-    for (const rec of recs) for (const l of toTranscriptLines(rec)) lines.push(l);
+    for (let i = tail.length - 1; i >= 0; i--) for (const line of tail[i]) lines.push(line);
 
     let status: AgentStatus = 'working';
     if (!liveMembers || !liveMembers.has(id.name)) status = 'departed';
