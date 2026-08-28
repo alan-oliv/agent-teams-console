@@ -58,6 +58,16 @@ function shutdown(server: Server): Promise<void> {
   return new Promise((r) => server.close(() => r()));
 }
 
+// Control routes require `content-type: application/json`; a bodyless POST has
+// to say so too, which is what the browser client does.
+function post(target: string, body: unknown = {}): Promise<Response> {
+  return fetch(target, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
 beforeEach(async () => {
   dir = await fs.mkdtemp(path.join(os.tmpdir(), 'http-'));
   await fs.mkdir(path.join(dir, TEAM, 'inboxes'), { recursive: true });
@@ -209,7 +219,7 @@ describe('control routes', () => {
   it('POST /api/plans/:requestId/approve writes a plan_approval_response frame', async () => {
     const { server, url } = await boot(false);
     try {
-      const res = await fetch(`${url}/api/plans/plan-1/approve`, { method: 'POST' });
+      const res = await post(`${url}/api/plans/plan-1/approve`);
       expect(res.status).toBe(200);
       const entries = JSON.parse(
         await fs.readFile(path.join(dir, TEAM, 'inboxes', 'probe-alpha.json'), 'utf8'),
@@ -245,7 +255,7 @@ describe('control routes', () => {
   it('404s a plan id that is not on the needs-you strip', async () => {
     const { server, url } = await boot(false);
     try {
-      const res = await fetch(`${url}/api/plans/nope/approve`, { method: 'POST' });
+      const res = await post(`${url}/api/plans/nope/approve`);
       expect(res.status).toBe(404);
     } finally {
       await shutdown(server);
@@ -256,11 +266,11 @@ describe('control routes', () => {
     const { server, url } = await boot(false);
     try {
       const held = permits.hold('probe-bravo', 'Bash', {}, 600000);
-      const res = await fetch(`${url}/api/permits/${held.id}/allow`, { method: 'POST' });
+      const res = await post(`${url}/api/permits/${held.id}/allow`);
       expect(res.status).toBe(200);
       expect(await held.promise).toEqual({ decision: 'allow', reason: undefined });
 
-      const missing = await fetch(`${url}/api/permits/${held.id}/deny`, { method: 'POST' });
+      const missing = await post(`${url}/api/permits/${held.id}/deny`);
       expect(missing.status).toBe(404);
     } finally {
       await shutdown(server);
@@ -270,7 +280,7 @@ describe('control routes', () => {
   it('POST /api/agents/:name/stop writes a shutdown_request frame', async () => {
     const { server, url } = await boot(false);
     try {
-      await fetch(`${url}/api/agents/probe-bravo/stop`, { method: 'POST' });
+      await post(`${url}/api/agents/probe-bravo/stop`);
       const entries = JSON.parse(
         await fs.readFile(path.join(dir, TEAM, 'inboxes', 'probe-bravo.json'), 'utf8'),
       ) as InboxEntry[];
@@ -285,7 +295,7 @@ describe('control routes', () => {
   it('POST /api/agents/:name/respawn asks the lead, not the dead teammate', async () => {
     const { server, url } = await boot(false);
     try {
-      await fetch(`${url}/api/agents/probe-charlie/respawn`, { method: 'POST' });
+      await post(`${url}/api/agents/probe-charlie/respawn`);
       const entries = JSON.parse(
         await fs.readFile(path.join(dir, TEAM, 'inboxes', 'team-lead.json'), 'utf8'),
       ) as InboxEntry[];

@@ -18,6 +18,21 @@ export const NO_BUNDLE_BODY = {
   message: 'dist/web is missing — run `npm run build` first',
 };
 
+export const FORBIDDEN_BODY = {
+  error: 'forbidden',
+  message: 'the console only answers same-origin requests from this machine',
+};
+
+export const UNSUPPORTED_MEDIA_BODY = {
+  error: 'unsupported media type',
+  message: 'content-type: application/json is required',
+};
+
+export const BAD_SEGMENT_BODY = {
+  error: 'bad request',
+  message: 'name must match /^[A-Za-z0-9_-]+$/',
+};
+
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'application/javascript; charset=utf-8',
@@ -75,6 +90,57 @@ const AGENT_ROUTE = /^\/api\/agents\/([^/]+)\/(message|interrupt|stop|respawn)$/
 const PLAN_ROUTE = /^\/api\/plans\/([^/]+)\/(approve|reject)$/;
 const PERMIT_ROUTE = /^\/api\/permits\/([^/]+)\/(allow|deny)$/;
 
+/**
+ * The route patterns exclude a literal `/`, but every id below is
+ * percent-decoded afterwards, so `%2F` would smuggle a separator back in past
+ * the guard and `path.join` would resolve the `..` it precedes. Decoding is
+ * therefore always paired with this allowlist, and the result is what reaches
+ * the filesystem — never the raw segment.
+ */
+const SAFE_SEGMENT = /^[A-Za-z0-9_-]+$/;
+
+function decodeSegment(raw: string): string | null {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    return null; // a malformed escape such as `%zz`
+  }
+  return SAFE_SEGMENT.test(decoded) ? decoded : null;
+}
+
+// The server binds 127.0.0.1, but that does not protect it from a browser the
+// user is also running: a page on any origin can POST to it, and a DNS name
+// resolving to 127.0.0.1 can reach it with a foreign Host header.
+const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
+
+function isLocalHost(host: string | undefined): boolean {
+  if (!host) return false;
+  try {
+    return LOCAL_HOSTS.has(new URL(`http://${host}`).hostname);
+  } catch {
+    return false;
+  }
+}
+
+function isLocalOrigin(origin: string | undefined): boolean {
+  // No Origin at all means no browser initiated it — the hook curl and the
+  // launcher's health probe are in that class.
+  if (origin === undefined) return true;
+  try {
+    return LOCAL_HOSTS.has(new URL(origin).hostname);
+  } catch {
+    return false; // includes the literal `null` origin of a sandboxed frame
+  }
+}
+
+// `content-type: text/plain` is a CORS *simple* request, so it crosses origins
+// with no preflight; requiring JSON forces a preflight this server never
+// answers, which closes the whole CSRF class.
+function isJsonBody(contentType: string | undefined): boolean {
+  return (contentType ?? '').split(';')[0].trim().toLowerCase() === 'application/json';
+}
+
 async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
   for await (const c of req) chunks.push(c as Buffer);
@@ -107,6 +173,21 @@ export function createHttpServer(deps: HttpDeps): Server {
         const method = req.method ?? 'GET';
         const url = new URL(req.url ?? '/', 'http://127.0.0.1');
         const route = url.pathname;
+
+        if (!isLocalHost(req.headers.host)) {
+          json(res, 403, FORBIDDEN_BODY);
+          return;
+        }
+        if (method === 'POST') {
+          if (!isLocalOrigin(req.headers.origin)) {
+            json(res, 403, FORBIDDEN_BODY);
+            return;
+          }
+          if (!isJsonBody(req.headers['content-type'])) {
+            json(res, 415, UNSUPPORTED_MEDIA_BODY);
+            return;
+          }
+        }
 
         if (method === 'GET' && route === '/stream') {
           deps.stream.subscribe(res);
@@ -155,7 +236,11 @@ export function createHttpServer(deps: HttpDeps): Server {
 
         const agentMatch = AGENT_ROUTE.exec(route);
         if (agentMatch) {
-          const name = decodeURIComponent(agentMatch[1]);
+          const name = decodeSegment(agentMatch[1]);
+          if (name === null) {
+            json(res, 400, BAD_SEGMENT_BODY);
+            return;
+          }
           const action = agentMatch[2];
           if (action === 'message') {
             const text = str(body.text);
@@ -192,11 +277,22 @@ export function createHttpServer(deps: HttpDeps): Server {
 
         const planMatch = PLAN_ROUTE.exec(route);
         if (planMatch) {
-          const requestId = decodeURIComponent(planMatch[1]);
+          const requestId = decodeSegment(planMatch[1]);
+          if (requestId === null) {
+            json(res, 400, BAD_SEGMENT_BODY);
+            return;
+          }
           const approved = planMatch[2] === 'approve';
           const card = deps.state().needsYou.find((n) => n.id === requestId);
           if (!card) {
             json(res, 404, { error: 'not found', message: `no pending plan ${requestId}` });
+            return;
+          }
+          // The card's agent came from an unauthenticated /hook payload, so it
+          // is caller input too — a hostile one would otherwise reach the inbox
+          // writer on the operator's own approve click.
+          if (!SAFE_SEGMENT.test(card.agent)) {
+            json(res, 400, BAD_SEGMENT_BODY);
             return;
           }
           const out = await sendToInbox(team(), card.agent, {
@@ -217,7 +313,11 @@ export function createHttpServer(deps: HttpDeps): Server {
 
         const permitMatch = PERMIT_ROUTE.exec(route);
         if (permitMatch) {
-          const id = decodeURIComponent(permitMatch[1]);
+          const id = decodeSegment(permitMatch[1]);
+          if (id === null) {
+            json(res, 400, BAD_SEGMENT_BODY);
+            return;
+          }
           const decision = permitMatch[2] === 'allow' ? 'allow' : 'deny';
           const ok = deps.permits.resolve(id, decision, str(body.reason));
           if (!ok) {
