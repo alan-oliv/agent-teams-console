@@ -171,24 +171,29 @@ interface SessionFacts {
   live: Set<string>;
   /** sessionId -> the conversation name `/branch` writes, used as the row's goal. */
   names: Map<string, string>;
+  /** sessionId -> its cwd, for finding the subagents directory it writes into. */
+  cwds: Map<string, string>;
 }
 
 async function readSessions(sessionsRoot: string): Promise<SessionFacts> {
-  const facts: SessionFacts = { live: new Set(), names: new Map() };
+  const facts: SessionFacts = { live: new Set(), names: new Map(), cwds: new Map() };
   let entries: string[];
   try {
     entries = await fs.readdir(sessionsRoot);
   } catch {
     return facts;
   }
-  const docs: { sessionId: string; pid?: number; name?: string }[] = [];
+  const docs: { sessionId: string; pid?: number; name?: string; cwd?: string }[] = [];
   for (const entry of entries) {
     if (!entry.endsWith('.json')) continue;
-    const doc = await readJsonSafe<{ sessionId?: string; pid?: number; name?: string }>(
-      path.join(sessionsRoot, entry),
-    );
+    const doc = await readJsonSafe<{
+      sessionId?: string;
+      pid?: number;
+      name?: string;
+      cwd?: string;
+    }>(path.join(sessionsRoot, entry));
     if (typeof doc?.sessionId !== 'string') continue;
-    docs.push({ sessionId: doc.sessionId, pid: doc.pid, name: doc.name });
+    docs.push({ sessionId: doc.sessionId, pid: doc.pid, name: doc.name, cwd: doc.cwd });
   }
 
   // A pid that answers is not proof the session behind it is still there:
@@ -203,6 +208,7 @@ async function readSessions(sessionsRoot: string): Promise<SessionFacts> {
       facts.live.add(doc.sessionId);
     }
     if (typeof doc.name === 'string' && doc.name !== '') facts.names.set(doc.sessionId, doc.name);
+    if (typeof doc.cwd === 'string' && doc.cwd !== '') facts.cwds.set(doc.sessionId, doc.cwd);
   }
   return facts;
 }
@@ -263,10 +269,48 @@ async function lastActivityOf(teamDir: string, configMtimeMs: number): Promise<n
  * members are not the right shape. The listing is the definition of selectable,
  * so an entry that renders but cannot be picked would be a trap.
  */
+/**
+ * Which teams a live session is actually driving.
+ *
+ * `config.leadSessionId` cannot answer this: once a team is re-keyed it holds a
+ * fresh id belonging to no session, so joining live sessions on it marked every
+ * real team `done` while its lead sat there working. The teammates' sidecars
+ * can — they live under the lead session's OWN directory and name their team —
+ * and looking only under sessions already known to be live keeps this to a
+ * handful of reads rather than a walk of every project.
+ */
+async function teamsOfLiveSessions(
+  projectsRoot: string,
+  sessions: SessionFacts,
+): Promise<Set<string>> {
+  const teams = new Set<string>();
+  for (const sessionId of sessions.live) {
+    const cwd = sessions.cwds.get(sessionId);
+    if (!cwd) continue;
+    const dir = path.join(projectsRoot, cwd.replace(/[^a-zA-Z0-9]/g, '-'), sessionId, 'subagents');
+    let entries: string[];
+    try {
+      entries = await fs.readdir(dir);
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.endsWith('.meta.json')) continue;
+      const meta = await readJsonSafe<{ teamName?: string; taskKind?: string }>(
+        path.join(dir, entry),
+      );
+      if (meta?.taskKind !== 'in_process_teammate') continue;
+      if (typeof meta.teamName === 'string' && meta.teamName !== '') teams.add(meta.teamName);
+    }
+  }
+  return teams;
+}
+
 export async function listTeamSummaries(
   teamsRoot: string,
   sessionsRoot: string,
   current: string,
+  projectsRoot?: string,
 ): Promise<TeamsResponse> {
   let entries: string[];
   try {
@@ -276,6 +320,9 @@ export async function listTeamSummaries(
   }
 
   const sessions = await readSessions(sessionsRoot);
+  const liveTeams = projectsRoot
+    ? await teamsOfLiveSessions(projectsRoot, sessions)
+    : new Set<string>();
   const now = Date.now();
   const teams: TeamSummary[] = [];
   for (const name of entries) {
@@ -294,7 +341,11 @@ export async function listTeamSummaries(
     // A team whose lead session id is missing is still selectable: its log
     // history is exactly what paging back means.
     const leadSessionId = typeof config.leadSessionId === 'string' ? config.leadSessionId : '';
-    const leadAlive = leadSessionId !== '' && sessions.live.has(leadSessionId);
+    // Either answer proves the lead is there: the sidecars say a live session
+    // is driving this team, or config.json's leadSessionId is a real session
+    // that is still running (a team that has never been re-keyed).
+    const leadAlive =
+      liveTeams.has(name) || (leadSessionId !== '' && sessions.live.has(leadSessionId));
     const lastActivityAt = await lastActivityOf(teamDir, configMtimeMs);
     const recent = now - lastActivityAt < IDLE_GRACE_MS;
     const lead = config.members.find((m) => m.agentId === config.leadAgentId) ?? config.members[0];
@@ -381,6 +432,7 @@ export async function main(argv: string[]): Promise<number> {
 
   const teamsRoot = path.join(cli.claudeHome, 'teams');
   const sessionsRoot = path.join(cli.claudeHome, 'sessions');
+  const projectsRoot = path.join(cli.claudeHome, 'projects');
   setTeamsRoot(teamsRoot);
 
   const discovered = await discoverTeam(teamsRoot, sessionsRoot, cli.team);
@@ -539,7 +591,7 @@ export async function main(argv: string[]): Promise<number> {
     stream: hub,
     state: () => project(store.replay(), cli.readOnly),
     readOnly: cli.readOnly,
-    listTeams: () => listTeamSummaries(teamsRoot, sessionsRoot, currentTeam),
+    listTeams: () => listTeamSummaries(teamsRoot, sessionsRoot, currentTeam, projectsRoot),
     history: (agent: string) => transcriptHistory(store.replay(), agent),
     selectTeam,
     onShutdown: stop,
@@ -562,7 +614,7 @@ export async function main(argv: string[]): Promise<number> {
    */
   const followRealTeam = async (): Promise<void> => {
     if (pinned || switching) return;
-    const { teams } = await listTeamSummaries(teamsRoot, sessionsRoot, currentTeam);
+    const { teams } = await listTeamSummaries(teamsRoot, sessionsRoot, currentTeam, projectsRoot);
     if (teams.some((t) => t.name === currentTeam && t.members >= 2)) return;
     // Sorted live-first, then by most recent activity, so the first real team
     // is the one worth watching.

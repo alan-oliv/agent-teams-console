@@ -173,7 +173,11 @@ describe('plugin/bin/console-launch.sh', () => {
       },
       dir,
     );
-    expect(JSON.parse(out).systemMessage).toContain('session-98b0b4a7');
+    // Links to the console, NOT to `?team=session-98b0b4a7`. This used to name
+    // the team after the session, which the spawn then does not call it: Claude
+    // Code re-keys a team on its first teammate, so the link led to a directory
+    // that never existed and the operator got an empty wall.
+    expect(JSON.parse(out).systemMessage).toBe('Agent teams console → http://127.0.0.1:4899/');
     await expect(fs.access(path.join(dir, 'teams'))).rejects.toThrow();
   });
 
@@ -319,6 +323,31 @@ describe('plugin/bin/console-launch.sh', () => {
           run_in_background: true,
           name: 'probe-x',
         },
+      },
+      dir,
+    );
+    // Same reason as above: at PreToolUse the team has no name yet, so the link
+    // points at the console and it discovers the team as it appears.
+    expect(JSON.parse(out).systemMessage).toBe('Agent teams console → http://127.0.0.1:4899/');
+  });
+
+  it('links straight to the team once one really exists', async () => {
+    await fs.mkdir(path.join(dir, 'teams', 'session-98b0b4a7'), { recursive: true });
+    await fs.writeFile(
+      path.join(dir, 'teams', 'session-98b0b4a7', 'config.json'),
+      JSON.stringify({
+        name: 'session-98b0b4a7',
+        leadAgentId: 'team-lead@session-98b0b4a7',
+        leadSessionId: '98b0b4a7-3206-455b-aaf6-a5a81ad1e283',
+        members: [{ agentId: 'team-lead@session-98b0b4a7' }, { agentId: 'probe@session-98b0b4a7' }],
+      }),
+    );
+    const out = await launch(
+      {
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Agent',
+        session_id: '98b0b4a7-3206-455b-aaf6-a5a81ad1e283',
+        tool_input: { description: 'x', prompt: 'y', subagent_type: 'general-purpose', name: 'probe-x' },
       },
       dir,
     );

@@ -44,9 +44,24 @@ session=$(printf '%s' "$payload" \
 #      config.json, so a forked session's real team is keyed on an ANCESTOR's
 #      id. Walk forkedFrom.sessionId up from this session's own transcript,
 #      retrying (1) at each ancestor, until one resolves or the chain runs out.
-#   3. Neither found a team — this session is about to create its FIRST one
-#      (or CLAUDE_DIR/projects is unreadable) — so fall back to the original
-#      derivation: "session-" + first 8 of this session's own id.
+#   3. A teammate's own .meta.json sidecar, which carries `teamName`. This is
+#      the only resolution that survives a RE-KEY: Claude Code renames a team
+#      the moment it spawns its first teammate, and the new config.json's
+#      leadSessionId is a fresh id that belongs to no session at all, so (1)
+#      and (2) both come up empty from then on.
+#   4. The newest team on THIS cwd with a real roster. Sidecars have been seen
+#      landing 22-33s after the transcript, and the team directory exists long
+#      before that; members[] carries each member's cwd, so a team rooted in
+#      our own project is ours in every case but two teams in one directory.
+#   5. "session-<first 8 of our id>", but ONLY if that directory exists. This
+#      was the original derivation and is still correct for a team that has not
+#      been re-keyed; it is used as evidence now, never as a guess.
+#   6. Nothing resolved — this session is about to create its FIRST team, or
+#      CLAUDE_DIR is unreadable. Say so by leaving the name EMPTY rather than
+#      deriving "session-<short id>": that derivation named a directory that
+#      has never existed since teams began being re-keyed, and a console
+#      started on it showed an empty wall. With no name the server discovers
+#      the team itself, and follows the real one the moment it appears.
 # Entirely read-only: nothing below creates a directory.
 find_team_for_session() {
   # $1: session id. On a match, prints the team dir name and returns 0.
@@ -54,6 +69,40 @@ find_team_for_session() {
     [ -f "$cfg" ] || continue
     lead=$(sed -n 's/.*"leadSessionId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$cfg" 2>/dev/null | head -1)
     [ "$lead" = "$1" ] || continue
+    basename "$(dirname "$cfg")"
+    return 0
+  done
+  return 1
+}
+
+# A teammate sidecar names its own team. Newest first: a re-keyed team leaves
+# the older sidecars in place beside the new ones.
+find_team_via_sidecar() {
+  # $1: session id whose subagents directory to read.
+  dir="$CLAUDE_DIR/projects/$slug/$1/subagents"
+  [ -d "$dir" ] || return 1
+  for meta in $(ls -t "$dir"/*.meta.json 2>/dev/null); do
+    [ -f "$meta" ] || continue
+    kind=$(sed -n 's/.*"taskKind"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$meta" 2>/dev/null | head -1)
+    [ "$kind" = "in_process_teammate" ] || continue
+    name=$(sed -n 's/.*"teamName"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$meta" 2>/dev/null | head -1)
+    [ -n "$name" ] || continue
+    [ -f "$CLAUDE_DIR/teams/$name/config.json" ] || continue
+    printf '%s' "$name"
+    return 0
+  done
+  return 1
+}
+
+# Newest team whose roster is real and whose members sit in this directory.
+find_team_by_cwd() {
+  here=$(pwd)
+  for cfg in $(ls -t "$CLAUDE_DIR"/teams/*/config.json 2>/dev/null); do
+    [ -f "$cfg" ] || continue
+    flat=$(tr -d ' \n' < "$cfg" 2>/dev/null)
+    case "$flat" in *"\"cwd\":\"$here\""*) ;; *) continue ;; esac
+    count=$(printf '%s' "$flat" | grep -o '"agentId"' | wc -l | tr -d ' ')
+    [ "${count:-0}" -ge 2 ] 2>/dev/null || continue
     basename "$(dirname "$cfg")"
     return 0
   done
@@ -91,7 +140,15 @@ while :; do
   [ -n "$parent" ] || break
   sid="$parent"
 done
-[ -n "$team" ] || team="session-$short"
+[ -n "$team" ] || team=$(find_team_via_sidecar "$session" || true)
+# The old derivation, but only when it names a directory that is really there.
+# Before teams were re-keyed this was right every time; it is still right for a
+# team that has not spawned into a new id yet, and now simply declines instead
+# of inventing a name.
+if [ -z "$team" ] && [ -f "$CLAUDE_DIR/teams/session-$short/config.json" ]; then
+  team="session-$short"
+fi
+[ -n "$team" ] || team=$(find_team_by_cwd || true)
 
 case "$event" in
   PreToolUse)
@@ -133,11 +190,16 @@ if ! curl -sf -m 1 "$HEALTH" >/dev/null 2>&1; then
   if [ "${OCTO_NO_SPAWN:-}" != "1" ]; then
     # Prefer the bundle (fast cold start). Fall back to tsx when it has not
     # been built, so a fresh checkout still works without `npm run build`.
+    # An unresolved team is passed as NO flag, never as a guess: a server
+    # pinned to a team that does not exist shows an empty wall, while one with
+    # no team discovers it and follows the real one as it appears.
+    set -- --port "$PORT"
+    [ -n "$team" ] && set -- "$@" --team "$team"
     if [ -f "$ROOT/dist/server/index.js" ]; then
-      nohup node "$ROOT/dist/server/index.js" --port "$PORT" --team "$team" \
+      nohup node "$ROOT/dist/server/index.js" "$@" \
         >>"$CLAUDE_DIR/agent-teams-console.log" 2>&1 &
     else
-      nohup npx --prefix "$ROOT/.." tsx "$ROOT/../src/server/index.ts" --port "$PORT" --team "$team" \
+      nohup npx --prefix "$ROOT/.." tsx "$ROOT/../src/server/index.ts" "$@" \
         >>"$CLAUDE_DIR/agent-teams-console.log" 2>&1 &
     fi
     i=0
@@ -158,10 +220,18 @@ fi
 # in the user's real config. markerdir is ours alone, so it is always safe
 # to create.
 markerdir="$CLAUDE_DIR/agent-teams-console/announced"
-marker="$markerdir/$team"
+# Keyed by the session when the team has no name yet, so "once per team" still
+# holds across the PreToolUse/PostToolUse pair of a team's very first spawn.
+marker="$markerdir/${team:-session-$short}"
 [ -f "$marker" ] && bail
 mkdir -p "$markerdir" 2>/dev/null
 : > "$marker" 2>/dev/null || bail
 
-printf '{"systemMessage":"Agent teams console → http://127.0.0.1:%s/?team=%s"}\n' "$PORT" "$team"
+# Link straight to the team when it is known. When it is not, link to the
+# console itself rather than to `?team=` a name we made up.
+if [ -n "$team" ]; then
+  printf '{"systemMessage":"Agent teams console → http://127.0.0.1:%s/?team=%s"}\n' "$PORT" "$team"
+else
+  printf '{"systemMessage":"Agent teams console → http://127.0.0.1:%s/"}\n' "$PORT"
+fi
 exit 0

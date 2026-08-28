@@ -277,6 +277,39 @@ describe('listTeamSummaries', () => {
     await fs.writeFile(path.join(sessions(), `${pid}.json`), JSON.stringify({ pid, sessionId }));
   }
 
+  // config.leadSessionId is a fresh id belonging to no session once a team has
+  // been re-keyed, so joining live sessions on it marked a working team `done`.
+  // The teammates' sidecars sit under the lead session's OWN directory and name
+  // the team, which is the join that survives.
+  it('finds the lead through a teammate sidecar when leadSessionId names nobody', async () => {
+    const projects = path.join(dir, 'projects');
+    const cwd = '/Users/someone/code/proj';
+    const sessionId = 'aaaaaaaa-1111-2222-3333-444444444444';
+    await writeConfig(
+      'session-rekeyed',
+      team('session-rekeyed', { createdAt: 10, leadSessionId: 'deadbeef-no-such-session', members: 3 }),
+    );
+    await fs.mkdir(path.join(sessions()), { recursive: true });
+    await fs.writeFile(
+      path.join(sessions(), `${process.pid}.json`),
+      JSON.stringify({ pid: process.pid, sessionId, cwd }),
+    );
+    const subagents = path.join(projects, cwd.replace(/[^a-zA-Z0-9]/g, '-'), sessionId, 'subagents');
+    await fs.mkdir(subagents, { recursive: true });
+    await fs.writeFile(
+      path.join(subagents, 'agent-aworker-1111.meta.json'),
+      JSON.stringify({ name: 'worker', taskKind: 'in_process_teammate', teamName: 'session-rekeyed' }),
+    );
+
+    const withProjects = await listTeamSummaries(teams(), sessions(), '', projects);
+    expect(withProjects.teams[0].leadAlive).toBe(true);
+    expect(withProjects.teams[0].state).toBe('live');
+
+    // Without the sidecar join it is the old, wrong answer.
+    const without = await listTeamSummaries(teams(), sessions(), '');
+    expect(without.teams[0].leadAlive).toBe(false);
+  });
+
   it('counts members and marks the current team', async () => {
     await writeConfig('session-aaaa1111', team('session-aaaa1111', { createdAt: 10, leadSessionId: 'aaaa1111-x', members: 5 }));
     await writeConfig('session-bbbb2222', team('session-bbbb2222', { createdAt: 20, leadSessionId: 'bbbb2222-x', members: 1 }));

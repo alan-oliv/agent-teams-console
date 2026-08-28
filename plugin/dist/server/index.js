@@ -4416,7 +4416,7 @@ async function discoverTeam(teamsRoot2, sessionsRoot, explicitTeam) {
   return best ? toDiscovered(best) : null;
 }
 async function readSessions(sessionsRoot) {
-  const facts = { live: /* @__PURE__ */ new Set(), names: /* @__PURE__ */ new Map() };
+  const facts = { live: /* @__PURE__ */ new Set(), names: /* @__PURE__ */ new Map(), cwds: /* @__PURE__ */ new Map() };
   let entries;
   try {
     entries = await fs8.readdir(sessionsRoot);
@@ -4426,11 +4426,9 @@ async function readSessions(sessionsRoot) {
   const docs = [];
   for (const entry of entries) {
     if (!entry.endsWith(".json")) continue;
-    const doc = await readJsonSafe(
-      path9.join(sessionsRoot, entry)
-    );
+    const doc = await readJsonSafe(path9.join(sessionsRoot, entry));
     if (typeof doc?.sessionId !== "string") continue;
-    docs.push({ sessionId: doc.sessionId, pid: doc.pid, name: doc.name });
+    docs.push({ sessionId: doc.sessionId, pid: doc.pid, name: doc.name, cwd: doc.cwd });
   }
   const spares = await recycledSpares(
     docs.map((d) => d.pid).filter((p) => typeof p === "number")
@@ -4440,6 +4438,7 @@ async function readSessions(sessionsRoot) {
       facts.live.add(doc.sessionId);
     }
     if (typeof doc.name === "string" && doc.name !== "") facts.names.set(doc.sessionId, doc.name);
+    if (typeof doc.cwd === "string" && doc.cwd !== "") facts.cwds.set(doc.sessionId, doc.cwd);
   }
   return facts;
 }
@@ -4471,7 +4470,30 @@ async function lastActivityOf(teamDir, configMtimeMs) {
   }
   return latest;
 }
-async function listTeamSummaries(teamsRoot2, sessionsRoot, current) {
+async function teamsOfLiveSessions(projectsRoot, sessions) {
+  const teams = /* @__PURE__ */ new Set();
+  for (const sessionId of sessions.live) {
+    const cwd = sessions.cwds.get(sessionId);
+    if (!cwd) continue;
+    const dir = path9.join(projectsRoot, cwd.replace(/[^a-zA-Z0-9]/g, "-"), sessionId, "subagents");
+    let entries;
+    try {
+      entries = await fs8.readdir(dir);
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.endsWith(".meta.json")) continue;
+      const meta = await readJsonSafe(
+        path9.join(dir, entry)
+      );
+      if (meta?.taskKind !== "in_process_teammate") continue;
+      if (typeof meta.teamName === "string" && meta.teamName !== "") teams.add(meta.teamName);
+    }
+  }
+  return teams;
+}
+async function listTeamSummaries(teamsRoot2, sessionsRoot, current, projectsRoot) {
   let entries;
   try {
     entries = await fs8.readdir(teamsRoot2);
@@ -4479,6 +4501,7 @@ async function listTeamSummaries(teamsRoot2, sessionsRoot, current) {
     return { current, teams: [] };
   }
   const sessions = await readSessions(sessionsRoot);
+  const liveTeams = projectsRoot ? await teamsOfLiveSessions(projectsRoot, sessions) : /* @__PURE__ */ new Set();
   const now = Date.now();
   const teams = [];
   for (const name of entries) {
@@ -4494,7 +4517,7 @@ async function listTeamSummaries(teamsRoot2, sessionsRoot, current) {
     const config = await readJsonSafe(path9.join(teamDir, "config.json"));
     if (!config || typeof config.name !== "string" || !Array.isArray(config.members)) continue;
     const leadSessionId = typeof config.leadSessionId === "string" ? config.leadSessionId : "";
-    const leadAlive = leadSessionId !== "" && sessions.live.has(leadSessionId);
+    const leadAlive = liveTeams.has(name) || leadSessionId !== "" && sessions.live.has(leadSessionId);
     const lastActivityAt = await lastActivityOf(teamDir, configMtimeMs);
     const recent = now - lastActivityAt < IDLE_GRACE_MS;
     const lead = config.members.find((m) => m.agentId === config.leadAgentId) ?? config.members[0];
@@ -4556,6 +4579,7 @@ async function main(argv) {
   console.log(guard.ok ? guard.message : `warning: ${guard.message}`);
   const teamsRoot2 = path9.join(cli.claudeHome, "teams");
   const sessionsRoot = path9.join(cli.claudeHome, "sessions");
+  const projectsRoot = path9.join(cli.claudeHome, "projects");
   setTeamsRoot(teamsRoot2);
   const discovered = await discoverTeam(teamsRoot2, sessionsRoot, cli.team);
   const teamName = discovered?.teamName ?? cli.team;
@@ -4666,7 +4690,7 @@ async function main(argv) {
     stream: hub,
     state: () => project(store.replay(), cli.readOnly),
     readOnly: cli.readOnly,
-    listTeams: () => listTeamSummaries(teamsRoot2, sessionsRoot, currentTeam),
+    listTeams: () => listTeamSummaries(teamsRoot2, sessionsRoot, currentTeam, projectsRoot),
     history: (agent) => transcriptHistory(store.replay(), agent),
     selectTeam,
     onShutdown: stop
@@ -4675,7 +4699,7 @@ async function main(argv) {
   console.log(`agent teams console on http://127.0.0.1:${port}${cli.readOnly ? " (read-only)" : ""}`);
   const followRealTeam = async () => {
     if (pinned || switching) return;
-    const { teams } = await listTeamSummaries(teamsRoot2, sessionsRoot, currentTeam);
+    const { teams } = await listTeamSummaries(teamsRoot2, sessionsRoot, currentTeam, projectsRoot);
     if (teams.some((t) => t.name === currentTeam && t.members >= 2)) return;
     const target = teams.find((t) => t.members >= 2 && t.live);
     if (!target || target.name === currentTeam) return;
