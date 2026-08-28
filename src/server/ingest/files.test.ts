@@ -1263,7 +1263,10 @@ describe('a transcript FILE is the identity, not the name it carries', () => {
 
     const state = project(store.replay(), false);
     expect(state.agents.map((a) => a.name)).toEqual(['team-lead', 'worker']);
+    expect(state.agents.flatMap((a) => a.transcript).filter((l) => l.text.includes('GHOST'))).toHaveLength(0);
+    expect(state.agents.find((a) => a.name === 'worker')!.costUsd).toBeCloseTo(costOf(ours), 12);
     expect(state.totalCostUsd!).toBeCloseTo(costOf(ours), 12);
+    expect(state.totalTokens).toBe(50_000);
   });
 
   // The `--team`-before-config.json window: the launcher names the team on
@@ -1293,10 +1296,13 @@ describe('a transcript FILE is the identity, not the name it carries', () => {
       ingest.close();
     }
 
-    const w = worker();
-    expect(w.transcript.filter((l) => l.text.includes('FOREIGN'))).toHaveLength(0);
+    const state = project(store.replay(), false);
+    const w = state.agents.find((a) => a.name === 'worker')!;
+    expect(state.agents.flatMap((a) => a.transcript).filter((l) => l.text.includes('FOREIGN'))).toHaveLength(0);
     expect(w.transcript).toHaveLength(20);
     expect(w.costUsd).toBeCloseTo(costOf(ours), 12);
+    expect(state.totalCostUsd!).toBeCloseTo(costOf(ours), 12);
+    expect(state.totalTokens).toBe(50_000);
     expect(storedRecords()).toBe(20);
   });
 
