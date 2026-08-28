@@ -7,12 +7,15 @@ import {
   startFileIngest,
   agentOfTranscript,
   INGEST_BATCH_RECORDS,
+  PENDING_RECORDS,
   type IngestPaths,
   type FileIngest,
 } from './files';
 import { dedupeUsage, tokensOf, totalCost, usageRecordsOf } from '../../shared/usage';
+import { buildRoster } from '../../shared/roster';
 import type { TranscriptRecord } from '../../shared/transcript';
 import { project } from '../project';
+import type { Agent } from '../../shared/domain';
 import type { RosterPayload, TranscriptPayload, TaskPayload, MailPayload } from '../project';
 
 const FIXTURES = path.resolve(process.cwd(), 'fixtures');
@@ -982,5 +985,384 @@ describe('a stranger that shares a teammate name', () => {
     expect(state.agents.find((a) => a.name === 'twin')!.costUsd).toBeCloseTo(truth, 12);
     expect(state.totalCostUsd!).toBeCloseTo(truth, 12);
     expect(storedRecords()).toBe(ours.length);
+  });
+});
+
+// A NAME is not a key. The same ordinary machine that holds 13 teammate names
+// holds 165 sidecars carrying them, spread over several sessions, and a respawn
+// reuses the name again inside one session. The only thing that names ONE RUN is
+// its transcript FILE, so admission, ownership and the pump target are keyed on
+// the file here — and a name that has nothing to check it against is a claim,
+// not a proof.
+describe('a transcript FILE is the identity, not the name it carries', () => {
+  const FOREIGN_SESSION = 'ffffffff-0000-0000-0000-000000000000';
+  const ourDir = () => path.join(paths.projects, SLUG, LEAD_SESSION, 'subagents');
+  const foreignDir = () => path.join(paths.projects, SLUG, FOREIGN_SESSION, 'subagents');
+  const leadTranscript = () => path.join(paths.projects, SLUG, `${LEAD_SESSION}.jsonl`);
+  const jsonl = (hex: string, name = 'worker') => path.join(ourDir(), `agent-a${name}-${hex}.jsonl`);
+  const meta = (hex: string, name = 'worker') => path.join(ourDir(), `agent-a${name}-${hex}.meta.json`);
+
+  // 1,000 in / 1,000 out / 5,000 cache read / 500 cache write on claude-opus-5
+  // is exactly $0.035625 and 2,500 tokens a record — the shape round 4's
+  // reproduction was measured on, so its numbers are reproducible to the digit.
+  const rec = (i: number, tag: string) => ({
+    type: 'assistant',
+    uuid: `${tag}-${i}`,
+    isSidechain: true,
+    timestamp: new Date(1787843382976 + i * 1000).toISOString(),
+    message: {
+      id: `${tag}-msg-${i}`,
+      role: 'assistant',
+      model: 'claude-opus-5',
+      content: [{ type: 'text', text: `${tag} ${i}` }],
+      usage: {
+        input_tokens: 1000,
+        output_tokens: 1000,
+        cache_read_input_tokens: 5000,
+        cache_creation_input_tokens: 500,
+      },
+    },
+  });
+  const many = (n: number, tag: string, from = 0) =>
+    Array.from({ length: n }, (_, i) => rec(from + i, tag));
+
+  const sidecar = (name: string, taskKind = 'in_process_teammate', teamName = TEAM) =>
+    JSON.stringify({
+      agentType: name,
+      description: `desc ${name}`,
+      name,
+      spawnDepth: 0,
+      model: 'claude-opus-5',
+      taskKind,
+      teamName,
+    });
+
+  const write = (file: string, records: unknown[]) =>
+    fs.writeFile(file, records.map((r) => JSON.stringify(r)).join('\n') + '\n');
+  const append = (file: string, records: unknown[]) =>
+    fs.appendFile(file, records.map((r) => JSON.stringify(r)).join('\n') + '\n');
+
+  const writeConfig = () =>
+    fs.writeFile(
+      path.join(paths.teams, TEAM, 'config.json'),
+      JSON.stringify({
+        name: TEAM,
+        createdAt: 1787798107581,
+        leadAgentId: `team-lead@${TEAM}`,
+        leadSessionId: LEAD_SESSION,
+        members: [
+          { agentId: `team-lead@${TEAM}`, name: 'team-lead', joinedAt: 1, tmuxPaneId: 'lead', subscriptions: [] },
+          { agentId: `worker@${TEAM}`, name: 'worker', joinedAt: 2, tmuxPaneId: 'in-process', subscriptions: [], model: 'claude-opus-5' },
+        ],
+      }),
+    );
+
+  const costOf = (records: unknown[]) =>
+    totalCost(dedupeUsage(usageRecordsOf(records as TranscriptRecord[])));
+  const worker = () => project(store.replay(), false).agents.find((a) => a.name === 'worker')!;
+  const storedRecords = () =>
+    of(store.replay(), 'transcript').reduce(
+      (n, e) => n + (e.payload as TranscriptPayload).records.length,
+      0,
+    );
+
+  const start = (over: { teamName?: string; leadSessionId?: string } = {}) =>
+    startFileIngest(store, {
+      paths,
+      teamName: TEAM,
+      leadSessionId: LEAD_SESSION,
+      leadName: 'team-lead',
+      sweepIntervalMs: 0,
+      tailPollMs: 0,
+      ...over,
+    });
+
+  // fs.watch cannot register on a root that is not there, so hiding `projects`
+  // across startFileIngest degrades the transcript watcher to sweep-only. What
+  // is under test here is which file the ingest DECIDES to read; a live FSEvents
+  // delivery reads the same files by another route and masks the decision.
+  const startSweepOnly = async (over: { teamName?: string; leadSessionId?: string } = {}) => {
+    const hidden = `${paths.projects}.hidden`;
+    await fs.rename(paths.projects, hidden);
+    const ingest = start(over);
+    await fs.rename(hidden, paths.projects);
+    return ingest;
+  };
+
+  beforeEach(async () => {
+    await fs.mkdir(ourDir(), { recursive: true });
+    await fs.mkdir(path.join(paths.teams, TEAM), { recursive: true });
+    await writeConfig();
+  });
+
+  // Round 4's IMPORTANT, to the digit: a non-teammate transcript in OUR lead
+  // session's subagents directory under a teammate's name was admitted on
+  // `sidecars.has('worker')` and its whole spend billed to the teammate —
+  // costUsd 4.274999999999999 against a truth of 3.5625000000000013 (+20.0%),
+  // totalTokens 302500 against 252500, and 20 of the 60 drawn lines the
+  // stranger's.
+  it('never bills a teammate for a stranger transcript that shares its name', async () => {
+    const ours = many(100, 'OURS');
+    const lead = many(1, 'LEAD');
+    await write(jsonl('2222222222222222'), ours);
+    await fs.writeFile(meta('2222222222222222'), sidecar('worker'));
+    await write(jsonl('1111111111111111'), many(20, 'STRANGER'));
+    await fs.writeFile(meta('1111111111111111'), sidecar('worker', 'subagent'));
+    await write(leadTranscript(), lead);
+
+    const ingest = await startSweepOnly();
+    try {
+      await ingest.sweep();
+      await settle(20);
+      await append(jsonl('1111111111111111'), many(20, 'STRANGER', 20));
+      await ingest.sweep();
+    } finally {
+      ingest.close();
+    }
+
+    const state = project(store.replay(), false);
+    const w = state.agents.find((a) => a.name === 'worker')!;
+    expect(w.costUsd).toBeCloseTo(costOf(ours), 12);
+    expect(state.totalCostUsd!).toBeCloseTo(costOf(ours) + costOf(lead), 12);
+    expect(state.totalTokens).toBe(252_500);
+    expect(w.transcript.filter((l) => l.text.includes('STRANGER'))).toHaveLength(0);
+    expect(w.transcript).toHaveLength(60);
+    expect(w.transcript.at(-1)!.text).toBe('OURS 99');
+  });
+
+  // The other read ordering, which is worse: our sidecar is accepted first, so
+  // the stranger's very first batch arrives as `fromStart` under the teammate's
+  // name and the fold's clear DESTROYS the teammate's stored transcript — and
+  // with one slot per name in transcriptPaths, drainAgent then pumps the
+  // stranger and the teammate's cost freezes.
+  it("keeps a teammate's transcript and cost when a stranger is read after its sidecar", async () => {
+    const ours = many(100, 'OURS');
+    await write(jsonl('0000000000000000'), ours);
+    await fs.writeFile(meta('0000000000000000'), sidecar('worker'));
+    await write(jsonl('1111111111111111'), many(20, 'STRANGER'));
+    await fs.writeFile(meta('1111111111111111'), sidecar('worker', 'subagent'));
+
+    const ingest = await startSweepOnly();
+    try {
+      await ingest.sweep();
+      await settle(20);
+      await append(jsonl('0000000000000000'), many(1, 'OURS', 100));
+      await ingest.drainAgent('worker');
+    } finally {
+      ingest.close();
+    }
+
+    const w = worker();
+    expect(w.transcript.filter((l) => l.text.includes('STRANGER'))).toHaveLength(0);
+    expect(w.transcript).toHaveLength(60);
+    expect(w.transcript.at(-1)!.text).toBe('OURS 100');
+    expect(w.costUsd).toBeCloseTo(costOf([...ours, ...many(1, 'OURS', 100)]), 12);
+  });
+
+  // A respawn gives one name two transcript files. drainAgent is the
+  // hook-triggered pull, and pollTails reads the same map, so one slot per name
+  // sends both at the dead run and reverts the live one to the 5s sweep.
+  it('pumps every transcript file an agent owns, not just the last one seen', async () => {
+    await write(jsonl('ffffffffffffffff'), many(10, 'DEAD'));
+    await fs.writeFile(meta('ffffffffffffffff'), sidecar('worker'));
+    await write(jsonl('aaaaaaaaaaaaaaaa'), many(10, 'LIVE'));
+    await fs.writeFile(meta('aaaaaaaaaaaaaaaa'), sidecar('worker'));
+
+    const ingest = await startSweepOnly();
+    try {
+      await ingest.sweep();
+      // Neither run's first read may clear the other's stored records.
+      expect(worker().transcript).toHaveLength(20);
+
+      await settle(20);
+      await append(jsonl('aaaaaaaaaaaaaaaa'), many(1, 'LIVE', 100));
+      await ingest.drainAgent('worker');
+      expect(worker().transcript.some((l) => l.text === 'LIVE 100')).toBe(true);
+    } finally {
+      ingest.close();
+    }
+  });
+
+  it('shows two runs of one name as one agent carrying both transcripts', async () => {
+    await write(jsonl('ffffffffffffffff'), many(10, 'DEAD'));
+    await fs.writeFile(meta('ffffffffffffffff'), sidecar('worker'));
+    await write(jsonl('aaaaaaaaaaaaaaaa'), many(10, 'LIVE'));
+    await fs.writeFile(meta('aaaaaaaaaaaaaaaa'), sidecar('worker'));
+
+    const ingest = await startSweepOnly();
+    try {
+      await ingest.sweep();
+    } finally {
+      ingest.close();
+    }
+
+    const roster = of(store.replay(), 'roster').at(-1)!.payload as RosterPayload;
+    // One row per accepted FILE on the wire; buildRoster collapses them by name.
+    expect(roster.sidecars).toHaveLength(2);
+    expect(buildRoster(roster.config, roster.sidecars).filter((a) => a.name === 'worker')).toHaveLength(1);
+    const state = project(store.replay(), false);
+    expect(state.agents.map((a) => a.name)).toEqual(['team-lead', 'worker']);
+    expect(state.agents.find((a) => a.name === 'worker')!.transcript).toHaveLength(20);
+  });
+
+  // currentTool and error are last-arrival-wins, so the order two runs are read
+  // in is not cosmetic: a dead run read last puts its final tool call and its
+  // failure on a live agent.
+  it('lets the newest run decide currentTool and status when two runs disagree', async () => {
+    const dead = [
+      { type: 'assistant', uuid: 'd1', timestamp: '2026-08-27T10:00:00.000Z', message: { id: 'dm1', role: 'assistant', model: 'claude-opus-5', content: [{ type: 'text', text: 'dead 1' }], usage: { input_tokens: 1, output_tokens: 1 } } },
+      { type: 'assistant', uuid: 'd2', timestamp: '2026-08-27T10:00:01.000Z', message: { id: 'dm2', role: 'assistant', model: 'claude-opus-5', content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'rm -rf /dead' } }], usage: { input_tokens: 1, output_tokens: 1 } } },
+      { type: 'assistant', uuid: 'd3', isApiErrorMessage: true, timestamp: '2026-08-27T10:00:02.000Z', message: { id: 'dm3', role: 'assistant', model: 'claude-opus-5', content: [{ type: 'text', text: 'API Error: overloaded' }], usage: { input_tokens: 1, output_tokens: 1 } } },
+    ];
+    const live = [
+      { type: 'assistant', uuid: 'l1', timestamp: '2026-08-27T11:00:00.000Z', message: { id: 'lm1', role: 'assistant', model: 'claude-opus-5', content: [{ type: 'text', text: 'live 1' }], usage: { input_tokens: 1, output_tokens: 1 } } },
+      { type: 'user', uuid: 'l2', timestamp: '2026-08-27T11:00:01.000Z', toolUseResult: { ok: true }, message: { role: 'user', content: 'done' } },
+      { type: 'assistant', uuid: 'l3', timestamp: '2026-08-27T11:00:02.000Z', message: { id: 'lm3', role: 'assistant', model: 'claude-opus-5', content: [{ type: 'text', text: 'live 3' }], usage: { input_tokens: 1, output_tokens: 1 } } },
+    ];
+    await write(jsonl('ffffffffffffffff'), dead);
+    await fs.writeFile(meta('ffffffffffffffff'), sidecar('worker'));
+    await write(jsonl('aaaaaaaaaaaaaaaa'), live);
+    await fs.writeFile(meta('aaaaaaaaaaaaaaaa'), sidecar('worker'));
+    // The dead run sorts LAST by name and is OLDER by mtime: only the mtime
+    // order can put the live run's records last.
+    const old = new Date(Date.now() - 60_000);
+    await fs.utimes(jsonl('ffffffffffffffff'), old, old);
+
+    const ingest = await startSweepOnly();
+    try {
+      await ingest.sweep();
+    } finally {
+      ingest.close();
+    }
+
+    const w = worker();
+    expect(w.transcript).toHaveLength(6);
+    expect(w.transcript.at(-1)!.text).toBe('live 3');
+    expect(w.status).toBe('working');
+    expect(w.currentTool).toBeUndefined();
+    expect(w.error).toBeUndefined();
+  });
+
+  it('keeps another session sidecar off the roster even when it carries our team name', async () => {
+    const ours = many(20, 'OURS');
+    await write(jsonl('0000000000000000'), ours);
+    await fs.writeFile(meta('0000000000000000'), sidecar('worker'));
+    await fs.mkdir(foreignDir(), { recursive: true });
+    await write(path.join(foreignDir(), 'agent-aghost-9999999999999999.jsonl'), many(20, 'GHOST'));
+    await fs.writeFile(
+      path.join(foreignDir(), 'agent-aghost-9999999999999999.meta.json'),
+      sidecar('ghost'),
+    );
+
+    const ingest = await startSweepOnly();
+    try {
+      await ingest.sweep();
+    } finally {
+      ingest.close();
+    }
+
+    const state = project(store.replay(), false);
+    expect(state.agents.map((a) => a.name)).toEqual(['team-lead', 'worker']);
+    expect(state.totalCostUsd!).toBeCloseTo(costOf(ours), 12);
+  });
+
+  // The `--team`-before-config.json window: the launcher names the team on
+  // PreToolUse, i.e. before the spawn that writes config.json, so leadSessionId
+  // is unknown and a bare name is all any transcript has. Attributing on it puts
+  // another session's records under our teammate and doubles its cost, and for a
+  // teammate that then goes quiet the wrong snapshot is the newest one forever.
+  it('discards a foreign transcript read before config.json and replays our own', async () => {
+    await fs.rm(path.join(paths.teams, TEAM, 'config.json'));
+    const ours = many(20, 'OURS');
+    await write(jsonl('0000000000000000'), ours);
+    await fs.writeFile(meta('0000000000000000'), sidecar('worker'));
+    await fs.mkdir(foreignDir(), { recursive: true });
+    await write(path.join(foreignDir(), 'agent-aworker-7777777777777777.jsonl'), many(20, 'FOREIGN'));
+
+    const ingest = await startSweepOnly({ leadSessionId: undefined });
+    try {
+      await ingest.sweep();
+      expect(of(store.replay(), 'transcript')).toHaveLength(0);
+
+      // config.json lands and NOTHING else on disk is touched, so only the
+      // held buffers can produce a transcript from here.
+      await writeConfig();
+      await settle(20);
+      await ingest.sweep();
+    } finally {
+      ingest.close();
+    }
+
+    const w = worker();
+    expect(w.transcript.filter((l) => l.text.includes('FOREIGN'))).toHaveLength(0);
+    expect(w.transcript).toHaveLength(20);
+    expect(w.costUsd).toBeCloseTo(costOf(ours), 12);
+    expect(storedRecords()).toBe(20);
+  });
+
+  it('holds a teammate until config.json arrives, then replays it on the teams watcher', async () => {
+    await fs.rm(path.join(paths.teams, TEAM, 'config.json'));
+    const ours = many(20, 'OURS');
+    await write(jsonl('0000000000000000'), ours);
+    await fs.writeFile(meta('0000000000000000'), sidecar('worker'));
+
+    const ingest = start({ leadSessionId: undefined });
+    try {
+      await ingest.sweep();
+      // Nothing may be attributed on a name the directory check cannot test.
+      expect(project(store.replay(), false).agents).toHaveLength(0);
+      expect(of(store.replay(), 'transcript')).toHaveLength(0);
+
+      // There is no sweep timer here, so only the teams watcher can land this.
+      // FSEventStreamStart returns before the stream is armed and a write in
+      // that window is never reported at all, so the stimulus is REWRITTEN
+      // until it is seen: waiting longer cannot recover a dropped event. Same
+      // argument as arming.testkit.ts, against the ingest's own watcher.
+      let w: Agent | undefined;
+      const deadline = Date.now() + 3000;
+      do {
+        await writeConfig();
+        for (let i = 0; i < 8 && !w; i++) {
+          await settle(25);
+          w = project(store.replay(), false).agents.find((a) => a.name === 'worker');
+        }
+      } while (!w && Date.now() < deadline);
+
+      expect(w!.transcript).toHaveLength(20);
+      expect(w!.costUsd).toBeCloseTo(costOf(ours), 12);
+    } finally {
+      ingest.close();
+    }
+  });
+
+  // PENDING_CAP is a per-FILE bound, and the number of files that can be held is
+  // the number of subagent transcripts on the machine, not the size of the team:
+  // 165 buffered files retained 309.7 MB of heap against 24.6 MB for 13 —
+  // 12.6x = 165/13, the file-to-name ratio. PENDING_RECORDS is the bound that
+  // does not move with the file count.
+  it('bounds the pre-attribution buffers across files, not just per file', async () => {
+    const FILES = 30;
+    const hex = (i: number) => i.toString(16).padStart(16, '0');
+    for (let i = 0; i < FILES; i++) {
+      await write(jsonl(hex(i), `buf${i}`), many(600, `B${i}`));
+    }
+
+    const ingest = await startSweepOnly();
+    try {
+      await ingest.sweep();
+      expect(of(store.replay(), 'transcript')).toHaveLength(0);
+
+      for (let i = 0; i < FILES; i++) {
+        await fs.writeFile(meta(hex(i), `buf${i}`), sidecar(`buf${i}`));
+      }
+      await ingest.sweep();
+    } finally {
+      ingest.close();
+    }
+
+    // Everything still held flushes the moment its sidecar lands, so what
+    // reaches the store IS what the buffers were holding.
+    expect(storedRecords()).toBeGreaterThan(0);
+    expect(storedRecords()).toBeLessThanOrEqual(PENDING_RECORDS);
   });
 });
