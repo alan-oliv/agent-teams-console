@@ -229,3 +229,99 @@ describe('Wall column memoisation', () => {
     });
   });
 });
+
+describe('Wall column resizing', () => {
+  const grip = (name: string) =>
+    screen.getAllByTestId('wall-grip').find((g) => g.getAttribute('data-agent') === name)!;
+  const column = (name: string) =>
+    screen.getAllByTestId('wall-column').find((c) => c.getAttribute('data-agent') === name)!;
+
+  function renderResizable(widths: Record<string, number> = {}) {
+    const onWidthChange = vi.fn();
+    const { rerender } = render(
+      <Wall
+        agents={agents}
+        focused={null}
+        onFocus={vi.fn()}
+        now={FIXTURE_NOW}
+        widths={widths}
+        onWidthChange={onWidthChange}
+      />,
+    );
+    return { onWidthChange, rerender };
+  }
+
+  function drag(name: string, dx: number) {
+    fireEvent.mouseDown(grip(name), { clientX: 400 });
+    fireEvent.mouseMove(window, { clientX: 400 + dx });
+  }
+
+  it('defaults every column to 366px', () => {
+    renderResizable();
+    for (const c of screen.getAllByTestId('wall-column')) expect(c.style.width).toBe('366px');
+  });
+
+  it('renders the width the store holds for that agent', () => {
+    renderResizable({ 'probe-alpha': 500 });
+    expect(column('probe-alpha').style.width).toBe('500px');
+    expect(column('probe-bravo').style.width).toBe('366px');
+  });
+
+  it('reports the dragged delta for that column only', () => {
+    const { onWidthChange } = renderResizable();
+    drag('probe-alpha', 90);
+    expect(onWidthChange).toHaveBeenCalledWith('probe-alpha', 456);
+    fireEvent.mouseUp(window);
+  });
+
+  it('drags from the column own width, not the default', () => {
+    const { onWidthChange } = renderResizable({ 'probe-alpha': 500 });
+    drag('probe-alpha', -40);
+    expect(onWidthChange).toHaveBeenCalledWith('probe-alpha', 460);
+    fireEvent.mouseUp(window);
+  });
+
+  it('stops reporting once the mouse is released', () => {
+    const { onWidthChange } = renderResizable();
+    drag('probe-alpha', 20);
+    fireEvent.mouseUp(window);
+    onWidthChange.mockClear();
+    fireEvent.mouseMove(window, { clientX: 900 });
+    expect(onWidthChange).not.toHaveBeenCalled();
+  });
+
+  it('resets to the default on double-click', () => {
+    const { onWidthChange } = renderResizable({ 'probe-alpha': 500 });
+    fireEvent.doubleClick(grip('probe-alpha'));
+    expect(onWidthChange).toHaveBeenCalledWith('probe-alpha', null);
+  });
+
+  // The grip lives inside the column, and the column focuses its agent on click.
+  it('does not focus the agent when the grip is grabbed', () => {
+    const onFocus = vi.fn();
+    render(
+      <Wall
+        agents={agents}
+        focused={null}
+        onFocus={onFocus}
+        now={FIXTURE_NOW}
+        widths={{}}
+        onWidthChange={vi.fn()}
+      />,
+    );
+    fireEvent.mouseDown(grip('probe-alpha'), { clientX: 400 });
+    fireEvent.click(grip('probe-alpha'));
+    expect(onFocus).not.toHaveBeenCalled();
+    fireEvent.mouseUp(window);
+  });
+
+  it('shows the accent line only on the column being dragged', () => {
+    renderResizable();
+    const line = (name: string) => grip(name).firstElementChild as HTMLElement;
+    expect(line('probe-alpha').style.background).toBe('transparent');
+    drag('probe-alpha', 10);
+    expect(line('probe-alpha').style.background).toBe('var(--color-accent-500)');
+    expect(line('probe-bravo').style.background).toBe('transparent');
+    fireEvent.mouseUp(window);
+  });
+});

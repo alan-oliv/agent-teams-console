@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { TranscriptLine } from '../../shared/domain';
 import { TranscriptFeed } from './TranscriptFeed';
 
@@ -13,13 +13,17 @@ const LINES: TranscriptLine[] = [
 ];
 
 describe('TranscriptFeed', () => {
-  it('is a bottom-anchored one-pixel-gap column', () => {
+  it('is a bottom-anchored one-pixel-gap column that scrolls on its own', () => {
     render(<TranscriptFeed lines={LINES} size="wall" />);
     const feed = screen.getByTestId('transcript-feed');
     expect(feed.style.display).toBe('flex');
     expect(feed.style.flexDirection).toBe('column');
-    expect(feed.style.justifyContent).toBe('flex-end');
-    expect(feed.style.overflow).toBe('hidden');
+    // Anchoring is `margin-top: auto` on the first row, carried by .tscroll.
+    // `justify-content: flex-end` looks the same and overflows past the top
+    // edge, where no scrollbar can reach it.
+    expect(feed.style.justifyContent).toBe('');
+    expect(feed.style.overflow).toBe('');
+    expect(feed.className).toBe('tscroll');
   });
 
   it('ellipsises every line: nowrap row, hidden overflow, ellipsis text', () => {
@@ -123,5 +127,125 @@ describe('expanding a row that has more to show', () => {
     );
     fireEvent.click(rows()[0]);
     expect(onParent).toHaveBeenCalledTimes(1);
+  });
+});
+
+// jsdom gives every element zero layout, so the pane's scroll geometry is stubbed
+// on the prototype — it has to be in place before the first effect runs.
+describe('TranscriptFeed follow-on-append', () => {
+  const box = { scrollHeight: 900, clientHeight: 300 };
+
+  beforeEach(() => {
+    Object.defineProperty(HTMLElement.prototype, 'scrollHeight', {
+      get: () => box.scrollHeight,
+      configurable: true,
+    });
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+      get: () => box.clientHeight,
+      configurable: true,
+    });
+    box.scrollHeight = 900;
+    box.clientHeight = 300;
+  });
+
+  // Both live on Element.prototype; the stubs above shadow them, so dropping the
+  // own properties uncovers the originals.
+  afterEach(() => {
+    Reflect.deleteProperty(HTMLElement.prototype, 'scrollHeight');
+    Reflect.deleteProperty(HTMLElement.prototype, 'clientHeight');
+  });
+
+  const more: TranscriptLine[] = [
+    ...LINES,
+    { id: 'alpha-3', marker: '✓', text: 'done', ts: 1787843400000 },
+  ];
+
+  it('pins a fresh pane to the bottom', () => {
+    render(<TranscriptFeed lines={LINES} size="wall" />);
+    expect(screen.getByTestId('transcript-feed').scrollTop).toBe(900);
+  });
+
+  it('follows new output when the operator is already within 64px of the bottom', () => {
+    const { rerender } = render(<TranscriptFeed lines={LINES} size="wall" />);
+    const feed = screen.getByTestId('transcript-feed');
+
+    feed.scrollTop = 670; // 1000 - 300 - 670 = 30px of slack — still reading the tail
+    box.scrollHeight = 1000;
+    rerender(<TranscriptFeed lines={more} size="wall" />);
+    expect(feed.scrollTop).toBe(1000);
+  });
+
+  it('leaves the position alone once the operator has scrolled up to read', () => {
+    const { rerender } = render(<TranscriptFeed lines={LINES} size="wall" />);
+    const feed = screen.getByTestId('transcript-feed');
+
+    feed.scrollTop = 120; // 480px of slack — reading history
+    box.scrollHeight = 1000;
+    rerender(<TranscriptFeed lines={more} size="wall" />);
+    expect(feed.scrollTop).toBe(120);
+  });
+});
+
+describe('TranscriptFeed scrollback', () => {
+  const live: TranscriptLine[] = [
+    { id: 'n-8', marker: '⏺', text: 'newest but one', ts: 1787843400000 },
+    { id: 'n-9', marker: '✓', text: 'newest', ts: 1787843401000 },
+  ];
+  const history: TranscriptLine[] = [
+    { id: 'h-0', marker: '❯', text: 'session preamble', ts: 1787843000000 },
+    { id: 'h-1', marker: '⏺', text: 'older work', ts: 1787843001000 },
+    // Overlaps the live tail: the server sends everything it retains, and the
+    // newest of those are already on screen.
+    { id: 'n-8', marker: '⏺', text: 'newest but one', ts: 1787843400000 },
+  ];
+
+  beforeEach(() => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => ({
+        ok: true,
+        json: async () => ({ agent: 'probe-alpha', lines: history }),
+        url,
+      })),
+    );
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  const texts = () =>
+    screen.getAllByTestId('transcript-text').map((n) => n.textContent);
+
+  it('shows only the live tail before the operator scrolls up', () => {
+    render(<TranscriptFeed lines={live} size="wall" agent="probe-alpha" />);
+    expect(texts()).toEqual(['newest but one', 'newest']);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('pulls older lines in when the pane is scrolled to the top', async () => {
+    render(<TranscriptFeed lines={live} size="wall" agent="probe-alpha" />);
+    const feed = screen.getByTestId('transcript-feed');
+    feed.scrollTop = 0;
+    fireEvent.scroll(feed);
+    await waitFor(() => expect(texts().length).toBe(4));
+    expect(texts()).toEqual(['session preamble', 'older work', 'newest but one', 'newest']);
+    expect(fetch).toHaveBeenCalledWith('/api/history?agent=probe-alpha');
+  });
+
+  it('asks for a given agent history only once', async () => {
+    render(<TranscriptFeed lines={live} size="wall" agent="probe-alpha" />);
+    const feed = screen.getByTestId('transcript-feed');
+    feed.scrollTop = 0;
+    fireEvent.scroll(feed);
+    await waitFor(() => expect(texts().length).toBe(4));
+    fireEvent.scroll(feed);
+    fireEvent.scroll(feed);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('never asks when no agent is given, so digest views stay static', () => {
+    render(<TranscriptFeed lines={live} size="overview" />);
+    const feed = screen.getByTestId('transcript-feed');
+    feed.scrollTop = 0;
+    fireEvent.scroll(feed);
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

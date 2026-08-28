@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { project, PROJECTED_TRANSCRIPT_LINES } from './project';
+import { project, transcriptHistory, PROJECTED_TRANSCRIPT_LINES } from './project';
 import { TRANSCRIPT_RECORDS_PER_AGENT, type StoredEvent, type EventKind } from './store';
 import type { TeamConfig, Sidecar } from '../shared/roster';
 import { parseLine, TRANSCRIPT_TEXT_CAP, type TranscriptRecord } from '../shared/transcript';
@@ -846,5 +846,61 @@ describe('bounded transcript history', () => {
       expect(capped.agents[i].currentTool).toBe(truth.agents[i].currentTool);
       expect(capped.agents[i].status).toBe(truth.agents[i].status);
     }
+  });
+});
+
+describe('transcriptHistory', () => {
+  const recs = (from: number, to: number): TranscriptRecord[] =>
+    Array.from({ length: to - from }, (_, i) => ({
+      type: 'assistant' as const,
+      uuid: `line-${from + i}`,
+      timestamp: new Date(1787843400000 + from + i).toISOString(),
+      message: { content: [{ type: 'text', text: `line ${from + i}` }] },
+    }));
+
+  const log = (records: TranscriptRecord[], agent = 'solo'): StoredEvent[] => [
+    { seq: 1, ts: 0, kind: 'transcript', agent, payload: { agent, records } },
+  ];
+
+  // The whole point: the live frame is capped so it stays small, and this is
+  // how the operator reaches what the cap left out.
+  it('returns far more than a projected frame carries', () => {
+    const events = log(recs(1, 500));
+    const history = transcriptHistory(events, 'solo');
+    expect(history.length).toBeGreaterThan(PROJECTED_TRANSCRIPT_LINES);
+    expect(history).toHaveLength(499);
+    expect(history[0].text).toBe('line 1');
+    expect(history[history.length - 1].text).toBe('line 499');
+  });
+
+  it('returns nothing for an agent with no transcript', () => {
+    expect(transcriptHistory(log(recs(1, 5)), 'nobody')).toEqual([]);
+  });
+
+  it('keeps one agent history out of another', () => {
+    const events = [...log(recs(1, 4), 'alpha'), ...log(recs(90, 93), 'bravo')];
+    expect(transcriptHistory(events, 'alpha').map((l) => l.text)).toEqual([
+      'line 1', 'line 2', 'line 3',
+    ]);
+    expect(transcriptHistory(events, 'bravo').map((l) => l.text)).toEqual([
+      'line 90', 'line 91', 'line 92',
+    ]);
+  });
+
+  it('dedupes records the reconciliation sweep sent twice', () => {
+    const events = [...log(recs(1, 4)), ...log(recs(1, 4))];
+    expect(transcriptHistory(events, 'solo')).toHaveLength(3);
+  });
+
+  // A re-read from byte zero replaces what came before rather than doubling it.
+  it('restarts the history on a fromStart re-read', () => {
+    const events: StoredEvent[] = [
+      ...log(recs(1, 4)),
+      {
+        seq: 2, ts: 0, kind: 'transcript', agent: 'solo',
+        payload: { agent: 'solo', fromStart: true, records: recs(50, 52) },
+      },
+    ];
+    expect(transcriptHistory(events, 'solo').map((l) => l.text)).toEqual(['line 50', 'line 51']);
   });
 });

@@ -68,6 +68,7 @@ async function boot(readOnly: boolean, webDist?: string): Promise<{ server: Serv
         lastActivityAt: 1787798107581,
         live: true,
         current: true,
+        state: 'live',
       },
     ],
   };

@@ -6,6 +6,7 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
 } from 'react';
 import type { Agent } from '../../shared/domain';
 import { AGENT_STATUS } from '../../shared/status';
@@ -15,6 +16,7 @@ import { Portrait } from '../components/Portrait';
 import { StatusGlyph } from '../components/StatusGlyph';
 import { TranscriptFeed } from '../components/TranscriptFeed';
 import { contextBar, costLabel, ctxLabel, pctLabel, warnMark } from '../format';
+import { COLUMN_WIDTH } from '../state/useTeamState';
 
 // Matches the --terminal-ground token (theme.css); kept literal so the tint
 // toggle below reads back as a resolved rgb() in jsdom, not a var() string.
@@ -35,16 +37,21 @@ const LINE: CSSProperties = { display: 'flex', alignItems: 'baseline', gap: '7px
 // Every prop must be stable across frames for that to hold: `isTinted` is passed
 // precomputed rather than the hovered name, and the handlers are hoisted callbacks.
 const Column = memo(function Column({
-  agent, isFocused, isTinted, readOnly, teamLive, onFocus, onHoverEnter, onHoverLeave,
+  agent, isFocused, isTinted, isDragging, width, readOnly, teamLive,
+  onFocus, onHoverEnter, onHoverLeave, onGrip, onGripReset,
 }: {
   agent: Agent;
   isFocused: boolean;
   isTinted: boolean;
+  isDragging: boolean;
+  width: number;
   readOnly: boolean;
   teamLive: boolean;
   onFocus: (name: string) => void;
   onHoverEnter: (name: string) => void;
   onHoverLeave: (name: string) => void;
+  onGrip: (name: string, e: ReactMouseEvent) => void;
+  onGripReset: (name: string) => void;
 }) {
   const status = AGENT_STATUS[agent.status];
   const isLeadColumn = agent.isLead;
@@ -55,7 +62,8 @@ const Column = memo(function Column({
 
   const column: CSSProperties = {
     flex: 'none',
-    width: '366px',
+    width: `${width}px`,
+    position: 'relative',
     background: isTinted ? 'var(--color-bg)' : GROUND,
     display: 'flex',
     flexDirection: 'column',
@@ -63,7 +71,7 @@ const Column = memo(function Column({
     cursor: 'pointer',
     opacity: agent.status === 'departed' ? 0.55 : 1,
     ...(shadows.length ? { boxShadow: shadows.join(',') } : {}),
-    ...(isLeadColumn ? { position: 'sticky', left: 0, zIndex: 2 } : {}),
+    ...(isLeadColumn ? { position: 'sticky' as const, left: 0, zIndex: 2 } : {}),
   };
 
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
@@ -180,7 +188,7 @@ const Column = memo(function Column({
         </div>
       </div>
 
-      <TranscriptFeed lines={agent.transcript} size="wall" />
+      <TranscriptFeed lines={agent.transcript} size="wall" agent={agent.name} />
 
       <div
         data-testid="wall-current-tool"
@@ -198,20 +206,85 @@ const Column = memo(function Column({
       </div>
 
       <Composer agent={agent} variant="wall" readOnly={readOnly} teamLive={teamLive} />
+
+      <div
+        data-testid="wall-grip"
+        data-agent={agent.name}
+        title="drag to resize · double-click to reset"
+        onMouseDown={(e) => onGrip(agent.name, e)}
+        onDoubleClick={() => onGripReset(agent.name)}
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          position: 'absolute',
+          top: 0,
+          right: -3,
+          width: 7,
+          height: '100%',
+          cursor: 'col-resize',
+          zIndex: 4,
+          display: 'flex',
+          justifyContent: 'center',
+        }}
+      >
+        <span
+          style={{
+            width: 1,
+            height: '100%',
+            background: isDragging ? 'var(--color-accent-500)' : 'transparent',
+          }}
+        />
+      </div>
     </div>
   );
 });
 
 export function Wall({
-  agents, focused, onFocus, now, readOnly = false,
+  agents, focused, onFocus, now, readOnly = false, widths = {}, onWidthChange,
 }: {
   agents: Agent[];
   focused: string | null;
   onFocus: (name: string) => void;
   now: number;
   readOnly?: boolean;
+  widths?: Readonly<Record<string, number>>;
+  onWidthChange?: (name: string, px: number | null) => void;
 }) {
   const [hovered, setHovered] = useState<string | null>(null);
+  const [dragging, setDragging] = useState<string | null>(null);
+
+  // Read through a ref so the mousemove listener never needs rebinding mid-drag.
+  const widthsRef = useRef(widths);
+  widthsRef.current = widths;
+
+  const onGrip = useCallback(
+    (name: string, e: ReactMouseEvent) => {
+      if (!onWidthChange) return;
+      // The grip sits inside the column, which focuses the agent on click.
+      e.preventDefault();
+      e.stopPropagation();
+      const startX = e.clientX;
+      const startWidth = widthsRef.current[name] ?? COLUMN_WIDTH;
+      const move = (ev: MouseEvent) => onWidthChange(name, startWidth + ev.clientX - startX);
+      const up = () => {
+        window.removeEventListener('mousemove', move);
+        window.removeEventListener('mouseup', up);
+        document.body.style.cursor = '';
+        setDragging(null);
+      };
+      window.addEventListener('mousemove', move);
+      window.addEventListener('mouseup', up);
+      // Held on the body so the cursor survives the pointer leaving the 7px strip.
+      document.body.style.cursor = 'col-resize';
+      setDragging(name);
+    },
+    [onWidthChange],
+  );
+
+  const onGripReset = useCallback(
+    (name: string) => onWidthChange?.(name, null),
+    [onWidthChange],
+  );
+
   const onHoverEnter = useCallback((name: string) => setHovered(name), []);
   const onHoverLeave = useCallback(
     (name: string) => setHovered((h) => (h === name ? null : h)),
@@ -268,11 +341,15 @@ export function Wall({
             agent={agent}
             isFocused={agent.name === focused}
             isTinted={agent.name === focused || hovered === agent.name}
+            isDragging={dragging === agent.name}
+            width={widths[agent.name] ?? COLUMN_WIDTH}
             readOnly={readOnly}
             teamLive={teamLive}
             onFocus={onFocus}
             onHoverEnter={onHoverEnter}
             onHoverLeave={onHoverLeave}
+            onGrip={onGrip}
+            onGripReset={onGripReset}
           />
         ))}
       </NowContext>

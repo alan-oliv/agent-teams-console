@@ -167,7 +167,7 @@ const Attached = memo(function Attached(
         </span>
       </div>
 
-      <TranscriptFeed lines={agent.transcript} size="rail" />
+      <TranscriptFeed lines={agent.transcript} size="rail" agent={agent.name} />
 
       <Composer agent={agent} variant="rail" readOnly={readOnly} teamLive={teamLive} />
     </div>

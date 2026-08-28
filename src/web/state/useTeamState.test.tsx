@@ -4,7 +4,13 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { TeamState } from '../../shared/domain';
 import { MockEventSource, installMockEventSource } from '../test/mockEventSource';
 import { sampleTeamState } from '../test/state-fixture';
-import { isAnnouncedTeam, useTeamState } from './useTeamState';
+import {
+  COLUMN_MAX,
+  COLUMN_MIN,
+  COLUMN_WIDTH,
+  isAnnouncedTeam,
+  useTeamState,
+} from './useTeamState';
 
 beforeEach(() => {
   installMockEventSource();
@@ -218,4 +224,43 @@ it('keeps a valid selection across an ordinary frame', () => {
   act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
   act(() => MockEventSource.last().emit('state', sampleTeamState()));
   expect(result.current.agent).toBe('probe-bravo');
+});
+
+it('starts with no column width overrides', () => {
+  const { result } = renderHook(() => useTeamState());
+  expect(result.current.widths).toEqual({});
+});
+
+it('clamps a column width to the resizable range', () => {
+  const { result } = renderHook(() => useTeamState());
+  act(() => result.current.setWidth('probe-alpha', 40));
+  expect(result.current.widths['probe-alpha']).toBe(COLUMN_MIN);
+  act(() => result.current.setWidth('probe-alpha', 5000));
+  expect(result.current.widths['probe-alpha']).toBe(COLUMN_MAX);
+  act(() => result.current.setWidth('probe-alpha', 512.4));
+  expect(result.current.widths['probe-alpha']).toBe(512);
+});
+
+it('resizes one column without disturbing the others', () => {
+  const { result } = renderHook(() => useTeamState());
+  act(() => result.current.setWidth('probe-alpha', 500));
+  act(() => result.current.setWidth('probe-bravo', 300));
+  expect(result.current.widths).toEqual({ 'probe-alpha': 500, 'probe-bravo': 300 });
+});
+
+it('drops the override on reset, falling back to the default width', () => {
+  const { result } = renderHook(() => useTeamState());
+  act(() => result.current.setWidth('probe-alpha', 500));
+  act(() => result.current.setWidth('probe-alpha', null));
+  expect(result.current.widths).toEqual({});
+  expect(COLUMN_WIDTH).toBe(366);
+});
+
+// Wall unmounts on every view switch, so a width held there would not survive one.
+it('keeps column widths across a view switch', () => {
+  const { result } = renderHook(() => useTeamState());
+  act(() => result.current.setWidth('probe-alpha', 500));
+  act(() => result.current.setView('tasks'));
+  act(() => result.current.setView('wall'));
+  expect(result.current.widths['probe-alpha']).toBe(500);
 });

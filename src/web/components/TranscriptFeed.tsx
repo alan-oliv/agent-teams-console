@@ -1,4 +1,13 @@
-import { useCallback, useState, type CSSProperties, type MouseEvent } from 'react';
+import {
+  useCallback,
+  useMemo,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent,
+  type UIEvent,
+} from 'react';
 import type { TranscriptLine } from '../../shared/domain';
 
 export type FeedSize = 'wall' | 'overview' | 'grid' | 'rail';
@@ -36,10 +45,20 @@ const FEED: Record<FeedSize, FeedStyle> = {
   },
 };
 
-// No view shows more than ~20 rows; the store keeps 2000 per agent (spec §10).
-const RENDER_LIMIT = 60;
+// The live frame already carries only PROJECTED_TRANSCRIPT_LINES per agent, so
+// this bounds the merged list once scrollback has been pulled in.
+const RENDER_LIMIT = 1_200;
 
-export function TranscriptFeed({ lines, size }: { lines: TranscriptLine[]; size: FeedSize }) {
+export function TranscriptFeed({
+  lines,
+  size,
+  agent,
+}: {
+  lines: TranscriptLine[];
+  size: FeedSize;
+  /** Omit to disable scrollback — views that show a digest, not a transcript. */
+  agent?: string;
+}) {
   const s = FEED[size];
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
   const toggle = useCallback((e: MouseEvent, id: string) => {
@@ -55,17 +74,79 @@ export function TranscriptFeed({ lines, size }: { lines: TranscriptLine[]; size:
   const container: CSSProperties = {
     flex: 1,
     minHeight: 0,
-    overflow: 'hidden',
     padding: s.padding,
     display: 'flex',
     flexDirection: 'column',
     gap: '1px',
-    justifyContent: 'flex-end',
   };
 
+  // Older lines, fetched once on the first scroll to the top. The live frame
+  // carries only the newest 60 per agent so it stays small; this is the rest.
+  const [older, setOlder] = useState<TranscriptLine[]>([]);
+  const asked = useRef(false);
+  const loadOlder = useCallback(async () => {
+    if (!agent || asked.current) return;
+    asked.current = true;
+    anchor.current = pane.current?.scrollHeight ?? 0;
+    try {
+      const res = await fetch(`/api/history?agent=${encodeURIComponent(agent)}`);
+      if (!res.ok) return;
+      const body = (await res.json()) as { lines?: TranscriptLine[] };
+      setOlder(body.lines ?? []);
+    } catch {
+      // Scrollback is an enhancement; the live tail is already on screen.
+      asked.current = false;
+    }
+  }, [agent]);
+
+  const pane = useRef<HTMLDivElement>(null);
+  const pinned = useRef(false);
+  // Prepending history moves everything down by the height it added; without
+  // this the operator is thrown back to the top the instant it lands.
+  const anchor = useRef(0);
+  useLayoutEffect(() => {
+    const el = pane.current;
+    if (!el || anchor.current === 0) return;
+    el.scrollTop += el.scrollHeight - anchor.current;
+    anchor.current = 0;
+  }, [older]);
+
+  useLayoutEffect(() => {
+    const el = pane.current;
+    if (!el) return;
+    const slack = el.scrollHeight - el.clientHeight - el.scrollTop;
+    // Follow new output only when the operator is already at the bottom. If they
+    // have scrolled up to read, appending a line must not yank them back down.
+    if (!pinned.current || (slack > 0 && slack < 64)) {
+      el.scrollTop = el.scrollHeight;
+      pinned.current = true;
+    }
+  }, [lines]);
+
+  // The live tail wins: history is only what precedes its first line, so a line
+  // present in both keeps the fresher copy and cannot render twice.
+  const shown = useMemo(() => {
+    if (older.length === 0) return lines.slice(-RENDER_LIMIT);
+    const live = new Set(lines.map((l) => l.id));
+    return [...older.filter((l) => !live.has(l.id)), ...lines].slice(-RENDER_LIMIT);
+  }, [older, lines]);
+
+  const onScroll = useCallback(
+    (e: UIEvent<HTMLDivElement>) => {
+      if (e.currentTarget.scrollTop < 48) void loadOlder();
+    },
+    [loadOlder],
+  );
+
   return (
-    <div data-testid="transcript-feed" style={container}>
-      {lines.slice(-RENDER_LIMIT).map((line) => {
+    <div
+      ref={pane}
+      className="tscroll"
+      data-testid="transcript-feed"
+      style={container}
+      onScroll={onScroll}
+    >
+      {shown.map((line) => {
         // The projection keeps the author's line breaks, so a row that has any
         // is a row with more to show than the column can hold.
         const more = line.text.includes('\n');

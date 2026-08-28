@@ -55,20 +55,28 @@ it('does not read the team list until it is opened', async () => {
   expect(fetchMock).toHaveBeenCalledWith('/api/teams');
 });
 
-it('heads the list with the team count and the switch hint', async () => {
+it('heads the list with the session count', async () => {
   renderSelect();
-  expect(await screen.findByText('TEAMS · 2')).toBeTruthy();
-  expect(screen.getByText('click to switch')).toBeTruthy();
+  expect(await screen.findByText('SESSIONS ON THIS MACHINE · 2')).toBeTruthy();
   expect(screen.getByText('↑↓ select · ⏎ switch · esc close')).toBeTruthy();
 });
 
-it('says live for a running team and how long ago a finished one stopped', async () => {
+it('carries the goal, agent count and state on the second line', async () => {
   renderSelect();
   const rows = await screen.findAllByRole('option');
   expect(rows.map((r) => within(r).getByTestId('team-meta').textContent)).toEqual([
-    'live · 4 members',
-    'finished · 1 member · 4h 12m ago',
+    'agents-team-console-design4 agentslive',
+    '1 agentended 4h 12m ago',
   ]);
+});
+
+it('shows each session branch beside its name', async () => {
+  renderSelect();
+  const rows = await screen.findAllByRole('option');
+  expect(within(rows[0]).getByTestId('team-branch').textContent).toBe(
+    'fix/engine-latency-and-frame-size',
+  );
+  expect(within(rows[1]).getByTestId('team-branch').textContent).toBe('main');
 });
 
 it('marks the team the console is actually showing', async () => {
@@ -76,7 +84,7 @@ it('marks the team the console is actually showing', async () => {
   const rows = await screen.findAllByRole('option');
   expect(rows[0].getAttribute('aria-selected')).toBe('true');
   expect(rows[0].style.borderLeft).toBe('2px solid var(--color-accent-600)');
-  expect(within(rows[0]).getByTestId('team-mark').textContent).toBe('current');
+  expect(within(rows[0]).getByTestId('team-mark').textContent).toBe('✓');
   expect(rows[1].getAttribute('aria-selected')).toBe('false');
   expect(rows[1].style.borderLeft).toBe('2px solid transparent');
   expect(within(rows[1]).queryByTestId('team-mark')).toBeNull();

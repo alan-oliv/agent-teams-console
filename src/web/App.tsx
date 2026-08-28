@@ -93,6 +93,8 @@ export function App() {
             onFocus={store.setAgent}
             now={now}
             readOnly={state.readOnly}
+            widths={store.widths}
+            onWidthChange={store.setWidth}
           />
         )}
         {store.view === 'overview' && (

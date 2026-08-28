@@ -7,7 +7,7 @@ import type { Permits } from './control/permits';
 import type { HookHandlers } from './ingest/hooks';
 import type { StreamHub } from './stream';
 import { sendToInbox } from './control/mailbox';
-import type { TeamState, TeamsResponse } from '../shared/domain';
+import type { TeamState, TeamsResponse , TranscriptLine } from '../shared/domain';
 
 // Who the operator is when they speak through the console. Not a team member,
 // so it never collides with a real name, and it survives the SAFE_NAME gate in
@@ -113,6 +113,8 @@ export interface HttpDeps {
   leadName?: string;
   /** Every team on the machine, live and dead — the selector's options. */
   listTeams?: () => Promise<TeamsResponse>;
+  /** Older transcript lines for one agent — the wall's scrollback. */
+  history?: (agent: string) => TranscriptLine[];
   /** Re-points the console at another team; the SSE frame carries the result. */
   selectTeam?: (name: string) => Promise<SelectTeamOutcome>;
   /** Spec §5.4's shutdown action, shared with the SessionEnd hook handler. */
@@ -240,6 +242,16 @@ export function createHttpServer(deps: HttpDeps): Server {
         // bundle, and a `/api/` path reaching that branch falls through to 404.
         if (method === 'GET' && route === '/api/teams' && deps.listTeams) {
           json(res, 200, await deps.listTeams());
+          return;
+        }
+
+        if (method === 'GET' && route === '/api/history' && deps.history) {
+          const agent = url.searchParams.get('agent') ?? '';
+          if (!agent) {
+            json(res, 400, { error: 'bad request', message: 'agent is required' });
+            return;
+          }
+          json(res, 200, { agent, lines: deps.history(agent) });
           return;
         }
 

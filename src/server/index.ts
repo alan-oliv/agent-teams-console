@@ -2,7 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
 import { openStore, type Store, type EventKind, type StoredEvent } from './store';
-import { project } from './project';
+import { project, transcriptHistory } from './project';
 import { startFileIngest } from './ingest/files';
 import { createHookHandlers } from './ingest/hooks';
 import { createPermits } from './control/permits';
@@ -161,22 +161,48 @@ export async function discoverTeam(
  * PID and carries the session id INSIDE it — `sessions/<sessionId>.json`, which
  * isSessionLive above reads, does not exist on a real machine.
  */
-async function liveSessionIds(sessionsRoot: string): Promise<Set<string>> {
-  const live = new Set<string>();
+interface SessionFacts {
+  live: Set<string>;
+  /** sessionId -> the conversation name `/branch` writes, used as the row's goal. */
+  names: Map<string, string>;
+}
+
+async function readSessions(sessionsRoot: string): Promise<SessionFacts> {
+  const facts: SessionFacts = { live: new Set(), names: new Map() };
   let entries: string[];
   try {
     entries = await fs.readdir(sessionsRoot);
   } catch {
-    return live;
+    return facts;
   }
   for (const entry of entries) {
     if (!entry.endsWith('.json')) continue;
-    const doc = await readJsonSafe<{ sessionId?: string; pid?: number }>(path.join(sessionsRoot, entry));
-    if (typeof doc?.sessionId === 'string' && typeof doc.pid === 'number' && isPidAlive(doc.pid)) {
-      live.add(doc.sessionId);
-    }
+    const doc = await readJsonSafe<{ sessionId?: string; pid?: number; name?: string }>(
+      path.join(sessionsRoot, entry),
+    );
+    if (typeof doc?.sessionId !== 'string') continue;
+    if (typeof doc.pid === 'number' && isPidAlive(doc.pid)) facts.live.add(doc.sessionId);
+    if (typeof doc.name === 'string' && doc.name !== '') facts.names.set(doc.sessionId, doc.name);
   }
-  return live;
+  return facts;
+}
+
+/**
+ * The branch a team is on. `branch` reaches the header via the statusline hook,
+ * which is push-only and only ever describes the CURRENT session — so for every
+ * other team in the listing it has to come off disk. Reading .git/HEAD beats
+ * spawning git per team: one small file, no subprocess, and a detached HEAD
+ * simply yields nothing rather than a bogus name.
+ */
+async function branchOf(cwd: string | undefined): Promise<string | undefined> {
+  if (!cwd) return undefined;
+  try {
+    const head = await fs.readFile(path.join(cwd, '.git', 'HEAD'), 'utf8');
+    const ref = /^ref:\s+refs\/heads\/(.+)$/m.exec(head.trim());
+    return ref ? ref[1] : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -229,7 +255,7 @@ export async function listTeamSummaries(
     return { current, teams: [] };
   }
 
-  const liveSessions = await liveSessionIds(sessionsRoot);
+  const sessions = await readSessions(sessionsRoot);
   const now = Date.now();
   const teams: TeamSummary[] = [];
   for (const name of entries) {
@@ -248,8 +274,10 @@ export async function listTeamSummaries(
     // A team whose lead session id is missing is still selectable: its log
     // history is exactly what paging back means.
     const leadSessionId = typeof config.leadSessionId === 'string' ? config.leadSessionId : '';
-    const leadAlive = leadSessionId !== '' && liveSessions.has(leadSessionId);
+    const leadAlive = leadSessionId !== '' && sessions.live.has(leadSessionId);
     const lastActivityAt = await lastActivityOf(teamDir, configMtimeMs);
+    const recent = now - lastActivityAt < IDLE_GRACE_MS;
+    const lead = config.members.find((m) => m.agentId === config.leadAgentId) ?? config.members[0];
     teams.push({
       // The DIRECTORY name, not config.name: the ingest gates its own team's
       // config.json on the directory, so a mismatch would make the team
@@ -260,8 +288,13 @@ export async function listTeamSummaries(
       leadSessionId,
       leadAlive,
       lastActivityAt,
-      live: leadAlive || now - lastActivityAt < IDLE_GRACE_MS,
+      live: leadAlive || recent,
       current: name === current,
+      branch: await branchOf(lead?.cwd),
+      goal: sessions.names.get(leadSessionId),
+      // `idle` is a team whose lead process is gone but whose files moved
+      // recently — it can still be paged back into; `done` is finished.
+      state: leadAlive ? 'live' : recent ? 'idle' : 'done',
     });
   }
 
@@ -474,6 +507,7 @@ export async function main(argv: string[]): Promise<number> {
     state: () => project(store.replay(), cli.readOnly),
     readOnly: cli.readOnly,
     listTeams: () => listTeamSummaries(teamsRoot, sessionsRoot, currentTeam),
+    history: (agent: string) => transcriptHistory(store.replay(), agent),
     selectTeam,
     onShutdown: stop,
   });

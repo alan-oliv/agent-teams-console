@@ -104,6 +104,11 @@ export interface TeamSummary {
   // covers that case; the pid covers a team idle longer than the grace window.
   live: boolean;             // leadAlive || within IDLE_GRACE_MS of lastActivityAt
   current: boolean;
+  // The dropdown's row. All three are best-effort: a team whose lead session
+  // sidecar or working tree is gone still lists, just with less on the row.
+  branch?: string;           // read from <cwd>/.git/HEAD, not the statusline hook
+  goal?: string;             // the lead session's name (`/branch` sets it)
+  state: 'live' | 'idle' | 'done';
 }
 
 export interface TeamsResponse {

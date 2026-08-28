@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { TeamSummary, TeamsResponse } from '../../shared/domain';
-import { AGENT_STATUS } from '../../shared/status';
 import { postJson } from '../api';
 import { formatElapsed } from '../format';
 
@@ -9,8 +8,15 @@ import { formatElapsed } from '../format';
 // of shoving the view switcher sideways on the operator's own click.
 const TRIGGER_WIDTH = '146px';
 
-// The Rail's own left-list width, which the two-line rows were measured against.
-const PANEL_WIDTH = '348px';
+const PANEL_WIDTH = '432px';
+
+// `●` live / `○` idle / `✓` ended, per the handoff.
+const STATE_GLYPH = { live: '\u25cf', idle: '\u25cb', done: '\u2713' } as const;
+const STATE_COLOR = {
+  live: 'var(--color-accent-400)',
+  idle: 'var(--color-neutral-600)',
+  done: 'var(--color-neutral-700)',
+} as const;
 
 type Mark =
   | { kind: 'switching'; team: string }
@@ -24,13 +30,17 @@ const MARK_COLOR = {
   gone: 'var(--failure-rose)',
 };
 
-function metaLine(team: TeamSummary, now: number): string {
-  const members = `${team.members} member${team.members === 1 ? '' : 's'}`;
-  // The age only earns its place on a finished team: on a live one it would tick
-  // every second and say nothing the word `live` has not.
-  return team.live
-    ? `live · ${members}`
-    : `finished · ${members} · ${formatElapsed(now - team.lastActivityAt)} ago`;
+// The age only earns its place on a finished team: on a live one it would tick
+// every second and say nothing the word `live` has not.
+function stateText(team: TeamSummary, now: number): string {
+  const state = team.state ?? (team.live ? 'live' : 'done');
+  if (state === 'live') return 'live';
+  if (state === 'idle') return 'idle';
+  return `ended ${formatElapsed(now - team.lastActivityAt)} ago`;
+}
+
+function agentCount(team: TeamSummary): string {
+  return `${team.members} agent${team.members === 1 ? '' : 's'}`;
 }
 
 export interface TeamSelectProps {
@@ -140,7 +150,13 @@ export function TeamSelect({ current, open, onOpenChange, now }: TeamSelectProps
   return (
     <div
       ref={wrapper}
-      style={{ position: 'relative', alignSelf: 'stretch', display: 'flex', alignItems: 'center' }}
+      style={{
+        position: 'relative',
+        alignSelf: 'stretch',
+        display: 'flex',
+        alignItems: 'center',
+        flex: 'none',
+      }}
     >
       <button
         ref={trigger}
@@ -155,12 +171,13 @@ export function TeamSelect({ current, open, onOpenChange, now }: TeamSelectProps
         style={{
           display: 'flex',
           alignItems: 'baseline',
-          gap: 6,
+          gap: 7,
           width: TRIGGER_WIDTH,
           flex: 'none',
-          padding: '1px 6px',
-          margin: '0 -6px',
-          border: '1px solid transparent',
+          whiteSpace: 'nowrap',
+          padding: '3px 8px',
+          margin: '-3px 0',
+          border: '1px solid var(--color-neutral-800)',
           borderRadius: 'var(--radius-sm)',
         }}
       >
@@ -175,7 +192,7 @@ export function TeamSelect({ current, open, onOpenChange, now }: TeamSelectProps
         >
           {current}
         </span>
-        <span aria-hidden="true" style={{ color: 'var(--color-neutral-600)', fontSize: 10 }}>
+        <span aria-hidden="true" style={{ color: 'var(--color-accent-400)', fontSize: 10 }}>
           ▾
         </span>
       </button>
@@ -214,8 +231,7 @@ export function TeamSelect({ current, open, onOpenChange, now }: TeamSelectProps
               letterSpacing: '.12em',
             }}
           >
-            <span>{`TEAMS · ${rows.length}`}</span>
-            <span>click to switch</span>
+            <span>{`SESSIONS ON THIS MACHINE \u00b7 ${rows.length}`}</span>
           </div>
 
           <div
@@ -231,6 +247,7 @@ export function TeamSelect({ current, open, onOpenChange, now }: TeamSelectProps
             {rows.map((team) => {
               const isCurrent = team.name === current;
               const rowMark = mark?.team === team.name ? mark.kind : isCurrent ? 'current' : null;
+              const state = team.state ?? (team.live ? 'live' : 'done');
               return (
                 <div
                   key={team.name}
@@ -252,35 +269,78 @@ export function TeamSelect({ current, open, onOpenChange, now }: TeamSelectProps
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
                     <span
                       aria-hidden="true"
-                      style={{
-                        fontSize: '10px',
-                        color: team.live ? 'var(--color-accent-400)' : 'var(--color-neutral-600)',
-                      }}
+                      style={{ fontSize: '10px', color: STATE_COLOR[state] }}
                     >
-                      {team.live ? AGENT_STATUS.working.glyph : AGENT_STATUS.departed.glyph}
+                      {STATE_GLYPH[state]}
                     </span>
-                    <span style={{ color: 'var(--color-text)' }}>{team.name}</span>
+                    <span style={{ color: 'var(--color-text)', flex: 'none' }}>{team.name}</span>
+                    {team.branch && (
+                      <span
+                        data-testid="team-branch"
+                        style={{
+                          color: 'var(--color-neutral-700)',
+                          fontSize: '10.5px',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {team.branch}
+                      </span>
+                    )}
                     <span style={{ flex: 1 }} />
                     {rowMark && (
                       <span
                         data-testid="team-mark"
                         style={{
                           fontSize: '10.5px',
+                          flex: 'none',
                           color:
                             rowMark === 'current'
-                              ? 'var(--color-neutral-700)'
+                              ? 'var(--color-accent-400)'
                               : MARK_COLOR[rowMark],
                         }}
                       >
-                        {rowMark === 'current' ? 'current' : MARK_TEXT[rowMark]}
+                        {rowMark === 'current' ? '\u2713' : MARK_TEXT[rowMark]}
                       </span>
                     )}
                   </div>
                   <div
                     data-testid="team-meta"
-                    style={{ color: 'var(--color-neutral-600)', fontSize: '10.5px' }}
+                    style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}
                   >
-                    {metaLine(team, now)}
+                    <span
+                      style={{
+                        color: 'var(--color-neutral-500)',
+                        fontSize: '10.5px',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {team.goal ?? ''}
+                    </span>
+                    <span style={{ flex: 1 }} />
+                    <span
+                      style={{
+                        color: 'var(--color-neutral-700)',
+                        fontSize: '10px',
+                        whiteSpace: 'nowrap',
+                        flex: 'none',
+                      }}
+                    >
+                      {agentCount(team)}
+                    </span>
+                    <span
+                      style={{
+                        color: 'var(--color-neutral-600)',
+                        fontSize: '10px',
+                        whiteSpace: 'nowrap',
+                        flex: 'none',
+                      }}
+                    >
+                      {stateText(team, now)}
+                    </span>
                   </div>
                 </div>
               );

@@ -152,4 +152,43 @@ button {
 
 .team-trigger:hover {
   border-color: var(--color-accent-700);
+  background: var(--color-accent-900);
+}
+
+/* Every scrollable pane in every view — wall columns, overview tiles, grid
+   panes, the rail transcript and list, the task list, the mailbox. The bar is
+   always visible on a scrollable pane so the affordance reads. */
+.tscroll {
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-neutral-800) transparent;
+}
+
+/* Bottom-anchors the lines. `justify-content: flex-end` looks identical and
+   makes the column unscrollable upward — the content overflows past the top
+   edge where no scrollbar can reach it. */
+.tscroll > *:first-child {
+  margin-top: auto;
+}
+
+.tscroll::-webkit-scrollbar {
+  width: 9px;
+}
+
+.tscroll::-webkit-scrollbar-track {
+  background: rgba(233, 233, 237, 0.035);
+}
+
+.tscroll::-webkit-scrollbar-thumb {
+  background: var(--color-neutral-800);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.tscroll:hover::-webkit-scrollbar-thumb {
+  background: var(--color-accent-700);
+  background-clip: content-box;
 }

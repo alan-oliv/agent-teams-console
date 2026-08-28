@@ -143,3 +143,28 @@ it('pins the trigger wide enough that switching teams cannot move the switcher',
     'ellipsis',
   );
 });
+
+// The bar is one 40px line. A child that can shrink wraps, doubling its height —
+// the one way this layout breaks, so the invariant is pinned rather than eyeballed.
+it('never wraps, and every child but the spacer is unshrinkable', () => {
+  renderBar();
+  const bar = screen.getByText('TEAM').parentElement!;
+  expect(bar.style.flexWrap).toBe('nowrap');
+
+  // jsdom normalises the shorthand: `flex: 1` -> `1 1 0%`, `flex: none` -> `0 0 auto`.
+  const spacers = [...bar.children].filter((c) => (c as HTMLElement).style.flex === '1 1 0%');
+  expect(spacers).toHaveLength(1);
+
+  for (const child of bar.children) {
+    const el = child as HTMLElement;
+    if (el === spacers[0]) continue;
+    expect([el.textContent, el.style.flex]).toEqual([el.textContent, '0 0 auto']);
+  }
+});
+
+it('keeps the view switcher on one line', () => {
+  renderBar();
+  const tab = screen.getByRole('tab', { name: 'wall' });
+  expect(tab.style.whiteSpace).toBe('nowrap');
+  expect(tab.style.padding).toBe('1px 9px');
+});

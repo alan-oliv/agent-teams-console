@@ -165,6 +165,39 @@ function toolOf(rec: TranscriptRecord): string | undefined {
   return tool;
 }
 
+/**
+ * Every line the log still holds for one agent, oldest first.
+ *
+ * The live frame carries only the last {@link PROJECTED_TRANSCRIPT_LINES} per
+ * agent — that cap is what keeps an SSE frame small, so it must not grow. This
+ * is the other half: the operator scrolls up, asks for what came before, and
+ * gets it once instead of on every publish.
+ */
+export function transcriptHistory(events: StoredEvent[], agent: string): TranscriptLine[] {
+  const records: TranscriptRecord[] = [];
+  const seen = new Set<string>();
+  for (const ev of events) {
+    if (ev.kind !== 'transcript') continue;
+    const p = ev.payload as TranscriptPayload;
+    if (p.agent !== agent) continue;
+    // Same restart semantics as the projection: a re-read from byte zero
+    // replaces what came before rather than appending a second copy.
+    if (p.fromStart) {
+      records.length = 0;
+      seen.clear();
+    }
+    for (const rec of p.records) {
+      const key = rec.uuid ?? '';
+      if (key && seen.has(key)) continue;
+      if (key) seen.add(key);
+      records.push(rec);
+    }
+  }
+  const lines: TranscriptLine[] = [];
+  for (const rec of records) lines.push(...linesOf(rec));
+  return lines;
+}
+
 export function project(events: StoredEvent[], readOnly: boolean): TeamState {
   let config: TeamConfig | null = null;
   let sidecars: Array<{ meta: Sidecar; transcriptPath: string }> = [];

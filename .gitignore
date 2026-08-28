@@ -11,3 +11,6 @@ final-*.png
 check-ui.mjs
 shot*.mjs
 probe.mjs
+live.mjs
+live-*.png
+probe-*.mjs

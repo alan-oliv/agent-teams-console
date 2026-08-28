@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { Agent, TeamState, TranscriptLine, ViewId } from '../../shared/domain';
 
 export const VIEW_IDS: readonly ViewId[] = ['wall', 'overview', 'tasks', 'rail', 'grid'];
@@ -12,7 +12,15 @@ export interface TeamStateStore {
   announcedTeam: string | null;
   setView(v: ViewId): void;
   setAgent(name: string | null): void;
+  /** Wall column widths, keyed by agent name. Absent means {@link COLUMN_WIDTH}. */
+  widths: Readonly<Record<string, number>>;
+  /** Clamped to {@link COLUMN_MIN}..{@link COLUMN_MAX}; null resets to the default. */
+  setWidth(name: string, px: number | null): void;
 }
+
+export const COLUMN_WIDTH = 366;
+export const COLUMN_MIN = 232;
+export const COLUMN_MAX = 720;
 
 export function readUrlState(search: string): {
   view: ViewId;
@@ -96,6 +104,22 @@ export function useTeamState(url = '/stream'): TeamStateStore {
   const [connected, setConnected] = useState(false);
   const [view, setView] = useState<ViewId>(initial.view);
   const [selected, setAgent] = useState<string | null>(initial.agent);
+  // Held here rather than in Wall so a width survives a trip through another
+  // view — Wall unmounts on every switch.
+  const [widths, setWidths] = useState<Record<string, number>>({});
+
+  const setWidth = useCallback((name: string, px: number | null) => {
+    setWidths((prev) => {
+      if (px === null) {
+        if (!(name in prev)) return prev;
+        const next = { ...prev };
+        delete next[name];
+        return next;
+      }
+      const clamped = Math.max(COLUMN_MIN, Math.min(COLUMN_MAX, Math.round(px)));
+      return prev[name] === clamped ? prev : { ...prev, [name]: clamped };
+    });
+  }, []);
 
   // A switch replaces the whole roster, so the selected name is meaningless in the
   // new team. Derived rather than cleared in an effect: the render path must stay
@@ -157,5 +181,7 @@ export function useTeamState(url = '/stream'): TeamStateStore {
     announcedTeam: initial.announced ? initial.team : null,
     setView,
     setAgent,
+    widths,
+    setWidth,
   };
 }

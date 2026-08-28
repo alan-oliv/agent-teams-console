@@ -104,6 +104,9 @@ export function sampleTeams(): TeamSummary[] {
       lastActivityAt: FIXTURE_NOW - 12_000,
       live: true,
       current: true,
+      branch: 'fix/engine-latency-and-frame-size',
+      goal: 'agents-team-console-design',
+      state: 'live',
     },
     {
       name: 'session-b5129c7b',
@@ -113,6 +116,8 @@ export function sampleTeams(): TeamSummary[] {
       leadAlive: false,
       lastActivityAt: FIXTURE_NOW - 15_120_000,
       live: false,
+      branch: 'main',
+      state: 'done',
       current: false,
     },
   ];
