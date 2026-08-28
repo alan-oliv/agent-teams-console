@@ -388,7 +388,7 @@ Team derivation uses `session_id` from the hook's common base, which is always t
 Announcement is **once per team, not once per teammate** — a `~/.claude/teams/<team>/.console-announced` marker guards it.
 
 Shutdown has two independent paths so a crash never leaves a process behind:
-- a `SessionEnd` hook POSTs `/api/shutdown`;
+- a `SessionEnd` hook POSTs `/hook`, which exits **only when the ending session is the lead's** — the hooks live in `~/.claude/settings.json`, user scope, so every session on the machine posts here and an unrelated `claude` run finishing in another terminal must not take the console down. `POST /api/shutdown` also exists, behind the same read-only gate and origin checks as the other control routes;
 - the server self-exits after 10 minutes with no live team (no `~/.claude/teams/*/config.json` carrying more than one member).
 
 Hard constraints on the launcher, because `PostToolUse` **blocks the turn**:

@@ -33,7 +33,10 @@ export function parseArgs(argv: string[]): Cli {
   let port = DEFAULT_PORT;
   let readOnly = false;
   let confirm = false;
-  let claudeHome = path.join(os.homedir(), '.claude');
+  // bin/console-launch.sh already resolves the team config through
+  // CLAUDE_CONFIG_DIR, so the server it starts has to agree — otherwise the
+  // launcher announces a team the server is not watching.
+  let claudeHome = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];

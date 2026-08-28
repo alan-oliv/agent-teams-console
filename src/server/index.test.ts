@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -12,6 +12,7 @@ beforeEach(async () => {
   dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cli-'));
 });
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await fs.rm(dir, { recursive: true, force: true });
 });
 
@@ -21,6 +22,7 @@ describe('parseArgs', () => {
   });
 
   it('defaults to running the console on 4823', () => {
+    vi.stubEnv('CLAUDE_CONFIG_DIR', '');
     const cli = parseArgs([]);
     expect(cli.command).toBe('run');
     expect(cli.port).toBe(DEFAULT_PORT);
@@ -41,6 +43,13 @@ describe('parseArgs', () => {
     expect(parseArgs(['uninstall']).command).toBe('uninstall');
     expect(parseArgs(['--read-only']).readOnly).toBe(true);
     expect(parseArgs(['--read-only']).command).toBe('run');
+  });
+
+  it('follows CLAUDE_CONFIG_DIR, which the launcher already resolves the team through', () => {
+    vi.stubEnv('CLAUDE_CONFIG_DIR', '/tmp/elsewhere-claude');
+    expect(parseArgs([]).claudeHome).toBe('/tmp/elsewhere-claude');
+    // An explicit flag still wins.
+    expect(parseArgs(['--claude-home', '/tmp/flag']).claudeHome).toBe('/tmp/flag');
   });
 
   it('accepts --port=NNNN and an overridden claude home', () => {
