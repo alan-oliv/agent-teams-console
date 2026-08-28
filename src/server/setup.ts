@@ -10,10 +10,14 @@ import { readJsonSafe } from './watch/jsonfile';
 const run = promisify(execFile);
 
 export const PINNED_CLAUDE_VERSION = '2.1.231';
-export const HOOK_TIMEOUT_MS = 5000;
-/** The hook's timeout has to be the hold window the handler actually uses. */
-export const PERMISSION_HOOK_TIMEOUT_MS = DEFAULT_PERMISSION_TIMEOUT_MS;
-export const LAUNCH_HOOK_TIMEOUT_MS = 5000;
+// Claude Code reads hook timeouts in SECONDS, for both `command` and `http`
+// hooks — verified against 2.1.231 by timing a hook that outlives its own
+// timeout. Writing milliseconds here does not tighten the bound, it multiplies
+// it by a thousand: a console that hangs would hold the turn for 83 minutes.
+export const HOOK_TIMEOUT_SECONDS = 5;
+/** The hook's timeout has to cover the hold window the handler actually uses. */
+export const PERMISSION_HOOK_TIMEOUT_SECONDS = DEFAULT_PERMISSION_TIMEOUT_MS / 1000;
+export const LAUNCH_HOOK_TIMEOUT_SECONDS = 5;
 /** Where the user's own env values are stashed while the console owns them. */
 export const BACKUP_FILE = 'agent-teams-console.backup.json';
 
@@ -82,7 +86,8 @@ export function hookBlock(port: number): HookBlock {
           url: `http://127.0.0.1:${port}/hook`,
           // PermissionRequest is deliberately held for the operator; every other
           // event must not be able to stall the agent's turn.
-          timeout: event === 'PermissionRequest' ? PERMISSION_HOOK_TIMEOUT_MS : HOOK_TIMEOUT_MS,
+          timeout:
+            event === 'PermissionRequest' ? PERMISSION_HOOK_TIMEOUT_SECONDS : HOOK_TIMEOUT_SECONDS,
         },
       ],
     };
@@ -111,7 +116,7 @@ export function hookBlock(port: number): HookBlock {
         // used to write hooks pointing at 5000 while the launcher started
         // the server on 4823. Carry the port across the language boundary.
         command: `OCTO_PORT=${port} '${LAUNCH_SCRIPT}'`,
-        timeout: LAUNCH_HOOK_TIMEOUT_MS,
+        timeout: LAUNCH_HOOK_TIMEOUT_SECONDS,
       },
     ],
   };

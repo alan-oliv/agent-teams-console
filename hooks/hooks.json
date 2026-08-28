@@ -1,7 +1,17 @@
 {
-  "description": "Starts the agent teams console the moment a session spawns a real teammate, and prints its URL once — before the spawn when possible, falling back to just after it.",
+  "description": "Everything the console observes, plus the launcher that starts it. The http hooks POST each event to the console on its default port and cost one refused connection each while it is not running; the launcher exits immediately unless a real team exists. Timeouts are in seconds.",
   "hooks": {
     "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:4823/hook",
+            "timeout": 5
+          }
+        ],
+        "matcher": "*"
+      },
       {
         "matcher": "Agent",
         "hooks": [
@@ -15,11 +25,110 @@
     ],
     "PostToolUse": [
       {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:4823/hook",
+            "timeout": 5
+          }
+        ],
+        "matcher": "*"
+      },
+      {
         "matcher": "Agent",
         "hooks": [
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/console-launch.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:4823/hook",
+            "timeout": 600
+          }
+        ],
+        "matcher": "*"
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:4823/hook",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:4823/hook",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:4823/hook",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:4823/hook",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:4823/hook",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:4823/hook",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:4823/hook",
             "timeout": 5
           }
         ]

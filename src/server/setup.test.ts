@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { promises as fs } from 'node:fs';
+import { promises as fs, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import catalog from '../shared/catalog.json';
@@ -7,8 +7,8 @@ import {
   AGENT_ENV_VARS,
   backupPathFor,
   HOOK_EVENTS,
-  HOOK_TIMEOUT_MS,
-  PERMISSION_HOOK_TIMEOUT_MS,
+  HOOK_TIMEOUT_SECONDS,
+  PERMISSION_HOOK_TIMEOUT_SECONDS,
   PINNED_CLAUDE_VERSION,
   checkClaudeVersion,
   hookBlock,
@@ -56,11 +56,13 @@ describe('hookBlock', () => {
       const hook = (block.hooks[event] as HookEntry[])[0].hooks[0];
       expect(typeof hook.timeout).toBe('number');
       expect(hook.timeout).toBe(
-        event === 'PermissionRequest' ? PERMISSION_HOOK_TIMEOUT_MS : HOOK_TIMEOUT_MS,
+        event === 'PermissionRequest' ? PERMISSION_HOOK_TIMEOUT_SECONDS : HOOK_TIMEOUT_SECONDS,
       );
     }
-    expect(HOOK_TIMEOUT_MS).toBe(5000);
-    expect(PERMISSION_HOOK_TIMEOUT_MS).toBe(600000);
+    // Seconds, not milliseconds: the harness would otherwise let a hung console
+    // hold a turn for 83 minutes, and a permission request for a week.
+    expect(HOOK_TIMEOUT_SECONDS).toBe(5);
+    expect(PERMISSION_HOOK_TIMEOUT_SECONDS).toBe(600);
   });
 
   it('carries a matcher only on the tool events', () => {
@@ -103,7 +105,7 @@ describe('hookBlock', () => {
     (event) => {
       const entry = block.hooks[event].find((e) => e.matcher === 'Agent');
       expect(entry).toBeDefined();
-      expect(entry!.hooks[0]).toMatchObject({ type: 'command', timeout: 5000 });
+      expect(entry!.hooks[0]).toMatchObject({ type: 'command', timeout: 5 });
       expect((entry!.hooks[0] as CommandHook).command).toMatch(
         /^OCTO_PORT=4823 '.*console-launch\.sh'$/,
       );
@@ -118,6 +120,34 @@ describe('hookBlock', () => {
     const installed = mergeHookBlock({}, 4823);
     const cleaned = removeHookBlock(installed) as { hooks?: Record<string, unknown[]> };
     expect(cleaned.hooks?.PostToolUse ?? []).toHaveLength(0);
+  });
+});
+
+describe("the plugin's own hooks.json", () => {
+  // The plugin registers these itself, so a plugin user never has to write hooks
+  // into settings.json. Both copies have to describe the same observation, or
+  // whichever half you happen to have installed silently disagrees.
+  const shipped = JSON.parse(
+    readFileSync(new URL('../../hooks/hooks.json', import.meta.url), 'utf8'),
+  ) as { hooks: Record<string, HookEntry[]> };
+
+  it('registers every event the settings installer would, on the default port', () => {
+    expect(Object.keys(shipped.hooks)).toEqual([...HOOK_EVENTS]);
+    const normalise = (entries: HookEntry[]) =>
+      JSON.stringify(entries).replaceAll(/"command":"(?:[^"\\]|\\.)*"/g, '"command":"<launcher>"');
+    const block = hookBlock(4823);
+    for (const event of HOOK_EVENTS) {
+      expect(normalise(shipped.hooks[event])).toBe(
+        normalise(block.hooks[event] as unknown as HookEntry[]),
+      );
+    }
+  });
+
+  it('resolves the launcher through the plugin root, not a machine-local path', () => {
+    const entry = shipped.hooks.PreToolUse.find((e) => e.matcher === 'Agent');
+    expect((entry!.hooks[0] as unknown as { command: string }).command).toBe(
+      '"${CLAUDE_PLUGIN_ROOT}/bin/console-launch.sh"',
+    );
   });
 });
 

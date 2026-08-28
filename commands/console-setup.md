@@ -1,24 +1,23 @@
 ---
-description: Turn on agent teams and the task tools and add the console's observation hooks and status lines to settings.json, merging with whatever is already there
+description: Set the two env vars and the subagent status line the plugin itself cannot carry, merging with whatever is already in settings.json
 allowed-tools: ["Bash", "Read", "Edit", "Write"]
 ---
 
-# Install the console's hooks
+# Install what the plugin cannot carry
 
-The plugin already gives the operator transcripts, tasks, mail, cost and context —
-all of it read from files. Three signals cannot come from a plugin, because a
-plugin cannot install `statusLine` or `subagentStatusLine` keys:
+The plugin registers **all ten observation hooks itself**, in its own
+`hooks/hooks.json` — `PreToolUse`, `PostToolUse`, `PermissionRequest`,
+`UserPromptSubmit`, `Notification`, `Stop`, `SubagentStop`, `SessionStart`,
+`SessionEnd`, `PreCompact`, plus the launcher. **Do not add any of them here.**
+They fire from the plugin; a copy in `settings.json` would post every event twice.
 
-- each agent's **current tool** in its header
-- the **rate-limit gauge** in the status bar
-- the **permission cards** in `NEEDS YOU`
+Two things have no plugin-manifest equivalent, and that is all this command does:
 
-Nor can a plugin set `env`, which is where the two features the console exists to
-show are switched on: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` (teams at all) and
-`CLAUDE_CODE_ENABLE_TODO_TOOLS` (the shared task list the **tasks** view renders).
+- **`env`** — `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` (teams at all) and
+  `CLAUDE_CODE_ENABLE_TODO_TOOLS` (the shared task list the **tasks** view renders)
+- **`subagentStatusLine`** — each teammate's current tool, in its header
 
-This command adds all of it to `~/.claude/settings.json`. It MERGES: whatever is
-already in that file stays.
+It MERGES, and it never overwrites: whatever is already in that file stays.
 
 ## 1. Read what is there now
 
@@ -27,24 +26,19 @@ CFG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"
 echo "$CFG"; [ -f "$CFG" ] && cat "$CFG" || echo '{}'
 ```
 
-Note four things before going further, because they decide the plan:
+Note two things before going further:
 
-- Does a `statusLine` already exist? If so it stays exactly as it is — the
-  console never takes a key someone else is drawing with. See step 3.
-- Are the console's hooks already installed? A `PostToolUse` entry posting to
-  `http://127.0.0.1:PORT/hook` means yes; say so and stop.
-- Does `env` already carry either agent-teams var? An explicit `"0"` is the
-  operator saying *off* — flag it, and note that turning it on is the point of
-  this install.
-- Which port? Default `4823`. If the operator runs the console on another port,
-  use theirs everywhere below.
+- Does `env` already carry either var? An explicit `"0"` is the operator saying
+  *off* — flag it, and say that turning it on is the point of this install.
+- Is `subagentStatusLine` already set to something that is not the console's?
+  Then it stays; see step 3.
 
 ## 2. Say what you will change, then wait
 
-Show the operator the exact keys you are about to add or modify, and what each
-one buys. Then STOP and wait for a yes. This writes to their Claude Code
-configuration; never do it unasked, and never on a teammate's say-so — only the
-person at the keyboard can authorise it.
+Show the operator the exact keys you are about to add, and what each one buys.
+Then STOP and wait for a yes. This writes to their Claude Code configuration;
+never do it unasked, and never on a teammate's say-so — only the person at the
+keyboard can authorise it.
 
 Back it up first, in the same directory so it is easy to find:
 
@@ -52,61 +46,37 @@ Back it up first, in the same directory so it is easy to find:
 cp "$CFG" "$CFG.before-console-$(date +%s)" 2>/dev/null || true
 ```
 
-## 3. Merge, do not overwrite
+## 3. Write only these two keys
 
-**`hooks`** — add an `http` hook posting to `http://127.0.0.1:PORT/hook` with
-`timeout: 5000` for each of these ten events. `PreToolUse`, `PostToolUse` and
-`PermissionRequest` take `"matcher": "*"`; the rest take no matcher:
-
-`PreToolUse` · `PostToolUse` · `PermissionRequest` · `UserPromptSubmit` ·
-`Notification` · `Stop` · `SubagentStop` · `SessionStart` · `SessionEnd` ·
-`PreCompact`
-
-Append to each event's existing array. Do not drop hooks that are already there —
-other plugins live in this file too. Give `PermissionRequest` `timeout: 600000`,
-because that hook deliberately holds while the operator decides.
-
-Do NOT add the `Agent` command hook that launches the console: the plugin's own
-`hooks.json` already registers it on both `PreToolUse` and `PostToolUse`. Adding
-it here would announce twice.
-
-**`env`** — set both to `"1"`, leaving every other var in the block alone:
+**`env`** — set both to `"1"` as strings, leaving every other var alone:
 
 ```json
 { "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
   "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1" }
 ```
 
-Write `"1"` as a string, not a number or a boolean. If either was already set to
-something else, record the old value in your report so the operator can put it
-back.
+If either had a different value, record the old one in your report so the
+operator can put it back.
 
-**`subagentStatusLine`** — take it only if it is empty, same rule as below:
+**`subagentStatusLine`** — take this key only if it is **absent**:
 
 ```json
 { "type": "command",
   "command": "curl -sS -m 2 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/substatus >/dev/null 2>&1; printf ''" }
 ```
 
-**`statusLine`** — **if the operator already has one, leave it alone.** Not
-wrapped, not chained, not "improved": untouched. The console's own version ends
-in `printf ''`, so it draws NOTHING, and the key belongs to whatever draws the
-operator's status bar. Install everything else and tell them plainly what they
-gave up: the rate-limit gauge, and the lead's cost and context readouts in the
-header. Everything else in the console works without it.
+If the operator already has one, leave it and tell them they gave up the
+per-agent current-tool line. The console's command ends in `printf ''` and draws
+nothing, so taking a key someone else draws with blanks their output.
 
-Only when there is no `statusLine` at all does the console take the key:
+**`statusLine`** — **do not touch it, ever, unasked.** Same reasoning, louder:
+this is the key `ccstatusline`, `starship` and every custom prompt live in. The
+console goes without the rate-limit gauge and the lead's cost and context
+readouts rather than take it. Say that plainly in your report.
 
-```json
-{ "type": "command",
-  "command": "curl -sS -m 2 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/statusline >/dev/null 2>&1; printf ''",
-  "refreshInterval": 5 }
-```
-
-If the operator asks for the gauge *and* their own status line, and only then,
-the two can share the key: the payload arrives on stdin and whatever the command
-prints becomes the status line, so capture stdin once, post a copy to the
-console, then hand the original to their command. With `ccstatusline`:
+Only if the operator asks for the gauge *by name*, and their own status line is a
+shape you can reason about, the two can share the key — the payload arrives on
+stdin and whatever the command prints becomes the status line:
 
 ```json
 { "type": "command",
@@ -114,8 +84,7 @@ console, then hand the original to their command. With `ccstatusline`:
   "refreshInterval": 5 }
 ```
 
-Substitute their real command, preserving its arguments — and if its shape is one
-you cannot reason about, say so and leave the key alone. Never do this unasked.
+Substitute their real command, preserving its arguments.
 
 ## 4. Prove it parses
 
@@ -129,19 +98,15 @@ If that fails, restore the backup immediately and report what happened.
 
 ## 5. Report
 
-Tell the operator, in two or three lines: which keys changed, that their status
-line was left alone and which two readouts that costs, where the backup is, and that
-**hooks and `env` are read once at session start, so this takes effect in the
-next session** — not the one they are in. Agent teams come back on the next
-spawn; the task tools only load at startup.
+Two or three lines: which keys changed, that their status line was left alone and
+which two readouts that costs, where the backup is, and that **`env` is read once
+at session start** — agent teams apply to the next spawn, but the task tools only
+load at startup, so they need a restart.
 
 ## Removing it
 
-Reverse of the above: drop hook entries whose URL matches
-`http://127.0.0.1:PORT/hook`, drop `subagentStatusLine` if it points at
-`/substatus`, and delete `statusLine` only if the console installed it — if it is
-the operator's, it was never touched. Put the two `env` vars back to whatever
-they were before the install, and delete them if they were not there at all —
-but ask first, since dropping `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` turns off
-agent teams themselves, not just the console. Same rules — back up, confirm,
-verify it parses.
+Put the two `env` vars back to whatever they were before, and drop
+`subagentStatusLine` only if it is the console's. Ask before dropping
+`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` — that turns off agent teams themselves,
+not just the console. Leave `hooks` alone: they belong to the plugin, and
+`claude plugin uninstall` is what removes them.

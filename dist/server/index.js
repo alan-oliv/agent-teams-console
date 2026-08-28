@@ -4071,9 +4071,9 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 var run = promisify(execFile);
 var PINNED_CLAUDE_VERSION = "2.1.231";
-var HOOK_TIMEOUT_MS = 5e3;
-var PERMISSION_HOOK_TIMEOUT_MS = DEFAULT_PERMISSION_TIMEOUT_MS;
-var LAUNCH_HOOK_TIMEOUT_MS = 5e3;
+var HOOK_TIMEOUT_SECONDS = 5;
+var PERMISSION_HOOK_TIMEOUT_SECONDS = DEFAULT_PERMISSION_TIMEOUT_MS / 1e3;
+var LAUNCH_HOOK_TIMEOUT_SECONDS = 5;
 var BACKUP_FILE = "agent-teams-console.backup.json";
 var AGENT_ENV_VARS = [
   "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS",
@@ -4106,7 +4106,7 @@ function hookBlock(port) {
           url: `http://127.0.0.1:${port}/hook`,
           // PermissionRequest is deliberately held for the operator; every other
           // event must not be able to stall the agent's turn.
-          timeout: event === "PermissionRequest" ? PERMISSION_HOOK_TIMEOUT_MS : HOOK_TIMEOUT_MS
+          timeout: event === "PermissionRequest" ? PERMISSION_HOOK_TIMEOUT_SECONDS : HOOK_TIMEOUT_SECONDS
         }
       ]
     };
@@ -4122,7 +4122,7 @@ function hookBlock(port) {
         // used to write hooks pointing at 5000 while the launcher started
         // the server on 4823. Carry the port across the language boundary.
         command: `OCTO_PORT=${port} '${LAUNCH_SCRIPT}'`,
-        timeout: LAUNCH_HOOK_TIMEOUT_MS
+        timeout: LAUNCH_HOOK_TIMEOUT_SECONDS
       }
     ]
   };

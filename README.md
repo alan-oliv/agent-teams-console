@@ -121,28 +121,35 @@ cross-origin requests.
   teammate, asking one to wrap up or stop, and requesting a respawn are all just
   entries appended to that teammate's inbox, exactly as the lead would write them.
 
-It does **not** touch `settings.json` when installed as a plugin.
+It does **not** touch `settings.json` when installed as a plugin — the hooks it
+needs travel inside the plugin, and `/console-setup` is the only thing that writes
+there, only when you ask it to.
 
 The server exits ten minutes after the last team goes away, and immediately on the
 lead's `SessionEnd`. Start it with `--read-only` to disable every control route.
 
-## Optional: the full hook install
+## What is left to install: two env vars
 
-The plugin gives you the file-driven half of the console — roster, transcripts,
-tasks, mail. Three signals come from hooks that a plugin cannot install, because
-they need hook and `statusLine` keys in `settings.json`:
+The plugin carries its own hooks. All ten observation events — `PreToolUse`,
+`PostToolUse`, `PermissionRequest`, `UserPromptSubmit`, `Notification`, `Stop`,
+`SubagentStop`, `SessionStart`, `SessionEnd`, `PreCompact` — are registered in the
+plugin's `hooks/hooks.json` and fire from there, so **permission cards, plan
+approvals and tool activity work on a bare install with no `settings.json` edit at
+all.** Timeouts are in seconds, and the hooks cost one refused connection each
+while the console is not running.
 
-- the per-agent "current tool" line
-- permission prompts surfaced as **NEEDS YOU** cards you can allow or deny
-- context and spend readouts in the header
+Two things have no plugin-manifest equivalent, because Claude Code has nowhere for
+a plugin to put them:
 
-The same install turns on the two features the console exists to show, which a
-plugin also cannot set: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` and
-`CLAUDE_CODE_ENABLE_TODO_TOOLS`, both under `env`.
+- **`env`** — `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`, without which there are no
+  teams to show, and `CLAUDE_CODE_ENABLE_TODO_TOOLS`, which fills the **tasks** view
+- **`subagentStatusLine`** — each teammate's current tool, in its header
 
-If you want those, run **`/console-setup`**. It ships with the plugin, so there is
-nothing to clone and nothing to install: it reads your `settings.json`, shows you
-what it would add, and writes only once you say yes.
+Run **`/console-setup`** for those two and nothing else. It ships with the plugin:
+it reads your `settings.json`, shows you what it would add, and writes only once
+you say yes. If you would rather not edit `settings.json` at all, set the env vars
+in your shell instead and skip the command entirely — you lose only the
+current-tool line.
 
 ### Your status line is yours
 
@@ -158,8 +165,10 @@ Want both? Ask `/console-setup` for it explicitly and it will chain the two, POS
 the payload to the console before handing it to your own command. It will not do
 that on its own.
 
-`/console-setup` also reverses itself — ask it to remove the hooks and it drops
-only the keys it installed, and puts both `env` vars back the way it found them.
+`/console-setup` also reverses itself — ask it to remove what it added and it drops
+only the keys it installed, and puts both `env` vars back the way it found them. The
+hooks are not its business either way: they come and go with `claude plugin
+install` / `uninstall`.
 
 <details>
 <summary>Without the plugin, from a clone</summary>
@@ -170,12 +179,14 @@ npm run setup            # prints the block it would write
 npm run setup -- --yes   # writes it to ~/.claude/settings.json
 ```
 
-This merges into your existing hooks rather than replacing them, sets the two
-`env` vars, and `npm run uninstall -- --yes` puts everything back. It follows the
-same rule about your status line — it takes the key only when nothing else holds
-it, and never offers to chain the two, which is the one thing `/console-setup` can
-do that this cannot. Whatever those `env` vars were before is stashed in
-`~/.claude/agent-teams-console.backup.json` and restored on uninstall.
+This is the no-plugin path, so it writes the ten hooks into `settings.json`
+as well as the env vars and `subagentStatusLine`. **Do not run it if you have the
+plugin installed** — the hooks would fire twice, once from each copy. It merges
+into your existing hooks rather than replacing them, follows the same rule about
+your status line (it takes the key only when nothing else holds it), and
+`npm run uninstall -- --yes` puts everything back. Whatever those `env` vars were
+before is stashed in `~/.claude/agent-teams-console.backup.json` and restored on
+uninstall.
 
 </details>
 
