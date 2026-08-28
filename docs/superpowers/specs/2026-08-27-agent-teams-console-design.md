@@ -240,7 +240,7 @@ The `shared/` modules hold every piece of logic that can be silently wrong. They
 ## 4. Domain model
 
 ```ts
-type AgentStatus = 'working' | 'idle' | 'plan_pending' | 'failed' | 'blocked';
+type AgentStatus = 'working' | 'idle' | 'plan_pending' | 'failed' | 'blocked' | 'departed';
 
 interface Agent {
   name: string;              // bare name — the join key everywhere
@@ -463,6 +463,22 @@ Top hairline, `#12141f`, `padding:8px 14px`, 10.5 px. `PANEL` neutral-700 `lette
 | plan approval | `▲` | `#d99e5c` |
 | failed | `✗` | `#c98d8d` |
 | blocked | `⊘` | `var(--color-neutral-600)` |
+| departed | `◌` | `var(--color-neutral-800)` |
+
+**`departed` is an amendment to the design's five statuses, added because reality needed it.**
+The roster merges two sources with different lifetimes: `config.json` `members[]` is the LIVE
+membership and is deleted when the lead exits, while the `.meta.json` sidecars SURVIVE a
+teammate's exit (§2.2) so its transcript, context and cost are not lost. An agent present in the
+sidecars but absent from `members[]` has therefore finished — it is not `idle` (the design's
+`idle` means addressable and waiting, and a departed agent is neither) and it is certainly not
+`working`. Observed live: with 2 members in `config.json` the console rendered 8 agents, all
+labelled `working`, six of which had exited hours earlier.
+
+Liveness is derived from `config.json` membership, never inferred from transcript recency.
+A departed agent keeps its final context and cost figures and still counts toward the team
+totals — the spend was real. It renders dimmed with the composer disabled, drops out of the
+agent panel's addressable chips into a collapsed `N departed` chip, and cannot be messaged,
+interrupted or stopped.
 
 ### Non-token colours
 Exactly five, given explicit homes in `theme.css`: `#12141f` terminal ground · `#1b1d2b` row hairline · `#d99e5c` attention · `#6b4f2c` attention border · `#c98d8d` failure rose. Plus the twelve portrait skin hexes.

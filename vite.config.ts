@@ -8,7 +8,10 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    proxy: { '/api': SERVER, '/stream': SERVER, '/hook': SERVER },
+    // Anchor with a trailing slash: a bare '/api' prefix also matches the
+    // module request for src/web/api.ts, which vite would then proxy to the
+    // backend (404) — breaking the whole module graph and rendering nothing.
+    proxy: { '^/api/': SERVER, '/stream': SERVER, '/hook': SERVER },
   },
   build: { outDir: '../../dist/web', emptyOutDir: true },
 });
