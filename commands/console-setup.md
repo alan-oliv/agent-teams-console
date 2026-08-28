@@ -29,8 +29,8 @@ echo "$CFG"; [ -f "$CFG" ] && cat "$CFG" || echo '{}'
 
 Note four things before going further, because they decide the plan:
 
-- Does a `statusLine` already exist? **Whose is it?** A user's own status line
-  (`ccstatusline`, `starship`, a custom script) must NOT be replaced — see step 3.
+- Does a `statusLine` already exist? If so it stays exactly as it is — the
+  console never takes a key someone else is drawing with. See step 3.
 - Are the console's hooks already installed? A `PostToolUse` entry posting to
   `http://127.0.0.1:PORT/hook` means yes; say so and stop.
 - Does `env` already carry either agent-teams var? An explicit `"0"` is the
@@ -81,18 +81,21 @@ Write `"1"` as a string, not a number or a boolean. If either was already set to
 something else, record the old value in your report so the operator can put it
 back.
 
-**`subagentStatusLine`** — safe to set, nothing else uses it:
+**`subagentStatusLine`** — take it only if it is empty, same rule as below:
 
 ```json
 { "type": "command",
   "command": "curl -sS -m 2 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/substatus >/dev/null 2>&1; printf ''" }
 ```
 
-**`statusLine`** — the one that needs care. The console's version ends in
-`printf ''`, so it draws NOTHING. Setting it blindly does not merely replace an
-existing status line, it blanks the operator's status bar.
+**`statusLine`** — **if the operator already has one, leave it alone.** Not
+wrapped, not chained, not "improved": untouched. The console's own version ends
+in `printf ''`, so it draws NOTHING, and the key belongs to whatever draws the
+operator's status bar. Install everything else and tell them plainly what they
+gave up: the rate-limit gauge, and the lead's cost and context readouts in the
+header. Everything else in the console works without it.
 
-If there is no `statusLine`, write the console's own:
+Only when there is no `statusLine` at all does the console take the key:
 
 ```json
 { "type": "command",
@@ -100,10 +103,10 @@ If there is no `statusLine`, write the console's own:
   "refreshInterval": 5 }
 ```
 
-If one already exists, KEEP IT and feed both. The payload arrives on stdin, and
-whatever the command prints becomes the status line — so capture stdin once, post
-a copy to the console, then hand the original to the existing command. With
-`ccstatusline` as the incumbent:
+If the operator asks for the gauge *and* their own status line, and only then,
+the two can share the key: the payload arrives on stdin and whatever the command
+prints becomes the status line, so capture stdin once, post a copy to the
+console, then hand the original to their command. With `ccstatusline`:
 
 ```json
 { "type": "command",
@@ -111,11 +114,8 @@ a copy to the console, then hand the original to the existing command. With
   "refreshInterval": 5 }
 ```
 
-Substitute the incumbent's real command for `ccstatusline`, preserving its
-arguments. If its shape is one you cannot safely wrap — anything already piping
-or reading stdin in a way you cannot reason about — leave `statusLine` ALONE,
-install the rest, and tell the operator plainly which single feature they gave up
-(the rate-limit gauge) and what to paste if they want it later.
+Substitute their real command, preserving its arguments — and if its shape is one
+you cannot reason about, say so and leave the key alone. Never do this unasked.
 
 ## 4. Prove it parses
 
@@ -129,8 +129,8 @@ If that fails, restore the backup immediately and report what happened.
 
 ## 5. Report
 
-Tell the operator, in two or three lines: which keys changed, that the existing
-status line was preserved (or why it was not), where the backup is, and that
+Tell the operator, in two or three lines: which keys changed, that their status
+line was left alone and which two readouts that costs, where the backup is, and that
 **hooks and `env` are read once at session start, so this takes effect in the
 next session** — not the one they are in. Agent teams come back on the next
 spawn; the task tools only load at startup.
@@ -139,8 +139,8 @@ spawn; the task tools only load at startup.
 
 Reverse of the above: drop hook entries whose URL matches
 `http://127.0.0.1:PORT/hook`, drop `subagentStatusLine` if it points at
-`/substatus`, and restore `statusLine` to the incumbent command it wrapped (or
-delete it if the console installed it). Put the two `env` vars back to whatever
+`/substatus`, and delete `statusLine` only if the console installed it — if it is
+the operator's, it was never touched. Put the two `env` vars back to whatever
 they were before the install, and delete them if they were not there at all —
 but ask first, since dropping `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` turns off
 agent teams themselves, not just the console. Same rules — back up, confirm,

@@ -131,6 +131,17 @@ describe('mergeHookBlock / removeHookBlock', () => {
     expect(stop[1].hooks[0].url).toBe('http://127.0.0.1:4823/hook');
   });
 
+  it('claims the status line only when nobody else has it', () => {
+    const mine = { type: 'command', command: 'ccstatusline' };
+    expect(mergeHookBlock({ statusLine: mine }, 4823).statusLine).toEqual(mine);
+    expect(mergeHookBlock({}, 4823).statusLine).toEqual(hookBlock(4823).statusLine);
+  });
+
+  it('still moves its own status line to a new port', () => {
+    const moved = mergeHookBlock(mergeHookBlock({}, 4823), 4400);
+    expect((moved.statusLine as { command: string }).command).toContain(':4400/statusline');
+  });
+
   it('is idempotent', () => {
     const once = mergeHookBlock({}, 4823);
     expect(mergeHookBlock(once, 4823)).toEqual(once);
@@ -210,27 +221,25 @@ describe('runSetup', () => {
     expect(JSON.parse(await fs.readFile(settingsPath, 'utf8'))).toEqual({ model: 'opus' });
   });
 
-  it("preserves the user's status line and restores it on uninstall", async () => {
-    // The installed status line ends in `printf ''`, so clobbering the user's
-    // also blanks their terminal status line for as long as it is installed.
+  it("never touches a status line it does not own", async () => {
+    // The console's own status line ends in `printf ''`, so taking the key over
+    // does not replace someone's status bar, it blanks it.
     const settingsPath = path.join(dir, 'settings.json');
     const mine = { type: 'command', command: '~/bin/my-fancy-statusline.sh' };
     await fs.writeFile(settingsPath, JSON.stringify({ statusLine: mine }, null, 2));
 
-    await runSetup({ settingsPath, port: 4823, confirm: true });
+    const output = await runSetup({ settingsPath, port: 4823, confirm: true });
     const installed = JSON.parse(await fs.readFile(settingsPath, 'utf8')) as Record<string, unknown>;
-    expect(installed.statusLine).not.toEqual(mine);
-
-    // A second install must not stash the console's own line as "the user's".
-    await runSetup({ settingsPath, port: 4823, confirm: true });
+    expect(installed.statusLine).toEqual(mine);
+    expect(output).toContain('left your own status line alone');
 
     await runSetup({ settingsPath, port: 4823, confirm: true, uninstall: true });
-    const restored = JSON.parse(await fs.readFile(settingsPath, 'utf8')) as Record<string, unknown>;
-    expect(restored.statusLine).toEqual(mine);
+    const after = JSON.parse(await fs.readFile(settingsPath, 'utf8')) as Record<string, unknown>;
+    expect(after.statusLine).toEqual(mine);
     await expect(fs.stat(backupPathFor(settingsPath))).rejects.toThrow();
   });
 
-  it("leaves no status line behind when the user never had one", async () => {
+  it("takes the status line only when the key is free, and hands it back", async () => {
     const settingsPath = path.join(dir, 'settings.json');
     await runSetup({ settingsPath, port: 4823, confirm: true });
     await runSetup({ settingsPath, port: 4823, confirm: true, uninstall: true });
@@ -281,20 +290,14 @@ describe('runSetup', () => {
     expect(JSON.parse(await fs.readFile(settingsPath, 'utf8'))).toEqual({ env: mine });
   });
 
-  it('stashes the env values even when a pre-env backup already exists', async () => {
-    // Upgrade path: whoever installed before this feature has a backup file with
-    // no `env`, and their own CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS to lose.
+  it('does not re-stash on a second install', async () => {
+    // Otherwise the console records its own "1" as if it were the user's.
     const settingsPath = path.join(dir, 'settings.json');
-    await fs.writeFile(settingsPath, JSON.stringify({ env: { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1' } }));
-    await fs.writeFile(
-      backupPathFor(settingsPath),
-      JSON.stringify({ statusLine: null, subagentStatusLine: null }),
-    );
-
+    await runSetup({ settingsPath, port: 4823, confirm: true });
     await runSetup({ settingsPath, port: 4823, confirm: true });
     await runSetup({ settingsPath, port: 4823, confirm: true, uninstall: true });
-    const after = JSON.parse(await fs.readFile(settingsPath, 'utf8')) as { env: Record<string, string> };
-    expect(after.env).toEqual({ CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1' });
+    const after = JSON.parse(await fs.readFile(settingsPath, 'utf8')) as { env?: unknown };
+    expect(after.env).toBeUndefined();
   });
 
   it('creates a settings file that does not exist yet', async () => {

@@ -14,7 +14,7 @@ export const HOOK_TIMEOUT_MS = 5000;
 /** The hook's timeout has to be the hold window the handler actually uses. */
 export const PERMISSION_HOOK_TIMEOUT_MS = DEFAULT_PERMISSION_TIMEOUT_MS;
 export const LAUNCH_HOOK_TIMEOUT_MS = 5000;
-/** Where the user's own status lines and env values are stashed while the console owns them. */
+/** Where the user's own env values are stashed while the console owns them. */
 export const BACKUP_FILE = 'agent-teams-console.backup.json';
 
 // Agent teams are what this console exists to show, and the task tools are the
@@ -157,10 +157,22 @@ export function mergeHookBlock(
   return {
     ...settings,
     hooks,
-    statusLine: block.statusLine,
-    subagentStatusLine: block.subagentStatusLine,
+    statusLine: keptStatusLine(settings.statusLine, block.statusLine, 'statusline'),
+    subagentStatusLine: keptStatusLine(settings.subagentStatusLine, block.subagentStatusLine, 'substatus'),
     env: { ...((settings.env ?? {}) as Record<string, unknown>), ...block.env },
   };
+}
+
+/**
+ * A status line the console installs ends in `printf ''` — it draws nothing,
+ * because its only job is to POST the payload. So writing it over someone's
+ * `ccstatusline` does not replace their status bar, it blanks it. The console
+ * takes the key only when it is free, and gives up the readouts it feeds
+ * otherwise; ours is still replaced, so a re-run can move the port.
+ */
+function keptStatusLine(existing: unknown, ours: StatusLineCommand, route: string): unknown {
+  if (existing === undefined || isConsoleStatusLine(existing, route)) return ours;
+  return existing;
 }
 
 export function removeHookBlock(settings: Record<string, unknown>): Record<string, unknown> {
@@ -217,10 +229,7 @@ export async function readClaudeVersion(): Promise<string | null> {
 }
 
 interface SettingsBackup {
-  statusLine: unknown;
-  subagentStatusLine: unknown;
-  /** Absent in backups written before the console owned these vars. */
-  env?: Record<string, string | null>;
+  env: Record<string, string | null>;
 }
 
 function envBackup(settings: Record<string, unknown>): Record<string, string | null> {
@@ -247,8 +256,8 @@ export async function runSetup(opts: {
     lines.push(`This block goes into ${opts.settingsPath}:`, '', JSON.stringify(block, null, 2), '');
   } else {
     lines.push(
-      `This removes the console's hooks and status lines from ${opts.settingsPath}, and puts`,
-      `${AGENT_ENV_VARS.join(' and ')} back the way you had them.`,
+      `This removes the console's hooks and its own status lines from ${opts.settingsPath},`,
+      `and puts ${AGENT_ENV_VARS.join(' and ')} back the way you had them.`,
       '',
     );
   }
@@ -268,14 +277,11 @@ export async function runSetup(opts: {
   const next = opts.uninstall ? removeHookBlock(current) : mergeHookBlock(current, opts.port);
   await fs.mkdir(path.dirname(opts.settingsPath), { recursive: true });
 
-  // The console takes both status lines over while it is installed, and the one
-  // it installs ends in `printf ''` — so an unstashed original leaves the user's
-  // terminal status line permanently blank with no way back.
+  // The env vars are the only keys the console overwrites, so they are the only
+  // ones it has to remember: status lines it does not own are left in place.
   const backupPath = backupPathFor(opts.settingsPath);
   const saved = await readJsonSafe<SettingsBackup>(backupPath);
   if (opts.uninstall) {
-    if (saved?.statusLine) next.statusLine = saved.statusLine;
-    if (saved?.subagentStatusLine) next.subagentStatusLine = saved.subagentStatusLine;
     if (saved?.env) {
       const env = { ...((next.env ?? {}) as Record<string, string>) };
       for (const [name, value] of Object.entries(saved.env)) {
@@ -283,24 +289,18 @@ export async function runSetup(opts: {
       }
       if (Object.keys(env).length > 0) next.env = env;
       else delete next.env;
+      lines.push(`put ${AGENT_ENV_VARS.join(' and ')} back the way you had them.`);
     }
     await fs.rm(backupPath, { force: true });
-    if (saved?.statusLine || saved?.subagentStatusLine) lines.push('restored your status line.');
-    if (saved?.env) lines.push(`put ${AGENT_ENV_VARS.join(' and ')} back the way you had them.`);
   } else {
     // Stash once: a second install would otherwise record the console's own
-    // status line as if it were the user's. `env` is stashed on its own because
-    // a backup from before the console owned these vars has none, and without
-    // it an uninstall would delete an agent-teams setting the user made.
-    if (saved === null || saved.env === undefined) {
-      const stash: SettingsBackup = saved ?? {
-        statusLine: current.statusLine ?? null,
-        subagentStatusLine: current.subagentStatusLine ?? null,
-      };
-      stash.env = envBackup(current);
-      await atomicWrite(backupPath, `${JSON.stringify(stash, null, 2)}\n`);
+    // "1" as if it were the user's.
+    if (saved === null) {
+      await atomicWrite(backupPath, `${JSON.stringify({ env: envBackup(current) }, null, 2)}\n`);
     }
-    if (saved === null && current.statusLine) lines.push(`your status line is stashed in ${backupPath}.`);
+    if (current.statusLine && !isConsoleStatusLine(current.statusLine, 'statusline')) {
+      lines.push('left your own status line alone — no rate-limit gauge or lead cost readout.');
+    }
     lines.push(`${AGENT_ENV_VARS.join(' and ')} are on — restart Claude Code for the task tools to load.`);
   }
 

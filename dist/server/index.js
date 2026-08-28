@@ -4159,10 +4159,14 @@ function mergeHookBlock(settings, port) {
   return {
     ...settings,
     hooks,
-    statusLine: block.statusLine,
-    subagentStatusLine: block.subagentStatusLine,
+    statusLine: keptStatusLine(settings.statusLine, block.statusLine, "statusline"),
+    subagentStatusLine: keptStatusLine(settings.subagentStatusLine, block.subagentStatusLine, "substatus"),
     env: { ...settings.env ?? {}, ...block.env }
   };
+}
+function keptStatusLine(existing, ours, route) {
+  if (existing === void 0 || isConsoleStatusLine(existing, route)) return ours;
+  return existing;
 }
 function removeHookBlock(settings) {
   const out = { ...settings };
@@ -4228,8 +4232,8 @@ async function runSetup(opts) {
     lines.push(`This block goes into ${opts.settingsPath}:`, "", JSON.stringify(block, null, 2), "");
   } else {
     lines.push(
-      `This removes the console's hooks and status lines from ${opts.settingsPath}, and puts`,
-      `${AGENT_ENV_VARS.join(" and ")} back the way you had them.`,
+      `This removes the console's hooks and its own status lines from ${opts.settingsPath},`,
+      `and puts ${AGENT_ENV_VARS.join(" and ")} back the way you had them.`,
       ""
     );
   }
@@ -4248,8 +4252,6 @@ async function runSetup(opts) {
   const backupPath = backupPathFor(opts.settingsPath);
   const saved = await readJsonSafe(backupPath);
   if (opts.uninstall) {
-    if (saved?.statusLine) next.statusLine = saved.statusLine;
-    if (saved?.subagentStatusLine) next.subagentStatusLine = saved.subagentStatusLine;
     if (saved?.env) {
       const env = { ...next.env ?? {} };
       for (const [name, value] of Object.entries(saved.env)) {
@@ -4257,21 +4259,17 @@ async function runSetup(opts) {
       }
       if (Object.keys(env).length > 0) next.env = env;
       else delete next.env;
+      lines.push(`put ${AGENT_ENV_VARS.join(" and ")} back the way you had them.`);
     }
     await fs7.rm(backupPath, { force: true });
-    if (saved?.statusLine || saved?.subagentStatusLine) lines.push("restored your status line.");
-    if (saved?.env) lines.push(`put ${AGENT_ENV_VARS.join(" and ")} back the way you had them.`);
   } else {
-    if (saved === null || saved.env === void 0) {
-      const stash = saved ?? {
-        statusLine: current.statusLine ?? null,
-        subagentStatusLine: current.subagentStatusLine ?? null
-      };
-      stash.env = envBackup(current);
-      await atomicWrite(backupPath, `${JSON.stringify(stash, null, 2)}
+    if (saved === null) {
+      await atomicWrite(backupPath, `${JSON.stringify({ env: envBackup(current) }, null, 2)}
 `);
     }
-    if (saved === null && current.statusLine) lines.push(`your status line is stashed in ${backupPath}.`);
+    if (current.statusLine && !isConsoleStatusLine(current.statusLine, "statusline")) {
+      lines.push("left your own status line alone \u2014 no rate-limit gauge or lead cost readout.");
+    }
     lines.push(`${AGENT_ENV_VARS.join(" and ")} are on \u2014 restart Claude Code for the task tools to load.`);
   }
   await atomicWrite(opts.settingsPath, `${JSON.stringify(next, null, 2)}
