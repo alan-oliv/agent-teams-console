@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -413,5 +413,159 @@ describe('startFileIngest', () => {
     const roster = of(store.replay(), 'roster').at(-1)?.payload as RosterPayload | undefined;
     expect(roster?.sidecars ?? []).toHaveLength(0);
     expect(project(store.replay(), false).agents).toHaveLength(0);
+  });
+});
+
+describe('transcript latency', () => {
+  const recordsFor = (agent: string) =>
+    of(store.replay(), 'transcript')
+      .map((e) => e.payload as TranscriptPayload)
+      .filter((p) => p.agent === agent)
+      .flatMap((p) => p.records);
+
+  const leadTranscript = () => path.join(paths.projects, SLUG, `${LEAD_SESSION}.jsonl`);
+  const charlieTranscript = () =>
+    path.join(paths.projects, SLUG, LEAD_SESSION, 'subagents', 'agent-aprobe-charlie-12ee4cb1ed35cf7c.jsonl');
+
+  // Starts the ingest with paths.projects DELETED, so watchRoot degrades to a
+  // no-op and no fs.watch on the transcript tree exists at all — the exact
+  // stand-in for an FSEvents delivery that never arrives, which is the case the
+  // sweep alone used to cover at up to five seconds' latency.
+  const startWithoutFsWatch = async (over: { sweepIntervalMs: number; tailPollMs: number }) => {
+    await fs.rm(paths.projects, { recursive: true, force: true });
+    return startFileIngest(store, {
+      paths,
+      teamName: TEAM,
+      leadSessionId: LEAD_SESSION,
+      leadName: 'team-lead',
+      ...over,
+    });
+  };
+
+  const write = async (file: string, uuid: string, type = 'assistant') => {
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.appendFile(file, `${JSON.stringify({ type, uuid, timestamp: new Date().toISOString() })}\n`);
+  };
+
+  it('delivers a transcript line within the tail poll when fs.watch never fires', async () => {
+    const ingest = await startWithoutFsWatch({ sweepIntervalMs: 60_000, tailPollMs: 50 });
+    try {
+      await write(leadTranscript(), 'poll-1');
+      await ingest.sweep(); // discovery, as at boot: registers the lead's transcript
+      expect(recordsFor('team-lead').map((r) => r.uuid)).toEqual(['poll-1']);
+
+      await write(leadTranscript(), 'poll-2');
+      // The next sweep is a minute away and there is no watcher, so only the
+      // tail poll can land this.
+      const hit = await waitFor(
+        () => recordsFor('team-lead').find((r) => r.uuid === 'poll-2'),
+        3000,
+      );
+      expect(hit.uuid).toBe('poll-2');
+    } finally {
+      ingest.close();
+    }
+  });
+
+  it('drainAgent reads that agent transcript immediately, with no sweep and no poll', async () => {
+    const ingest = await startWithoutFsWatch({ sweepIntervalMs: 0, tailPollMs: 0 });
+    try {
+      await layout();
+      await ingest.sweep();
+      const before = recordsFor('probe-charlie').length;
+      expect(before).toBeGreaterThan(0);
+
+      await write(charlieTranscript(), 'hook-1');
+      await ingest.drainAgent('probe-charlie');
+      expect(recordsFor('probe-charlie')).toHaveLength(before + 1);
+      expect(recordsFor('probe-charlie').at(-1)!.uuid).toBe('hook-1');
+    } finally {
+      ingest.close();
+    }
+  });
+
+  it('drainAgent resolves the LEAD own transcript, which is never in sidecars', async () => {
+    const ingest = await startWithoutFsWatch({ sweepIntervalMs: 0, tailPollMs: 0 });
+    try {
+      await write(leadTranscript(), 'lead-1');
+      await ingest.sweep();
+      expect(recordsFor('team-lead').map((r) => r.uuid)).toEqual(['lead-1']);
+
+      await write(leadTranscript(), 'lead-2', 'user');
+      await ingest.drainAgent('team-lead');
+      expect(recordsFor('team-lead').map((r) => r.uuid)).toEqual(['lead-1', 'lead-2']);
+    } finally {
+      ingest.close();
+    }
+  });
+
+  it('drainAgent for an unknown agent appends nothing and does not throw', async () => {
+    const ingest = await startWithoutFsWatch({ sweepIntervalMs: 0, tailPollMs: 0 });
+    try {
+      await expect(ingest.drainAgent('nobody')).resolves.toBeUndefined();
+      expect(store.replay()).toHaveLength(0);
+    } finally {
+      ingest.close();
+    }
+  });
+
+  it('appends each record exactly once with the watcher, the sweep and the poll all live', async () => {
+    await fs.mkdir(path.join(paths.projects, SLUG), { recursive: true });
+    const ingest = startFileIngest(store, {
+      paths,
+      teamName: TEAM,
+      leadSessionId: LEAD_SESSION,
+      leadName: 'team-lead',
+      sweepIntervalMs: 100,
+      tailPollMs: 50,
+    });
+    try {
+      await settle();
+      await ingest.sweep();
+
+      const total = 150;
+      for (let i = 0; i < total; i++) {
+        await write(leadTranscript(), `once-${i}`);
+        await new Promise((r) => setTimeout(r, 8));
+      }
+      await waitFor(() => (recordsFor('team-lead').length >= total ? true : undefined));
+      await settle();
+
+      const uuids = recordsFor('team-lead').map((r) => r.uuid);
+      expect(new Set(uuids).size).toBe(total);
+      expect(uuids).toHaveLength(total);
+    } finally {
+      ingest.close();
+    }
+  });
+
+  it('close clears both the sweep timer and the poll timer', () => {
+    // The behavioural test below cannot see this on its own: close() also stops
+    // the shared tail state, so a leaked interval would keep firing without
+    // appending anything and nothing on screen would say so.
+    vi.useFakeTimers();
+    try {
+      const ingest = startFileIngest(store, { paths, sweepIntervalMs: 50, tailPollMs: 50 });
+      expect(vi.getTimerCount()).toBe(2);
+      ingest.close();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('appends nothing more once closed', async () => {
+    const ingest = await startWithoutFsWatch({ sweepIntervalMs: 50, tailPollMs: 50 });
+    try {
+      await write(leadTranscript(), 'before-close');
+      await waitFor(() => recordsFor('team-lead').find((r) => r.uuid === 'before-close'), 3000);
+    } finally {
+      ingest.close();
+    }
+
+    const after = store.replay().length;
+    await write(leadTranscript(), 'after-close');
+    await settle(500);
+    expect(store.replay()).toHaveLength(after);
   });
 });

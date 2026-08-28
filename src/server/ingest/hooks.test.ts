@@ -280,3 +280,101 @@ describe('substatus', () => {
     expect(store.replay()).toHaveLength(0);
   });
 });
+
+describe('drain on agent activity', () => {
+  it('drains that agent on every hook event', async () => {
+    const drained: string[] = [];
+    const h = createHookHandlers({ store, permits, onAgentActivity: (a) => drained.push(a) });
+
+    await h.hook({ hook_event_name: 'PreToolUse', agent_id: 'aprobe-alpha-84fd551b27de6433' });
+    await h.hook({ hook_event_name: 'PostToolUse', agent_id: 'aprobe-alpha-84fd551b27de6433' });
+    await h.hook({ hook_event_name: 'Stop', agent_id: 'probe-bravo@session-98b0b4a7' });
+    await h.hook({ hook_event_name: 'SessionStart' });
+
+    expect(drained).toEqual(['probe-alpha', 'probe-alpha', 'probe-bravo', 'team-lead']);
+  });
+
+  it('drains BEFORE PermissionRequest waits on the operator', async () => {
+    // The operator is being asked to approve something and the handler can hold
+    // for ten minutes; the transcript explaining why has to be on screen while
+    // they decide, not after they have decided.
+    const drained: string[] = [];
+    const h = createHookHandlers({ store, permits, onAgentActivity: (a) => drained.push(a) });
+    const pending = h.hook({
+      hook_event_name: 'PermissionRequest',
+      tool_name: 'Bash',
+      tool_input: { command: 'rm -rf migrations/legacy' },
+      agent_id: 'aprobe-bravo-babf58016882bc72',
+      timeout: 10000,
+    });
+
+    let settled = false;
+    void pending.then(() => {
+      settled = true;
+    });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(settled).toBe(false);
+    expect(drained).toEqual(['probe-bravo']);
+
+    permits.resolve(permits.list()[0].id, 'deny');
+    await pending;
+  });
+
+  it('drains the lead on statusline and each teammate on substatus, and no other row type', async () => {
+    const drained: string[] = [];
+    const h = createHookHandlers({ store, permits, onAgentActivity: (a) => drained.push(a) });
+
+    await h.statusline({ cost: { total_cost_usd: 1 } });
+    await h.substatus({
+      tasks: [
+        { agentId: 'probe-alpha', type: 'in_process_teammate' },
+        { agentId: 'a9f20a3464bfe2362', name: 'searcher', type: 'task' },
+        { agentId: 'a3eeaa94f896ac303', name: 'plan-author', type: 'workflow' },
+        { name: 'probe-charlie', type: 'in_process_teammate' },
+      ],
+    });
+
+    expect(drained).toEqual(['team-lead', 'probe-alpha', 'probe-charlie']);
+  });
+
+  it('serves the whole handler even when the drain throws', async () => {
+    // A drain is a nicety; a hook that fails an agent's turn is not. The drain
+    // runs before the permission hold and inside the substatus loop, so a throw
+    // that escaped would cost the operator their decision card and every row
+    // after the first, not just the transcript line.
+    const h = createHookHandlers({
+      store,
+      permits,
+      onAgentActivity: () => {
+        throw new Error('drain exploded');
+      },
+    });
+
+    const pending = h.hook({
+      hook_event_name: 'PermissionRequest',
+      tool_name: 'Bash',
+      tool_input: { command: 'rm -rf migrations/legacy' },
+      agent_id: 'aprobe-bravo-babf58016882bc72',
+      timeout: 10000,
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(permits.list()).toHaveLength(1);
+    expect(of(store.replay(), 'needsyou')).toHaveLength(1);
+    permits.resolve(permits.list()[0].id, 'deny');
+    expect((await pending).status).toBe(200);
+
+    expect(
+      await h.substatus({
+        tasks: [
+          { name: 'probe-charlie', type: 'in_process_teammate' },
+          { name: 'probe-alpha', type: 'in_process_teammate' },
+        ],
+      }),
+    ).toEqual({ status: 200, body: {} });
+    expect(of(store.replay(), 'substatus')).toHaveLength(2);
+
+    expect(await h.statusline({})).toEqual({ status: 200, body: {} });
+    expect(of(store.replay(), 'statusline')).toHaveLength(1);
+  });
+});

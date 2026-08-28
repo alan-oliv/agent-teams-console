@@ -251,6 +251,7 @@ export async function main(argv: string[]): Promise<number> {
       permits,
       readOnly: cli.readOnly,
       leadSessionId: () => leadSessionId,
+      onAgentActivity: (agent) => void ingest.drainAgent(agent),
       onShutdown: stop,
     }),
     stream: hub,

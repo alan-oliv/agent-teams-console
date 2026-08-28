@@ -63,18 +63,38 @@ export async function drain(
   return { lines, state: { inode: next.inode, offset, partial: chunk.slice(cut + 1) } };
 }
 
+export interface AppendOnlyWatcher {
+  /**
+   * Read whatever `file` has gained since the last read, and resolve once those
+   * lines have been delivered. Every reader — the watcher, the tail poll, a
+   * hook — goes through here, so one TailState and one serialisation point per
+   * file cover all of them and no two readers can emit the same bytes twice.
+   */
+  pump(file: string): Promise<void>;
+  close(): void;
+}
+
 export function watchAppendOnly(
   root: string,
   onLines: (path: string, lines: string[]) => void,
-): { close(): void } {
+): AppendOnlyWatcher {
   const states = new Map<string, TailState>();
   const queues = new Map<string, Promise<void>>();
+  const queued = new Set<string>();
   let closed = false;
 
-  const pump = (file: string) => {
-    const prev = queues.get(file) ?? Promise.resolve();
-    const next = prev
+  const pump = (file: string): Promise<void> => {
+    // A drain already waiting behind the running one will stat AFTER this call,
+    // so it sees every byte this call cares about and a third is pure duplicate
+    // work. `queued` is cleared at the top of that drain, before its stat, so a
+    // call arriving mid-drain still enqueues a fresh one.
+    const tail = queues.get(file);
+    if (tail && queued.has(file)) return tail;
+    if (tail) queued.add(file);
+
+    const next = (tail ?? Promise.resolve())
       .then(async () => {
+        queued.delete(file);
         if (closed) return;
         const out = await drain(file, states.get(file) ?? emptyTailState());
         states.set(file, out.state);
@@ -82,14 +102,16 @@ export function watchAppendOnly(
       })
       .catch((err: unknown) => logError(`tail ${file}`, err));
     queues.set(file, next);
+    return next;
   };
 
   const watcher = watchRoot(root, (filename) => {
     if (!filename.endsWith('.jsonl')) return;
-    pump(path.join(root, filename));
+    void pump(path.join(root, filename));
   });
 
   return {
+    pump,
     close() {
       closed = true;
       watcher.close();

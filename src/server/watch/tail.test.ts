@@ -158,3 +158,88 @@ describe('watchAppendOnly', () => {
     }
   });
 });
+
+describe('pump', () => {
+  // The whole point of exporting pump is that the pull path must not depend on
+  // FSEvents, so every test here arms the watcher on a root that does not exist
+  // — watchRoot degrades to a no-op and there is no fs.watch at all.
+  const deadWatcher = (onLines: (p: string, lines: string[]) => void) =>
+    watchAppendOnly(path.join(dir, 'never-created'), onLines);
+
+  it('reads a file the watcher never reported', async () => {
+    const got: string[] = [];
+    const w = deadWatcher((_p, lines) => got.push(...lines));
+    try {
+      const file = path.join(dir, 'orphan.jsonl');
+      await fs.writeFile(file, '{"i":1}\n{"i":2}\n');
+      await w.pump(file);
+      expect(got).toEqual(['{"i":1}', '{"i":2}']);
+    } finally {
+      w.close();
+    }
+  });
+
+  it('resolves only once its lines have been delivered', async () => {
+    const got: string[] = [];
+    const w = deadWatcher((_p, lines) => got.push(...lines));
+    try {
+      const file = path.join(dir, 'awaited.jsonl');
+      await fs.writeFile(file, '{"i":1}\n');
+      const done = w.pump(file);
+      expect(got).toEqual([]);
+      await done;
+      expect(got).toEqual(['{"i":1}']);
+
+      await fs.appendFile(file, '{"i":2}\n');
+      await w.pump(file);
+      expect(got).toEqual(['{"i":1}', '{"i":2}']);
+    } finally {
+      w.close();
+    }
+  });
+
+  it('delivers every line exactly once under concurrent pumps of one file', async () => {
+    const got: string[] = [];
+    const w = deadWatcher((_p, lines) => got.push(...lines));
+    try {
+      const file = path.join(dir, 'hammer.jsonl');
+      await fs.writeFile(file, '');
+
+      const total = 200;
+      let writing = true;
+      const hammer = (async () => {
+        while (writing) {
+          await w.pump(file);
+          await new Promise((r) => setImmediate(r));
+        }
+      })();
+
+      // Half a record at a time: every drain that lands mid-record has to carry
+      // the remainder forward in `partial` rather than emit or drop it.
+      for (let i = 0; i < total; i++) {
+        const rec = `${JSON.stringify({ i })}\n`;
+        const cut = Math.max(1, Math.floor(rec.length / 2));
+        await fs.appendFile(file, rec.slice(0, cut));
+        await fs.appendFile(file, rec.slice(cut));
+      }
+      writing = false;
+      await hammer;
+      await w.pump(file);
+
+      const seen = new Set<number>();
+      let unparseable = 0;
+      for (const line of got) {
+        try {
+          seen.add((JSON.parse(line) as { i: number }).i);
+        } catch {
+          unparseable += 1;
+        }
+      }
+      expect(unparseable).toBe(0);
+      expect(seen.size).toBe(total);
+      expect(got).toHaveLength(total);
+    } finally {
+      w.close();
+    }
+  });
+});

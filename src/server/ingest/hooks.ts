@@ -23,6 +23,13 @@ export interface HookDeps {
   leadSessionId?: () => string | undefined;
   /** Runs when the LEAD's session ends. Defaults to exiting the process. */
   onShutdown?: () => void;
+  /**
+   * Read that agent's transcript now. A hook proves the agent just did
+   * something, and the transcript is the one thing hooks never carry — so this
+   * turns the push channel into a trigger for the pull one, instead of leaving
+   * the line to an fs.watch event macOS drops under load.
+   */
+  onAgentActivity?: (agent: string) => void;
 }
 
 export interface HookHandlers {
@@ -64,6 +71,13 @@ function resetOf(raw: unknown): string | undefined {
 export function createHookHandlers(deps: HookDeps): HookHandlers {
   const { store, permits } = deps;
   const leadName = deps.leadName ?? 'team-lead';
+  const touched = (agent: string) => {
+    try {
+      deps.onAgentActivity?.(agent);
+    } catch (err) {
+      logError('drain on hook', err); // never throw into the turn
+    }
+  };
   const shutdown =
     deps.onShutdown ??
     (() => {
@@ -82,6 +96,10 @@ export function createHookHandlers(deps: HookDeps): HookHandlers {
         const toolName = str(b.tool_name);
         const text = str(b.message) ?? str(b.prompt);
         store.append('hook', { event, agent, toolName, text }, agent);
+        // Before the PermissionRequest branch below, which can await the
+        // operator for ten minutes: the transcript explaining why the agent is
+        // asking has to be on screen while they decide.
+        touched(agent);
 
         if (event === 'SessionEnd') {
           // The hooks live in ~/.claude/settings.json — USER scope — so every
@@ -144,6 +162,7 @@ export function createHookHandlers(deps: HookDeps): HookHandlers {
         const cost = bagOf(b.cost);
         const window = bagOf(b.context_window);
         const limits = bagOf(b.rate_limits);
+        const agent = agentNameFrom(b.agent_id, leadName);
         store.append(
           'statusline',
           {
@@ -155,8 +174,9 @@ export function createHookHandlers(deps: HookDeps): HookHandlers {
             sevenDayPct: pctOf(limits.seven_day),
             resetsAt: resetOf(limits.five_hour),
           },
-          agentNameFrom(b.agent_id, leadName),
+          agent,
         );
+        touched(agent);
       } catch (err) {
         logError('statusline hook', err); // never throw into the turn
       }
@@ -186,6 +206,9 @@ export function createHookHandlers(deps: HookDeps): HookHandlers {
             },
             agent,
           );
+          // The only push signal that names teammates on a contract this repo
+          // has verified; /hook's agent_id for teammates is not.
+          touched(agent);
         }
       } catch (err) {
         logError('substatus hook', err); // never throw into the turn

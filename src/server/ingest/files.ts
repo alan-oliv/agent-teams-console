@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { drain, emptyTailState, watchAppendOnly, type TailState } from '../watch/tail';
+import { watchAppendOnly } from '../watch/tail';
 import { readJsonSafe, watchJsonTree } from '../watch/jsonfile';
 import type { Store } from '../store';
 import type { TaskPayload } from '../project';
@@ -10,6 +10,16 @@ import type { InboxEntry } from '../../shared/mailbox';
 import { logError } from '../log';
 
 export const DEFAULT_SWEEP_MS = 5000;
+/**
+ * How often the transcripts we already know about are re-read. The sweep above
+ * walks every file under all four roots (measured: 9ms on a 389-file ~/.claude,
+ * 244ms on a 10,000-file one), so it cannot run at this rate — but re-reading a
+ * handful of known files is one stat each, 0.1ms for eleven agents. That makes
+ * the transcript's worst-case latency this interval instead of the sweep's,
+ * whether or not fs.watch delivered. Matched to stream.ts's COALESCE_MS: a
+ * faster poll cannot produce a faster frame.
+ */
+export const TAIL_POLL_MS = 250;
 const SUBAGENT_FILE = /^agent-a(.+)-[0-9a-f]{16}\.jsonl$/;
 
 export interface IngestPaths {
@@ -25,6 +35,7 @@ export interface IngestConfig {
   leadSessionId?: string;
   leadName?: string;
   sweepIntervalMs?: number;
+  tailPollMs?: number;
   /**
    * Fires when config.json tells us which team this is. The console can be
    * started before any team exists (`npm start` by hand), so this is the only
@@ -35,6 +46,12 @@ export interface IngestConfig {
 
 export interface FileIngest {
   sweep(): Promise<void>;
+  /**
+   * Read that agent's transcript now, resolving once the read has landed. A
+   * hook is proof the agent just did something, and the transcript is the one
+   * thing hooks never carry. Unknown agent: a no-op.
+   */
+  drainAgent(agent: string): Promise<void>;
   close(): void;
 }
 
@@ -104,10 +121,9 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
   let lastConfig: TeamConfig | null = null;
   const sidecars = new Map<string, { meta: Sidecar; transcriptPath: string }>();
   const marks = new Map<string, number>();
-  // The sweep keeps its own tail state because watchAppendOnly owns the primary
-  // one. Both readers see every byte once; project.ts dedupes records by uuid,
-  // so a re-read during a watcher gap is harmless rather than a duplicate line.
-  const sweepTails = new Map<string, TailState>();
+  // Every transcript this ingest has attributed to an agent, so the tail poll
+  // and drainAgent can reach a file without walking the tree to find it.
+  const transcriptPaths = new Map<string, string>();
   let closed = false;
 
   const mark = async (file: string) => {
@@ -145,6 +161,7 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
   const handleLines = (file: string, lines: string[]) => {
     const agent = agentOfTranscript(file, leadSessionId, leadName);
     if (!agent) return;
+    transcriptPaths.set(agent, file);
     const records: TranscriptRecord[] = [];
     for (const l of lines) {
       const rec = parseLine(l);
@@ -198,7 +215,9 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
       if (meta.name) pending.delete(meta.name);
       return;
     }
-    sidecars.set(meta.name, { meta, transcriptPath: file.replace(/\.meta\.json$/, '.jsonl') });
+    const transcriptPath = file.replace(/\.meta\.json$/, '.jsonl');
+    sidecars.set(meta.name, { meta, transcriptPath });
+    transcriptPaths.set(meta.name, transcriptPath);
     flushPending(meta.name);
     appendRoster();
   };
@@ -225,12 +244,35 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
     else if (root === paths.sessions) await handleSessionJson(file);
   };
 
+  const transcripts = watchAppendOnly(paths.projects, (file, lines) => {
+    try {
+      handleLines(file, lines);
+    } catch (err) {
+      logError(`ingest ${file}`, err);
+    }
+    // Keep the sweep's mtime gate in step so it does not re-dispatch a file the
+    // watcher just consumed.
+    void fs.stat(file).then(
+      (st) => marks.set(file, st.mtimeMs),
+      () => undefined,
+    );
+  });
+
   const sweepTranscript = async (file: string) => {
     const agent = agentOfTranscript(file, leadSessionId, leadName);
     if (!agent) return;
-    const out = await drain(file, sweepTails.get(file) ?? emptyTailState());
-    sweepTails.set(file, out.state);
-    if (out.lines.length > 0) handleLines(file, out.lines);
+    transcriptPaths.set(agent, file);
+    await transcripts.pump(file);
+  };
+
+  const drainAgent = async (agent: string): Promise<void> => {
+    const file = transcriptPaths.get(agent);
+    if (!file) return;
+    await transcripts.pump(file);
+  };
+
+  const pollTails = async (): Promise<void> => {
+    await Promise.all([...transcriptPaths.values()].map((file) => transcripts.pump(file)));
   };
 
   const sweep = async (): Promise<void> => {
@@ -252,22 +294,7 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
   };
 
   const watchers = [
-    watchAppendOnly(paths.projects, (file, lines) => {
-      try {
-        handleLines(file, lines);
-      } catch (err) {
-        logError(`ingest ${file}`, err);
-      }
-      void fs.stat(file).then(
-        (st) => {
-          marks.set(file, st.mtimeMs);
-          if (!sweepTails.has(file)) {
-            sweepTails.set(file, { inode: st.ino, offset: st.size, partial: '' });
-          }
-        },
-        () => undefined,
-      );
-    }),
+    transcripts,
     watchJsonTree(paths.projects, (file) => {
       void settle(file)(handleProjectsJson(file));
     }),
@@ -283,19 +310,39 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
   ];
 
   const interval = config.sweepIntervalMs ?? DEFAULT_SWEEP_MS;
+  // A sweep of a large or network-mounted ~/.claude can outlast its own
+  // interval; without this the next one starts on top of it and walks the same
+  // tree again.
+  let sweeping: Promise<void> | null = null;
   const timer =
     interval > 0
       ? setInterval(() => {
-          void sweep().catch((err: unknown) => logError('reconciliation sweep', err));
+          if (sweeping) return;
+          sweeping = sweep()
+            .catch((err: unknown) => logError('reconciliation sweep', err))
+            .finally(() => {
+              sweeping = null;
+            });
         }, interval)
       : null;
   timer?.unref?.();
 
+  const pollMs = config.tailPollMs ?? TAIL_POLL_MS;
+  const poll =
+    pollMs > 0
+      ? setInterval(() => {
+          void pollTails().catch((err: unknown) => logError('tail poll', err));
+        }, pollMs)
+      : null;
+  poll?.unref?.();
+
   return {
     sweep,
+    drainAgent,
     close() {
       closed = true;
       if (timer) clearInterval(timer);
+      if (poll) clearInterval(poll);
       for (const w of watchers) w.close();
     },
   };
