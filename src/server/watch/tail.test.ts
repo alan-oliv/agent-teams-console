@@ -3,6 +3,7 @@ import { appendFileSync, promises as fs, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { emptyTailState, drain, watchAppendOnly } from './tail';
+import { isArmingProbe, untilArmed } from './arming.testkit';
 
 let dir: string;
 
@@ -13,7 +14,7 @@ afterEach(async () => {
   await fs.rm(dir, { recursive: true, force: true });
 });
 
-async function waitFor<T>(fn: () => T | undefined, timeoutMs = 10_000): Promise<T> {
+async function waitFor<T>(fn: () => T | undefined, timeoutMs = 1500): Promise<T> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const v = fn();
@@ -21,34 +22,6 @@ async function waitFor<T>(fn: () => T | undefined, timeoutMs = 10_000): Promise<
     if (Date.now() > deadline) throw new Error('waitFor timed out');
     await new Promise((r) => setTimeout(r, 20));
   }
-}
-
-/**
- * Wait until the watcher is demonstrably delivering, by writing throwaway files
- * into its root until one comes back. FSEventStreamStart returns before the
- * stream is armed, and a write that lands in that window is never reported at
- * all — so the case under test has to start AFTER the watcher has proven
- * itself, or it is racing the arm rather than testing what it names. Retrying
- * the stimulus is the only fix: waiting longer cannot recover a dropped event,
- * which is why this waits on the watcher's own output and not on a clock.
- */
-async function untilArmed(root: string, delivered: () => string[]): Promise<void> {
-  // Inside vitest's 5s testTimeout, so a watcher that never arms is reported as
-  // exactly that instead of as the assertion below timing out.
-  const deadline = Date.now() + 4000;
-  for (let attempt = 0; Date.now() < deadline; attempt++) {
-    const probe = path.join(root, `arming-${attempt}.jsonl`);
-    await fs.writeFile(probe, '{"arming":true}\n');
-    for (let i = 0; i < 25; i++) {
-      if (delivered().includes(probe)) {
-        await fs.rm(probe, { force: true });
-        return;
-      }
-      await new Promise((r) => setTimeout(r, 20));
-    }
-    await fs.rm(probe, { force: true });
-  }
-  throw new Error(`watcher on ${root} never reported a probe file`);
 }
 
 describe('watchAppendOnly on a missing root', () => {
@@ -136,7 +109,7 @@ describe('watchAppendOnly', () => {
     const got: Array<{ path: string; lines: string[] }> = [];
     const w = watchAppendOnly(dir, (p, lines) => got.push({ path: p, lines }));
     try {
-      await untilArmed(dir, () => got.map((g) => g.path));
+      await untilArmed(dir, () => got.map((g) => g.path), '.jsonl');
       const file = path.join(dir, 'slug', 'subagents', 'agent-aprobe-charlie-12ee4cb1ed35cf7c.jsonl');
       await fs.writeFile(file, '{"type":"assistant"}\n');
       const hit = await waitFor(() => got.find((g) => g.path === file));
@@ -161,15 +134,15 @@ describe('watchAppendOnly', () => {
       // Unlike the test above, the nested directory itself is new here: it appears
       // after the recursive watcher is already running. This is the genuinely
       // timing-dependent case, since macOS FSEvents has to notice the brand-new
-      // subtree before it can report the rename inside it, so this test gets the
-      // most generous budget in the suite. The raw watcher has no fallback for a
-      // missed/delayed event; in production, ingest/files.ts layers a periodic
-      // reconciliation sweep on top of watchAppendOnly for exactly this case.
-      await untilArmed(dir, () => got.map((g) => g.path));
+      // subtree before it can report the rename inside it. The raw watcher has no
+      // fallback for a missed/delayed event; in production, ingest/files.ts layers
+      // a periodic reconciliation sweep on top of watchAppendOnly for exactly this
+      // case.
+      await untilArmed(dir, () => got.map((g) => g.path), '.jsonl');
       await fs.mkdir(path.join(dir, 'slug', 'subagents'), { recursive: true });
       const file = path.join(dir, 'slug', 'subagents', 'agent-aprobe-charlie-12ee4cb1ed35cf7c.jsonl');
       await fs.writeFile(file, '{"type":"assistant"}\n');
-      const hit = await waitFor(() => got.find((g) => g.path === file), 20_000);
+      const hit = await waitFor(() => got.find((g) => g.path === file));
       expect(hit.lines).toEqual(['{"type":"assistant"}']);
     } finally {
       w.close();
@@ -180,9 +153,12 @@ describe('watchAppendOnly', () => {
     const got: string[] = [];
     const w = watchAppendOnly(dir, (p) => got.push(p));
     try {
+      // Without this the watcher may never have been listening, and the
+      // assertion below would hold for that reason instead of the filter's.
+      await untilArmed(dir, () => got, '.jsonl');
       await fs.writeFile(path.join(dir, 'config.json'), '{}');
       await new Promise((r) => setTimeout(r, 300));
-      expect(got).toEqual([]);
+      expect(got.filter((p) => !isArmingProbe(p))).toEqual([]);
     } finally {
       w.close();
     }

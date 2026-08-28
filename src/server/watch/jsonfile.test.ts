@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { readJsonSafe, watchJsonTree } from './jsonfile';
+import { isArmingProbe, untilArmed } from './arming.testkit';
 
 let dir: string;
 
@@ -13,7 +14,7 @@ afterEach(async () => {
   await fs.rm(dir, { recursive: true, force: true });
 });
 
-async function waitFor<T>(fn: () => T | undefined, timeoutMs = 10_000): Promise<T> {
+async function waitFor<T>(fn: () => T | undefined, timeoutMs = 1500): Promise<T> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const v = fn();
@@ -72,6 +73,7 @@ describe('watchJsonTree', () => {
     const seen: string[] = [];
     const w = watchJsonTree(dir, (p) => seen.push(p));
     try {
+      await untilArmed(dir, () => seen, '.json');
       const target = path.join(dir, 'session-98b0b4a7', 'inboxes', 'team-lead.json');
       const tmp = `${target}.tmp`;
       await fs.writeFile(tmp, '[{"from":"probe-alpha"}]');
@@ -90,7 +92,7 @@ describe('watchJsonTree', () => {
     const seen: string[] = [];
     const w = watchJsonTree(dir, (p) => seen.push(p));
     try {
-      await new Promise((r) => setTimeout(r, 100));
+      await untilArmed(dir, () => seen, '.json');
       seen.length = 0;
       const fh = await fs.open(target, 'r+');
       await fh.truncate(0);
@@ -108,9 +110,12 @@ describe('watchJsonTree', () => {
     const seen: string[] = [];
     const w = watchJsonTree(dir, (p) => seen.push(p));
     try {
+      // Without this the watcher may never have been listening, and the
+      // assertion below would hold for that reason instead of the filter's.
+      await untilArmed(dir, () => seen, '.json');
       await fs.mkdir(path.join(dir, 'team-lead.json.lock'), { recursive: true });
       await new Promise((r) => setTimeout(r, 300));
-      expect(seen).toEqual([]);
+      expect(seen.filter((p) => !isArmingProbe(p))).toEqual([]);
     } finally {
       w.close();
     }
