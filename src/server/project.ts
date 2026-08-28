@@ -229,7 +229,12 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
     }
   }
 
-  const cards = [...needsYou.values()];
+  // A permission card outlives the permit it stands for when the process that
+  // held it is gone, and `allow` then 404s forever. Expiry is the only thing
+  // that can retire one, so it is enforced here rather than trusted to arrive.
+  const cards = [...needsYou.values()].filter(
+    (c) => c.expiresAt === undefined || c.expiresAt > Date.now(),
+  );
   let totalTokens = 0;
 
   // Liveness comes ONLY from config.json membership. The sidecars survive a

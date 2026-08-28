@@ -166,6 +166,42 @@ describe('project', () => {
     expect(project(log, false).needsYou.map((n) => n.id)).toEqual(['p2']);
   });
 
+  it('drops a permission card whose hold has already expired', () => {
+    // The permit lives in the previous process's memory, so `allow` 404s and
+    // nothing can ever retire the card except its own expiry.
+    const log = buildLog();
+    let seq = log.length;
+    log.push({
+      seq: ++seq,
+      ts: 1787843500000,
+      kind: 'needsyou',
+      agent: 'probe-alpha',
+      payload: {
+        id: 'zombie',
+        kind: 'permission',
+        agent: 'probe-alpha',
+        reason: 'permission',
+        detail: 'Bash',
+        expiresAt: Date.now() - 1,
+      },
+    });
+    log.push({
+      seq: ++seq,
+      ts: 1787843500001,
+      kind: 'needsyou',
+      agent: 'probe-bravo',
+      payload: {
+        id: 'live',
+        kind: 'permission',
+        agent: 'probe-bravo',
+        reason: 'permission',
+        detail: 'Bash',
+        expiresAt: Date.now() + 540_000,
+      },
+    });
+    expect(project(log, false).needsYou.map((n) => n.id)).toEqual(['live']);
+  });
+
   it('deduplicates transcript records re-read by the reconciliation sweep', () => {
     const log = buildLog();
     const dup = log.find((e) => e.kind === 'transcript' && e.agent === 'probe-charlie')!;

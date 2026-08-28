@@ -111,7 +111,10 @@ export async function main(argv: string[]): Promise<number> {
   const teamsRoot = path.join(cli.claudeHome, 'teams');
   setTeamsRoot(teamsRoot);
 
-  const store = openStore(cli.dbPath);
+  const discovered = await discoverTeam(teamsRoot);
+  let leadSessionId = discovered?.leadSessionId;
+
+  const store = openStore(cli.dbPath, discovered?.teamName ?? '');
   const permits = createPermits();
   const hub = createStream(() => project(store.replay(), cli.readOnly));
 
@@ -125,10 +128,10 @@ export async function main(argv: string[]): Promise<number> {
       return ev;
     },
     replay: () => store.replay(),
+    setTeam: (name: string) => store.setTeam(name),
     close: () => store.close(),
   };
 
-  const discovered = await discoverTeam(teamsRoot);
   const ingest = startFileIngest(live, {
     paths: {
       projects: path.join(cli.claudeHome, 'projects'),
@@ -138,6 +141,10 @@ export async function main(argv: string[]): Promise<number> {
     },
     teamName: discovered?.teamName,
     leadSessionId: discovered?.leadSessionId,
+    onTeam: (info) => {
+      store.setTeam(info.teamName);
+      leadSessionId = info.leadSessionId;
+    },
   });
   await ingest.sweep();
 

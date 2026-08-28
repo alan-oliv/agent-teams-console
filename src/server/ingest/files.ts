@@ -24,6 +24,12 @@ export interface IngestConfig {
   leadSessionId?: string;
   leadName?: string;
   sweepIntervalMs?: number;
+  /**
+   * Fires when config.json tells us which team this is. The console can be
+   * started before any team exists (`npm start` by hand), so this is the only
+   * point at which the store learns what to scope its log to.
+   */
+  onTeam?: (info: { teamName: string; leadSessionId: string }) => void;
 }
 
 export interface FileIngest {
@@ -157,8 +163,10 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
       const cfg = await readJsonSafe<TeamConfig>(file);
       if (!cfg) return;
       lastConfig = cfg;
+      const learned = teamName !== cfg.name || leadSessionId !== cfg.leadSessionId;
       teamName = cfg.name;
       leadSessionId = cfg.leadSessionId;
+      if (learned) config.onTeam?.({ teamName: cfg.name, leadSessionId: cfg.leadSessionId });
       appendRoster();
       return;
     }
