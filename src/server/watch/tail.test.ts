@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { promises as fs } from 'node:fs';
+import { appendFileSync, promises as fs, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { emptyTailState, drain, watchAppendOnly } from './tail';
@@ -223,6 +223,29 @@ describe('pump', () => {
       await fs.appendFile(file, '{"i":2}\n');
       await w.pump(file);
       expect(got).toEqual(['{"i":1}', '{"i":2}']);
+    } finally {
+      w.close();
+    }
+  });
+
+  it('coalesces a burst of pumps of one file into a single queued drain', async () => {
+    const file = path.join(dir, 'coalesce.jsonl');
+    const batches: string[][] = [];
+    // Feeding one more line per delivery means any drain that runs has bytes to
+    // report, so `batches` counts the drains the burst actually performed —
+    // which is the only thing the de-duplication changes. The writes are
+    // synchronous so they land before the drain chain gets its first microtask.
+    const w = deadWatcher((_p, lines) => {
+      batches.push(lines);
+      appendFileSync(file, `${JSON.stringify({ i: batches.length })}\n`);
+    });
+    try {
+      writeFileSync(file, '{"i":0}\n');
+      // Issued in one tick, so none has started draining: the first runs, the
+      // second stats after all twenty and therefore covers them, and the rest
+      // are pure duplicate work.
+      await Promise.all(Array.from({ length: 20 }, () => w.pump(file)));
+      expect(batches).toEqual([['{"i":0}'], ['{"i":1}']]);
     } finally {
       w.close();
     }

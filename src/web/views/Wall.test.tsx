@@ -168,6 +168,7 @@ describe('Wall column memoisation', () => {
     renderWall();
     feed.renders = 0;
     fireEvent.mouseEnter(screen.getAllByTestId('wall-column')[3]);
-    expect(feed.renders).toBeLessThanOrEqual(2);
+    // Only the entered column's `isTinted` moves, so exactly one column re-renders.
+    expect(feed.renders).toBe(1);
   });
 });
