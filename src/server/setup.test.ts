@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import catalog from '../shared/catalog.json';
 import {
+  AGENT_ENV_VARS,
   backupPathFor,
   HOOK_EVENTS,
   HOOK_TIMEOUT_MS,
@@ -75,6 +76,13 @@ describe('hookBlock', () => {
     expect(block.subagentStatusLine.command).toContain('http://127.0.0.1:4823/substatus');
   });
 
+  it('turns on agent teams and the task tools, which no plugin manifest can', () => {
+    expect(block.env).toEqual({
+      CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1',
+      CLAUDE_CODE_ENABLE_TODO_TOOLS: '1',
+    });
+  });
+
   it('honours a non-default port', () => {
     const other = hookBlock(4400);
     expect(((other.hooks.Stop as HookEntry[])[0].hooks[0]).url).toBe('http://127.0.0.1:4400/hook');
@@ -131,6 +139,21 @@ describe('mergeHookBlock / removeHookBlock', () => {
   it('removes exactly what it added', () => {
     const original = { model: 'opus', hooks: { Stop: [{ hooks: [{ type: 'command', command: 'say done' }] }] } };
     expect(removeHookBlock(mergeHookBlock(original, 4823))).toEqual(original);
+  });
+
+  it('adds the env vars beside the ones already there', () => {
+    const merged = mergeHookBlock({ env: { FOO: 'bar' } }, 4823);
+    expect(merged.env).toEqual({
+      FOO: 'bar',
+      CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1',
+      CLAUDE_CODE_ENABLE_TODO_TOOLS: '1',
+    });
+    expect(removeHookBlock(merged).env).toEqual({ FOO: 'bar' });
+  });
+
+  it('leaves an explicit "0" alone — that is the user saying off', () => {
+    const off = { env: { CLAUDE_CODE_ENABLE_TODO_TOOLS: '0' } };
+    expect(removeHookBlock(off)).toEqual(off);
   });
 
   it('leaves a settings file with no console hooks untouched', () => {
@@ -232,6 +255,46 @@ describe('runSetup', () => {
       hooks: Record<string, unknown[]>;
     };
     expect(after.hooks.PreToolUse).toEqual([guard]);
+  });
+
+  it('turns the env vars on and takes them off again on uninstall', async () => {
+    const settingsPath = path.join(dir, 'settings.json');
+    await runSetup({ settingsPath, port: 4823, confirm: true });
+    const installed = JSON.parse(await fs.readFile(settingsPath, 'utf8')) as { env: Record<string, string> };
+    for (const name of AGENT_ENV_VARS) expect(installed.env[name]).toBe('1');
+
+    await runSetup({ settingsPath, port: 4823, confirm: true, uninstall: true });
+    const after = JSON.parse(await fs.readFile(settingsPath, 'utf8')) as { env?: unknown };
+    expect(after.env).toBeUndefined();
+  });
+
+  it('restores the env values the user had before the install', async () => {
+    const settingsPath = path.join(dir, 'settings.json');
+    const mine = { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1', CLAUDE_CODE_ENABLE_TODO_TOOLS: '0', FOO: 'bar' };
+    await fs.writeFile(settingsPath, JSON.stringify({ env: mine }, null, 2));
+
+    await runSetup({ settingsPath, port: 4823, confirm: true });
+    const installed = JSON.parse(await fs.readFile(settingsPath, 'utf8')) as { env: Record<string, string> };
+    expect(installed.env.CLAUDE_CODE_ENABLE_TODO_TOOLS).toBe('1');
+
+    await runSetup({ settingsPath, port: 4823, confirm: true, uninstall: true });
+    expect(JSON.parse(await fs.readFile(settingsPath, 'utf8'))).toEqual({ env: mine });
+  });
+
+  it('stashes the env values even when a pre-env backup already exists', async () => {
+    // Upgrade path: whoever installed before this feature has a backup file with
+    // no `env`, and their own CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS to lose.
+    const settingsPath = path.join(dir, 'settings.json');
+    await fs.writeFile(settingsPath, JSON.stringify({ env: { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1' } }));
+    await fs.writeFile(
+      backupPathFor(settingsPath),
+      JSON.stringify({ statusLine: null, subagentStatusLine: null }),
+    );
+
+    await runSetup({ settingsPath, port: 4823, confirm: true });
+    await runSetup({ settingsPath, port: 4823, confirm: true, uninstall: true });
+    const after = JSON.parse(await fs.readFile(settingsPath, 'utf8')) as { env: Record<string, string> };
+    expect(after.env).toEqual({ CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1' });
   });
 
   it('creates a settings file that does not exist yet', async () => {

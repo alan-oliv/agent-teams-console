@@ -4075,6 +4075,10 @@ var HOOK_TIMEOUT_MS = 5e3;
 var PERMISSION_HOOK_TIMEOUT_MS = DEFAULT_PERMISSION_TIMEOUT_MS;
 var LAUNCH_HOOK_TIMEOUT_MS = 5e3;
 var BACKUP_FILE = "agent-teams-console.backup.json";
+var AGENT_ENV_VARS = [
+  "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS",
+  "CLAUDE_CODE_ENABLE_TODO_TOOLS"
+];
 var HOOK_EVENTS = [
   "PreToolUse",
   "PostToolUse",
@@ -4127,7 +4131,8 @@ function hookBlock(port) {
   return {
     hooks,
     statusLine: { type: "command", command: post(port, "statusline"), refreshInterval: 5 },
-    subagentStatusLine: { type: "command", command: post(port, "substatus") }
+    subagentStatusLine: { type: "command", command: post(port, "substatus") },
+    env: Object.fromEntries(AGENT_ENV_VARS.map((name) => [name, "1"]))
   };
 }
 function isConsoleEntry(entry) {
@@ -4155,7 +4160,8 @@ function mergeHookBlock(settings, port) {
     ...settings,
     hooks,
     statusLine: block.statusLine,
-    subagentStatusLine: block.subagentStatusLine
+    subagentStatusLine: block.subagentStatusLine,
+    env: { ...settings.env ?? {}, ...block.env }
   };
 }
 function removeHookBlock(settings) {
@@ -4172,6 +4178,14 @@ function removeHookBlock(settings) {
   }
   if (isConsoleStatusLine(out.statusLine, "statusline")) delete out.statusLine;
   if (isConsoleStatusLine(out.subagentStatusLine, "substatus")) delete out.subagentStatusLine;
+  const env = settings.env;
+  if (env) {
+    const kept = Object.fromEntries(
+      Object.entries(env).filter(([key, value]) => !(AGENT_ENV_VARS.includes(key) && value === "1"))
+    );
+    if (Object.keys(kept).length > 0) out.env = kept;
+    else delete out.env;
+  }
   return out;
 }
 function checkClaudeVersion(raw) {
@@ -4198,6 +4212,12 @@ async function readClaudeVersion() {
     return null;
   }
 }
+function envBackup(settings) {
+  const env = settings.env ?? {};
+  return Object.fromEntries(
+    AGENT_ENV_VARS.map((name) => [name, typeof env[name] === "string" ? env[name] : null])
+  );
+}
 function backupPathFor(settingsPath) {
   return path8.join(path8.dirname(settingsPath), BACKUP_FILE);
 }
@@ -4207,7 +4227,11 @@ async function runSetup(opts) {
   if (!opts.uninstall) {
     lines.push(`This block goes into ${opts.settingsPath}:`, "", JSON.stringify(block, null, 2), "");
   } else {
-    lines.push(`This removes the console's hooks and status lines from ${opts.settingsPath}.`, "");
+    lines.push(
+      `This removes the console's hooks and status lines from ${opts.settingsPath}, and puts`,
+      `${AGENT_ENV_VARS.join(" and ")} back the way you had them.`,
+      ""
+    );
   }
   if (!opts.confirm) {
     lines.push("nothing was written \u2014 re-run with --yes to apply.");
@@ -4222,26 +4246,33 @@ async function runSetup(opts) {
   const next = opts.uninstall ? removeHookBlock(current) : mergeHookBlock(current, opts.port);
   await fs7.mkdir(path8.dirname(opts.settingsPath), { recursive: true });
   const backupPath = backupPathFor(opts.settingsPath);
+  const saved = await readJsonSafe(backupPath);
   if (opts.uninstall) {
-    const saved = await readJsonSafe(backupPath);
     if (saved?.statusLine) next.statusLine = saved.statusLine;
     if (saved?.subagentStatusLine) next.subagentStatusLine = saved.subagentStatusLine;
+    if (saved?.env) {
+      const env = { ...next.env ?? {} };
+      for (const [name, value] of Object.entries(saved.env)) {
+        if (typeof value === "string") env[name] = value;
+      }
+      if (Object.keys(env).length > 0) next.env = env;
+      else delete next.env;
+    }
     await fs7.rm(backupPath, { force: true });
     if (saved?.statusLine || saved?.subagentStatusLine) lines.push("restored your status line.");
-  } else if (await readJsonSafe(backupPath) === null) {
-    await atomicWrite(
-      backupPath,
-      `${JSON.stringify(
-        {
-          statusLine: current.statusLine ?? null,
-          subagentStatusLine: current.subagentStatusLine ?? null
-        },
-        null,
-        2
-      )}
-`
-    );
-    if (current.statusLine) lines.push(`your status line is stashed in ${backupPath}.`);
+    if (saved?.env) lines.push(`put ${AGENT_ENV_VARS.join(" and ")} back the way you had them.`);
+  } else {
+    if (saved === null || saved.env === void 0) {
+      const stash = saved ?? {
+        statusLine: current.statusLine ?? null,
+        subagentStatusLine: current.subagentStatusLine ?? null
+      };
+      stash.env = envBackup(current);
+      await atomicWrite(backupPath, `${JSON.stringify(stash, null, 2)}
+`);
+    }
+    if (saved === null && current.statusLine) lines.push(`your status line is stashed in ${backupPath}.`);
+    lines.push(`${AGENT_ENV_VARS.join(" and ")} are on \u2014 restart Claude Code for the task tools to load.`);
   }
   await atomicWrite(opts.settingsPath, `${JSON.stringify(next, null, 2)}
 `);

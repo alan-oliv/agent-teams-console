@@ -1,5 +1,5 @@
 ---
-description: Add the console's observation hooks and status lines to settings.json, merging with whatever is already there
+description: Turn on agent teams and the task tools and add the console's observation hooks and status lines to settings.json, merging with whatever is already there
 allowed-tools: ["Bash", "Read", "Edit", "Write"]
 ---
 
@@ -13,7 +13,11 @@ plugin cannot install `statusLine` or `subagentStatusLine` keys:
 - the **rate-limit gauge** in the status bar
 - the **permission cards** in `NEEDS YOU`
 
-This command adds them to `~/.claude/settings.json`. It MERGES: whatever is
+Nor can a plugin set `env`, which is where the two features the console exists to
+show are switched on: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` (teams at all) and
+`CLAUDE_CODE_ENABLE_TODO_TOOLS` (the shared task list the **tasks** view renders).
+
+This command adds all of it to `~/.claude/settings.json`. It MERGES: whatever is
 already in that file stays.
 
 ## 1. Read what is there now
@@ -23,12 +27,15 @@ CFG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"
 echo "$CFG"; [ -f "$CFG" ] && cat "$CFG" || echo '{}'
 ```
 
-Note three things before going further, because they decide the plan:
+Note four things before going further, because they decide the plan:
 
 - Does a `statusLine` already exist? **Whose is it?** A user's own status line
   (`ccstatusline`, `starship`, a custom script) must NOT be replaced — see step 3.
 - Are the console's hooks already installed? A `PostToolUse` entry posting to
   `http://127.0.0.1:PORT/hook` means yes; say so and stop.
+- Does `env` already carry either agent-teams var? An explicit `"0"` is the
+  operator saying *off* — flag it, and note that turning it on is the point of
+  this install.
 - Which port? Default `4823`. If the operator runs the console on another port,
   use theirs everywhere below.
 
@@ -62,6 +69,17 @@ because that hook deliberately holds while the operator decides.
 Do NOT add the `Agent` command hook that launches the console: the plugin's own
 `hooks.json` already registers it on both `PreToolUse` and `PostToolUse`. Adding
 it here would announce twice.
+
+**`env`** — set both to `"1"`, leaving every other var in the block alone:
+
+```json
+{ "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+  "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1" }
+```
+
+Write `"1"` as a string, not a number or a boolean. If either was already set to
+something else, record the old value in your report so the operator can put it
+back.
 
 **`subagentStatusLine`** — safe to set, nothing else uses it:
 
@@ -113,13 +131,17 @@ If that fails, restore the backup immediately and report what happened.
 
 Tell the operator, in two or three lines: which keys changed, that the existing
 status line was preserved (or why it was not), where the backup is, and that
-**hooks are read once at session start, so this takes effect in the next
-session** — not the one they are in.
+**hooks and `env` are read once at session start, so this takes effect in the
+next session** — not the one they are in. Agent teams come back on the next
+spawn; the task tools only load at startup.
 
 ## Removing it
 
 Reverse of the above: drop hook entries whose URL matches
 `http://127.0.0.1:PORT/hook`, drop `subagentStatusLine` if it points at
 `/substatus`, and restore `statusLine` to the incumbent command it wrapped (or
-delete it if the console installed it). Same rules — back up, confirm, verify it
-parses.
+delete it if the console installed it). Put the two `env` vars back to whatever
+they were before the install, and delete them if they were not there at all —
+but ask first, since dropping `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` turns off
+agent teams themselves, not just the console. Same rules — back up, confirm,
+verify it parses.

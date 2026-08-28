@@ -34,10 +34,11 @@ prompt without switching back to the terminal.
 
 - **Claude Code with agent teams enabled.** Teams are an experimental feature:
   `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` has to be set (in `~/.claude/settings.json`
-  under `env`, or in your shell) or there is nothing for this to show. Being
-  experimental, the on-disk shapes it reads can change without notice — the server
-  prints a warning at startup when `claude --version` is not the version it was
-  built against.
+  under `env`, or in your shell) or there is nothing for this to show, and
+  `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` is what fills the **tasks** view. `/console-setup`
+  sets both for you — see below. Being experimental, the on-disk shapes it reads can
+  change without notice — the server prints a warning at startup when
+  `claude --version` is not the version it was built against.
 - **Node 22+** and `curl`, both of which you already have if Claude Code runs.
 - macOS or Linux.
 
@@ -135,6 +136,10 @@ they need `statusLine` keys in `settings.json`:
 - permission prompts surfaced as **NEEDS YOU** cards you can allow or deny
 - context and spend readouts in the header
 
+The same install turns on the two features the console exists to show, which a
+plugin also cannot set: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` and
+`CLAUDE_CODE_ENABLE_TODO_TOOLS`, both under `env`.
+
 If you want those, run **`/console-setup`**. It ships with the plugin, so there is
 nothing to clone and nothing to install: it reads your `settings.json`, shows you
 what it would add, and writes only once you say yes.
@@ -147,7 +152,7 @@ command **wraps** yours instead: the payload goes to the console *and* on to you
 own command, so you keep your status line and gain the rate-limit gauge.
 
 `/console-setup` also reverses itself — ask it to remove the hooks and it
-restores what it wrapped.
+restores what it wrapped, and puts both `env` vars back the way it found them.
 
 <details>
 <summary>Without the plugin, from a clone</summary>
@@ -158,11 +163,12 @@ npm run setup            # prints the block it would write
 npm run setup -- --yes   # writes it to ~/.claude/settings.json
 ```
 
-This merges into your existing hooks rather than replacing them, and
-`npm run uninstall -- --yes` puts everything back. Note that it *replaces* your
-`statusLine` rather than wrapping it — the original is stashed in
-`~/.claude/agent-teams-console.backup.json` and restored on uninstall, but your
-own status line is blank while the console's is installed.
+This merges into your existing hooks rather than replacing them, sets the two
+`env` vars, and `npm run uninstall -- --yes` puts everything back. Note that it
+*replaces* your `statusLine` rather than wrapping it — the original is stashed in
+`~/.claude/agent-teams-console.backup.json`, alongside whatever those `env` vars
+were before, and both are restored on uninstall; but your own status line is
+blank while the console's is installed.
 
 </details>
 

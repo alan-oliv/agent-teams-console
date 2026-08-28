@@ -14,8 +14,17 @@ export const HOOK_TIMEOUT_MS = 5000;
 /** The hook's timeout has to be the hold window the handler actually uses. */
 export const PERMISSION_HOOK_TIMEOUT_MS = DEFAULT_PERMISSION_TIMEOUT_MS;
 export const LAUNCH_HOOK_TIMEOUT_MS = 5000;
-/** Where the user's own status lines are stashed while the console owns them. */
+/** Where the user's own status lines and env values are stashed while the console owns them. */
 export const BACKUP_FILE = 'agent-teams-console.backup.json';
+
+// Agent teams are what this console exists to show, and the task tools are the
+// shared task list it renders. Neither can be turned on from a plugin manifest,
+// so the setup that installs the hooks turns them on too.
+export const AGENT_ENV_VARS = [
+  'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS',
+  'CLAUDE_CODE_ENABLE_TODO_TOOLS',
+] as const;
+type EnvVar = (typeof AGENT_ENV_VARS)[number];
 
 export const HOOK_EVENTS = [
   'PreToolUse',
@@ -56,6 +65,7 @@ export interface HookBlock {
   hooks: Record<string, HookEntry[]>;
   statusLine: StatusLineCommand;
   subagentStatusLine: StatusLineCommand;
+  env: Record<string, string>;
 }
 
 function post(port: number, route: string): string {
@@ -112,6 +122,7 @@ export function hookBlock(port: number): HookBlock {
     hooks,
     statusLine: { type: 'command', command: post(port, 'statusline'), refreshInterval: 5 },
     subagentStatusLine: { type: 'command', command: post(port, 'substatus') },
+    env: Object.fromEntries(AGENT_ENV_VARS.map((name) => [name, '1'])),
   };
 }
 
@@ -148,6 +159,7 @@ export function mergeHookBlock(
     hooks,
     statusLine: block.statusLine,
     subagentStatusLine: block.subagentStatusLine,
+    env: { ...((settings.env ?? {}) as Record<string, unknown>), ...block.env },
   };
 }
 
@@ -165,6 +177,16 @@ export function removeHookBlock(settings: Record<string, unknown>): Record<strin
   }
   if (isConsoleStatusLine(out.statusLine, 'statusline')) delete out.statusLine;
   if (isConsoleStatusLine(out.subagentStatusLine, 'substatus')) delete out.subagentStatusLine;
+  const env = settings.env as Record<string, unknown> | undefined;
+  if (env) {
+    // Only "1" is ours to drop. An explicit "0" is the user saying *off*, which
+    // a bare `uninstall` — with no backup to restore from — must not undo.
+    const kept = Object.fromEntries(
+      Object.entries(env).filter(([key, value]) => !(AGENT_ENV_VARS.includes(key as EnvVar) && value === '1')),
+    );
+    if (Object.keys(kept).length > 0) out.env = kept;
+    else delete out.env;
+  }
   return out;
 }
 
@@ -194,9 +216,18 @@ export async function readClaudeVersion(): Promise<string | null> {
   }
 }
 
-interface StatusLineBackup {
+interface SettingsBackup {
   statusLine: unknown;
   subagentStatusLine: unknown;
+  /** Absent in backups written before the console owned these vars. */
+  env?: Record<string, string | null>;
+}
+
+function envBackup(settings: Record<string, unknown>): Record<string, string | null> {
+  const env = (settings.env ?? {}) as Record<string, unknown>;
+  return Object.fromEntries(
+    AGENT_ENV_VARS.map((name) => [name, typeof env[name] === 'string' ? (env[name] as string) : null]),
+  );
 }
 
 export function backupPathFor(settingsPath: string): string {
@@ -215,7 +246,11 @@ export async function runSetup(opts: {
   if (!opts.uninstall) {
     lines.push(`This block goes into ${opts.settingsPath}:`, '', JSON.stringify(block, null, 2), '');
   } else {
-    lines.push(`This removes the console's hooks and status lines from ${opts.settingsPath}.`, '');
+    lines.push(
+      `This removes the console's hooks and status lines from ${opts.settingsPath}, and puts`,
+      `${AGENT_ENV_VARS.join(' and ')} back the way you had them.`,
+      '',
+    );
   }
 
   if (!opts.confirm) {
@@ -237,27 +272,36 @@ export async function runSetup(opts: {
   // it installs ends in `printf ''` — so an unstashed original leaves the user's
   // terminal status line permanently blank with no way back.
   const backupPath = backupPathFor(opts.settingsPath);
+  const saved = await readJsonSafe<SettingsBackup>(backupPath);
   if (opts.uninstall) {
-    const saved = await readJsonSafe<StatusLineBackup>(backupPath);
     if (saved?.statusLine) next.statusLine = saved.statusLine;
     if (saved?.subagentStatusLine) next.subagentStatusLine = saved.subagentStatusLine;
+    if (saved?.env) {
+      const env = { ...((next.env ?? {}) as Record<string, string>) };
+      for (const [name, value] of Object.entries(saved.env)) {
+        if (typeof value === 'string') env[name] = value;
+      }
+      if (Object.keys(env).length > 0) next.env = env;
+      else delete next.env;
+    }
     await fs.rm(backupPath, { force: true });
     if (saved?.statusLine || saved?.subagentStatusLine) lines.push('restored your status line.');
-  } else if ((await readJsonSafe<StatusLineBackup>(backupPath)) === null) {
+    if (saved?.env) lines.push(`put ${AGENT_ENV_VARS.join(' and ')} back the way you had them.`);
+  } else {
     // Stash once: a second install would otherwise record the console's own
-    // status line as if it were the user's.
-    await atomicWrite(
-      backupPath,
-      `${JSON.stringify(
-        {
-          statusLine: current.statusLine ?? null,
-          subagentStatusLine: current.subagentStatusLine ?? null,
-        },
-        null,
-        2,
-      )}\n`,
-    );
-    if (current.statusLine) lines.push(`your status line is stashed in ${backupPath}.`);
+    // status line as if it were the user's. `env` is stashed on its own because
+    // a backup from before the console owned these vars has none, and without
+    // it an uninstall would delete an agent-teams setting the user made.
+    if (saved === null || saved.env === undefined) {
+      const stash: SettingsBackup = saved ?? {
+        statusLine: current.statusLine ?? null,
+        subagentStatusLine: current.subagentStatusLine ?? null,
+      };
+      stash.env = envBackup(current);
+      await atomicWrite(backupPath, `${JSON.stringify(stash, null, 2)}\n`);
+    }
+    if (saved === null && current.statusLine) lines.push(`your status line is stashed in ${backupPath}.`);
+    lines.push(`${AGENT_ENV_VARS.join(' and ')} are on — restart Claude Code for the task tools to load.`);
   }
 
   // settings.json is the most important config file on the machine and Claude
