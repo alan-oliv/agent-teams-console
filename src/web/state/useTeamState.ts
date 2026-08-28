@@ -8,22 +8,41 @@ export interface TeamStateStore {
   connected: boolean;
   view: ViewId;
   agent: string | null;
+  /** The team the launcher asked for, or null — see {@link isAnnouncedTeam}. */
+  announcedTeam: string | null;
   setView(v: ViewId): void;
   setAgent(name: string | null): void;
 }
 
-export function readUrlState(search: string): { view: ViewId; agent: string | null } {
+export function readUrlState(search: string): {
+  view: ViewId;
+  agent: string | null;
+  team: string | null;
+} {
   const params = new URLSearchParams(search);
   const raw = params.get('view');
   const view = VIEW_IDS.find((v) => v === raw) ?? 'wall';
-  return { view, agent: params.get('agent') };
+  return { view, agent: params.get('agent'), team: params.get('team') };
 }
 
-export function writeUrlState(view: ViewId, agent: string | null): void {
+export function writeUrlState(view: ViewId, agent: string | null, team: string | null): void {
   const params = new URLSearchParams();
   params.set('view', view);
   if (agent) params.set('agent', agent);
+  if (team) params.set('team', team);
   window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
+}
+
+/**
+ * The launcher announces a bare `/?team=<name>` while writeUrlState always writes
+ * `view`, so `view`'s absence is proof the URL came from the launcher rather than
+ * from a reload or a restored tab. Selecting is server-global — every connected
+ * client follows — so honouring any `?team=` would let a background tab yank a
+ * console someone is watching.
+ */
+export function isAnnouncedTeam(search: string): boolean {
+  const params = new URLSearchParams(search);
+  return params.has('team') && !params.has('view');
 }
 
 const BACKOFF_BASE_MS = 500;
@@ -69,11 +88,24 @@ function reconcile(prev: TeamState, next: TeamState): TeamState {
 }
 
 export function useTeamState(url = '/stream'): TeamStateStore {
-  const [initial] = useState(() => readUrlState(window.location.search));
+  const [initial] = useState(() => ({
+    ...readUrlState(window.location.search),
+    announced: isAnnouncedTeam(window.location.search),
+  }));
   const [state, setState] = useState<TeamState | null>(null);
   const [connected, setConnected] = useState(false);
   const [view, setView] = useState<ViewId>(initial.view);
-  const [agent, setAgent] = useState<string | null>(initial.agent);
+  const [selected, setAgent] = useState<string | null>(initial.agent);
+
+  // A switch replaces the whole roster, so the selected name is meaningless in the
+  // new team. Derived rather than cleared in an effect: the render path must stay
+  // pure under StrictMode, the URL self-heals, and a deep-linked ?agent= survives
+  // the connect window because `state` is null until the first frame.
+  const agent = state && selected && !state.agents.some((a) => a.name === selected) ? null : selected;
+
+  // Always the server's own answer, so the address bar can never disagree with the
+  // header; before the first frame, the announcement it arrived with.
+  const team = state ? state.teamName : initial.team;
 
   useEffect(() => {
     let stopped = false;
@@ -114,8 +146,16 @@ export function useTeamState(url = '/stream'): TeamStateStore {
   }, [url]);
 
   useEffect(() => {
-    writeUrlState(view, agent);
-  }, [view, agent]);
+    writeUrlState(view, agent, team);
+  }, [view, agent, team]);
 
-  return { state, connected, view, agent, setView, setAgent };
+  return {
+    state,
+    connected,
+    view,
+    agent,
+    announcedTeam: initial.announced ? initial.team : null,
+    setView,
+    setAgent,
+  };
 }

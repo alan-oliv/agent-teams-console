@@ -12,7 +12,14 @@ afterEach(cleanup);
 function renderBar(view: Parameters<typeof StatusBar>[0]['view'] = 'wall') {
   const onViewChange = vi.fn();
   render(
-    <StatusBar state={sampleTeamState()} view={view} onViewChange={onViewChange} now={FIXTURE_NOW} />,
+    <StatusBar
+      state={sampleTeamState()}
+      view={view}
+      onViewChange={onViewChange}
+      now={FIXTURE_NOW}
+      teamsOpen={false}
+      onTeamsOpenChange={vi.fn()}
+    />,
   );
   return onViewChange;
 }
@@ -56,7 +63,16 @@ it('does not pin the meter full when the cumulative token count is large', () =>
   // magnitude and clamped to 16/16 forever.
   const state = sampleTeamState();
   state.totalTokens = 1_833_968_297;
-  render(<StatusBar state={state} view="wall" onViewChange={vi.fn()} now={FIXTURE_NOW} />);
+  render(
+    <StatusBar
+      state={state}
+      view="wall"
+      onViewChange={vi.fn()}
+      now={FIXTURE_NOW}
+      teamsOpen={false}
+      onTeamsOpenChange={vi.fn()}
+    />,
+  );
   expect(screen.getByTestId('aggregate-meter').textContent).toBe('████░░░░░░░░░░░░');
 });
 
@@ -71,4 +87,59 @@ it('renders the right-hand readouts from the fixture team', () => {
   expect(screen.getByText('45m 12s')).toBeTruthy();
   expect(screen.getByText('≈$2.56 api-equiv')).toBeTruthy();
   expect(screen.getByText('5h 41% · 7d 12%')).toBeTruthy();
+});
+
+it('makes the team name the control that opens the team list', () => {
+  const onTeamsOpenChange = vi.fn();
+  render(
+    <StatusBar
+      state={sampleTeamState()}
+      view="wall"
+      onViewChange={vi.fn()}
+      now={FIXTURE_NOW}
+      teamsOpen={false}
+      onTeamsOpenChange={onTeamsOpenChange}
+    />,
+  );
+  const trigger = screen.getByRole('button', { name: 'TEAM session-98b0b4a7' });
+  expect(trigger.getAttribute('aria-haspopup')).toBe('listbox');
+  expect(trigger.getAttribute('aria-expanded')).toBe('false');
+
+  fireEvent.click(trigger);
+  expect(onTeamsOpenChange).toHaveBeenCalledWith(true);
+});
+
+it('pins the trigger wide enough that switching teams cannot move the switcher', () => {
+  // The tabs' x already depends on the team name's length; a fluid trigger would
+  // shove them sideways as a result of the operator's own click.
+  const short = sampleTeamState();
+  render(
+    <StatusBar
+      state={short}
+      view="wall"
+      onViewChange={vi.fn()}
+      now={FIXTURE_NOW}
+      teamsOpen={false}
+      onTeamsOpenChange={vi.fn()}
+    />,
+  );
+  expect(screen.getByTestId('team-trigger').style.width).toBe('146px');
+  cleanup();
+
+  const long = sampleTeamState();
+  long.teamName = 'session-b5129c7b-with-a-very-long-name';
+  render(
+    <StatusBar
+      state={long}
+      view="wall"
+      onViewChange={vi.fn()}
+      now={FIXTURE_NOW}
+      teamsOpen={false}
+      onTeamsOpenChange={vi.fn()}
+    />,
+  );
+  expect(screen.getByTestId('team-trigger').style.width).toBe('146px');
+  expect(screen.getByText('session-b5129c7b-with-a-very-long-name').style.textOverflow).toBe(
+    'ellipsis',
+  );
 });

@@ -149,3 +149,7 @@ button {
 .chip:hover {
   border-color: var(--color-accent-700);
 }
+
+.team-trigger:hover {
+  border-color: var(--color-accent-700);
+}

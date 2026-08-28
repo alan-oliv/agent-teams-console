@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { MockEventSource, installMockEventSource } from './test/mockEventSource';
-import { sampleTeamState } from './test/state-fixture';
+import { sampleTeamState, sampleTeams } from './test/state-fixture';
 
 beforeEach(() => {
   installMockEventSource();
@@ -165,4 +165,69 @@ it('costs the dock no per-agent renders on an identical frame or a clock tick', 
   } finally {
     vi.useRealTimers();
   }
+});
+
+function stubTeamsFetch() {
+  const fetchMock = vi.fn((path: string) =>
+    path === '/api/teams'
+      ? Promise.resolve(
+          new Response(JSON.stringify({ current: 'session-98b0b4a7', teams: sampleTeams() }), {
+            status: 200,
+          }),
+        )
+      : Promise.resolve(new Response('{}', { status: 200 })),
+  );
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
+}
+
+it('t opens the team list over any view', async () => {
+  stubTeamsFetch();
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+
+  expect(screen.queryByRole('listbox', { name: 'teams' })).toBeNull();
+  fireEvent.keyDown(document.body, { key: 't' });
+  expect(screen.getByRole('listbox', { name: 'teams' })).toBeTruthy();
+  await screen.findAllByRole('option');
+
+  fireEvent.keyDown(document.body, { key: 't' });
+  expect(screen.queryByRole('listbox', { name: 'teams' })).toBeNull();
+});
+
+it('switches to the team the launcher announced, once', () => {
+  // The launcher announces a bare /?team= when a console is already running for
+  // another team; that is the only case where the URL and the server disagree.
+  window.history.replaceState(null, '', '/?team=session-b5129c7b');
+  const fetchMock = stubTeamsFetch();
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+
+  expect(fetchMock).toHaveBeenCalledWith('/api/teams/session-b5129c7b/select', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}',
+  });
+
+  act(() => MockEventSource.last().emit('state', sampleTeamState()));
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+it('does not switch when the announced team is already the one on screen', () => {
+  window.history.replaceState(null, '', '/?team=session-98b0b4a7');
+  const fetchMock = stubTeamsFetch();
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
+it('does not switch for a ?team= that came from a reload rather than the launcher', () => {
+  // A bookmark or a restored tab replays the URL we wrote, which always has a
+  // view. Honouring it would let a background tab yank a console someone else
+  // is watching, since the switch is server-global.
+  window.history.replaceState(null, '', '/?view=wall&team=session-b5129c7b');
+  const fetchMock = stubTeamsFetch();
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+  expect(fetchMock).not.toHaveBeenCalled();
 });

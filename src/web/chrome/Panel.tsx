@@ -4,7 +4,7 @@ import { StatusGlyph } from '../components/StatusGlyph';
 import { formatPct } from '../format';
 
 const IDLE_COLLAPSE_AT = 3;
-const LEGEND = '↑↓ select · ⏎ open · esc interrupt · x stop · ⌃T tasks';
+const LEGEND = '↑↓ select · ⏎ open · esc interrupt · x stop · ⌃T tasks · t teams';
 
 // The dock is mounted in every view, so it renders on every SSE frame and every clock
 // tick. Memoised so only the chips whose agent actually moved re-render; the click

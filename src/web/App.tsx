@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import './theme.css';
 import { postJson } from './api';
 import { NeedsYou } from './chrome/NeedsYou';
@@ -15,6 +15,7 @@ import { Wall } from './views/Wall';
 export function App() {
   const store = useTeamState();
   const [now, setNow] = useState(() => Date.now());
+  const [teamsOpen, setTeamsOpen] = useState(false);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -22,6 +23,18 @@ export function App() {
   }, []);
 
   const state = store.state;
+  const toggleTeams = useCallback(() => setTeamsOpen((open) => !open), []);
+
+  // The launcher announces a new team at a console that is already running for
+  // another one. Ref-guarded because main.tsx mounts under StrictMode, and a
+  // second POST would tear the ingest down and rebuild it twice.
+  const announced = useRef(false);
+  useEffect(() => {
+    const target = store.announcedTeam;
+    if (!target || announced.current || !state || target === state.teamName) return;
+    announced.current = true;
+    void postJson(`/api/teams/${encodeURIComponent(target)}/select`);
+  }, [state, store.announcedTeam]);
 
   // The wall pins the lead leftmost, so column navigation (h/l) walks the
   // same order — computed here rather than exported from Wall, since App
@@ -51,6 +64,7 @@ export function App() {
     stop: (name) => {
       if (!isDeparted(name)) void postJson(`/api/agents/${encodeURIComponent(name)}/stop`);
     },
+    toggleTeams,
   });
 
   if (!state) {
@@ -63,7 +77,14 @@ export function App() {
 
   return (
     <div className="console">
-      <StatusBar state={state} view={store.view} onViewChange={store.setView} now={now} />
+      <StatusBar
+        state={state}
+        view={store.view}
+        onViewChange={store.setView}
+        now={now}
+        teamsOpen={teamsOpen}
+        onTeamsOpenChange={setTeamsOpen}
+      />
       <main className="console-body">
         {store.view === 'wall' && (
           <Wall

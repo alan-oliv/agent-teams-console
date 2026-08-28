@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { TeamState } from '../../shared/domain';
 import { MockEventSource, installMockEventSource } from '../test/mockEventSource';
 import { sampleTeamState } from '../test/state-fixture';
-import { useTeamState } from './useTeamState';
+import { isAnnouncedTeam, useTeamState } from './useTeamState';
 
 beforeEach(() => {
   installMockEventSource();
@@ -167,4 +167,55 @@ it('treats a change to any single agent field as a change', () => {
     expect(`${key}: ${after[0] === before[0] ? 'reused' : 'fresh'}`).toBe(`${key}: fresh`);
     expect(after[1]).toBe(before[1]);
   }
+});
+
+it('keeps the launcher announcement in the address bar instead of erasing it', () => {
+  // writeUrlState used to build a fresh URLSearchParams, so the mount effect
+  // wiped the ?team= the launcher had just announced.
+  window.history.replaceState(null, '', '/?team=session-98b0b4a7');
+  renderHook(() => useTeamState());
+  expect(window.location.search).toBe('?view=wall&team=session-98b0b4a7');
+});
+
+it('writes the team the server says is on screen, not a client copy', () => {
+  const { result } = renderHook(() => useTeamState());
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+  expect(window.location.search).toBe('?view=wall&team=session-98b0b4a7');
+  expect(result.current.announcedTeam).toBeNull();
+});
+
+it('treats a team with no view as an announcement and a team beside one as our own bookkeeping', () => {
+  expect(isAnnouncedTeam('?team=session-b5129c7b')).toBe(true);
+  expect(isAnnouncedTeam('?view=wall&team=session-b5129c7b')).toBe(false);
+  expect(isAnnouncedTeam('?view=wall')).toBe(false);
+  expect(isAnnouncedTeam('')).toBe(false);
+});
+
+it('exposes an announced team so App can act on it once', () => {
+  window.history.replaceState(null, '', '/?team=session-b5129c7b');
+  const { result } = renderHook(() => useTeamState());
+  expect(result.current.announcedTeam).toBe('session-b5129c7b');
+});
+
+it('drops a selected agent the new team does not have', () => {
+  window.history.replaceState(null, '', '/?view=wall&agent=probe-bravo');
+  const { result } = renderHook(() => useTeamState());
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+  expect(result.current.agent).toBe('probe-bravo');
+
+  const other = sampleTeamState();
+  other.teamName = 'session-b5129c7b';
+  other.agents = other.agents.slice(0, 1).map((a) => ({ ...a, name: 'solo', agentId: 'solo@session-b5129c7b' }));
+  act(() => MockEventSource.last().emit('state', other));
+
+  expect(result.current.agent).toBeNull();
+  expect(window.location.search).toBe('?view=wall&team=session-b5129c7b');
+});
+
+it('keeps a valid selection across an ordinary frame', () => {
+  window.history.replaceState(null, '', '/?view=wall&agent=probe-bravo');
+  const { result } = renderHook(() => useTeamState());
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+  act(() => MockEventSource.last().emit('state', sampleTeamState()));
+  expect(result.current.agent).toBe('probe-bravo');
 });

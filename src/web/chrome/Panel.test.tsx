@@ -153,7 +153,9 @@ it('renders the PANEL label and the key legend', () => {
   const label = screen.getByText('PANEL');
   expect(label.style.color).toBe('var(--color-neutral-700)');
   expect(label.style.letterSpacing).toBe('.12em');
-  expect(screen.getByText('↑↓ select · ⏎ open · esc interrupt · x stop · ⌃T tasks')).toBeTruthy();
+  expect(
+    screen.getByText('↑↓ select · ⏎ open · esc interrupt · x stop · ⌃T tasks · t teams'),
+  ).toBeTruthy();
 });
 
 describe('Panel chip memoisation', () => {

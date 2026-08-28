@@ -31,6 +31,7 @@ function mount(overrides: Partial<KeyboardActions> = {}) {
     setView: vi.fn(),
     interrupt: vi.fn(),
     stop: vi.fn(),
+    toggleTeams: vi.fn(),
     ...overrides,
   };
   render(<Harness actions={actions} />);
@@ -117,6 +118,36 @@ describe('useKeyboard — view switching', () => {
     mount({ view: 'tasks' });
     fireEvent.keyDown(document.body, { key: 't', ctrlKey: true });
     expect(actions.setView).toHaveBeenCalledWith('wall');
+  });
+});
+
+describe('useKeyboard — team switching', () => {
+  it('t toggles the team list', () => {
+    mount();
+    fireEvent.keyDown(document.body, { key: 't' });
+    expect(actions.toggleTeams).toHaveBeenCalledTimes(1);
+    expect(actions.setView).not.toHaveBeenCalled();
+    expect(actions.stop).not.toHaveBeenCalled();
+  });
+
+  it('t works with no agent focused — a switch is not a per-agent action', () => {
+    mount({ focused: null });
+    fireEvent.keyDown(document.body, { key: 't' });
+    expect(actions.toggleTeams).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves t alone inside the composer', () => {
+    mount();
+    const composer = screen.getByTestId('composer');
+    composer.focus();
+    fireEvent.keyDown(composer, { key: 't' });
+    expect(actions.toggleTeams).not.toHaveBeenCalled();
+  });
+
+  it('leaves a t the popover already handled alone', () => {
+    mount();
+    fireEvent.keyDown(screen.getByTestId('listbox'), { key: 't' });
+    expect(actions.toggleTeams).not.toHaveBeenCalled();
   });
 });
 

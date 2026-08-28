@@ -18,6 +18,7 @@ export interface KeyboardActions {
   setView(view: ViewId): void;
   interrupt(name: string): void;
   stop(name: string): void;
+  toggleTeams(): void;
 }
 
 function isEditable(target: EventTarget | null): boolean {
@@ -56,6 +57,15 @@ export function useKeyboard(actions: KeyboardActions): void {
       // A view that handled the key itself — the rail's own listbox — calls
       // preventDefault, so selection is not applied twice.
       if (e.defaultPrevented) return;
+
+      // Above the focused-agent guard below: which team the console is showing is
+      // not a per-agent action, and there is no agent to focus in a team the
+      // console has not ingested yet.
+      if (e.key === 't') {
+        e.preventDefault();
+        actions.toggleTeams();
+        return;
+      }
 
       // The panel legend advertises ↑↓ and ⏎ (spec §6); h/l stay as vim aliases.
       const step = STEP[e.key];

@@ -1,15 +1,20 @@
 import type { TeamState, ViewId } from '../../shared/domain';
 import { formatCost, formatElapsed, formatTokens, meterCells } from '../format';
 import { VIEW_IDS } from '../state/useTeamState';
+import { TeamSelect } from './TeamSelect';
 
 export interface StatusBarProps {
   state: TeamState;
   view: ViewId;
   onViewChange(view: ViewId): void;
   now: number;
+  teamsOpen: boolean;
+  onTeamsOpenChange(open: boolean): void;
 }
 
-export function StatusBar({ state, view, onViewChange, now }: StatusBarProps) {
+export function StatusBar({
+  state, view, onViewChange, now, teamsOpen, onTeamsOpenChange,
+}: StatusBarProps) {
   const done = state.tasks.filter((t) => t.state === 'completed').length;
   // Team context occupancy — what the meter has always looked like it meant.
   // It used to divide the CUMULATIVE token total by a capacity, which pins it
@@ -30,6 +35,7 @@ export function StatusBar({ state, view, onViewChange, now }: StatusBarProps) {
       }}
     >
       <span
+        id="team-wordmark"
         style={{
           color: 'var(--color-accent)',
           letterSpacing: '.14em',
@@ -39,7 +45,12 @@ export function StatusBar({ state, view, onViewChange, now }: StatusBarProps) {
       >
         TEAM
       </span>
-      <span style={{ color: 'var(--color-text)' }}>{state.teamName}</span>
+      <TeamSelect
+        current={state.teamName}
+        open={teamsOpen}
+        onOpenChange={onTeamsOpenChange}
+        now={now}
+      />
       <span
         style={{
           border: '1px solid var(--color-accent-700)',

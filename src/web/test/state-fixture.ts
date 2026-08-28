@@ -1,7 +1,7 @@
 import config from '../../../fixtures/config-4-members.json';
 import sidecars from '../../../fixtures/meta-sidecars.json';
 import rawTasks from '../../../fixtures/tasks.json';
-import type { Agent, AgentStatus, Task, TeamState } from '../../shared/domain';
+import type { Agent, AgentStatus, Task, TeamState, TeamSummary } from '../../shared/domain';
 
 const OPUS = { contextLimit: 1_000_000, compactAt: 967_000 };
 const HAIKU = { contextLimit: 200_000, compactAt: 167_000 };
@@ -87,4 +87,33 @@ export function sampleTeamState(): TeamState {
     needsYou: [],
     readOnly: false,
   };
+}
+
+/**
+ * `GET /api/teams` for a machine holding the fixture team plus one that has
+ * finished — the two-row case the selector was designed against.
+ */
+export function sampleTeams(): TeamSummary[] {
+  return [
+    {
+      name: config.name,
+      members: config.members.length,
+      createdAt: config.createdAt,
+      leadSessionId: config.leadSessionId,
+      leadAlive: true,
+      lastActivityAt: FIXTURE_NOW - 12_000,
+      live: true,
+      current: true,
+    },
+    {
+      name: 'session-b5129c7b',
+      members: 1,
+      createdAt: config.createdAt - 86_400_000,
+      leadSessionId: 'b5129c7b-a009-4de3-9a42-4664d1214f39',
+      leadAlive: false,
+      lastActivityAt: FIXTURE_NOW - 15_120_000,
+      live: false,
+      current: false,
+    },
+  ];
 }
