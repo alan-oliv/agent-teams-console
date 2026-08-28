@@ -123,6 +123,45 @@ describe('agentOfTranscript', () => {
   });
 });
 
+// /branch moves the user's live conversation to a new session id without ever
+// touching config.json, so the console has to accept more than one session as
+// "the lead" — every session in the fork chain, not just the one config.json
+// still names. See growForkChain in files.ts.
+describe('agentOfTranscript with a lead session CHAIN', () => {
+  const FORK_SESSION = '34d7d450-b74c-48d0-b909-a80188bf3387';
+  const FOREIGN_SESSION = '5cd370e5-2d86-4b64-878e-095f726aea82';
+  const chain = new Set([LEAD_SESSION, FORK_SESSION]);
+
+  it('maps EITHER session in the chain to the lead name', () => {
+    expect(agentOfTranscript(`/a/${LEAD_SESSION}.jsonl`, chain, 'team-lead')).toBe('team-lead');
+    expect(agentOfTranscript(`/a/${FORK_SESSION}.jsonl`, chain, 'team-lead')).toBe('team-lead');
+  });
+
+  it('attributes a teammate spawned under the forked session, not just the original', () => {
+    const f = `/a/${FORK_SESSION}/subagents/agent-anewmate-1111111111111111.jsonl`;
+    expect(agentOfTranscript(f, chain, 'team-lead')).toBe('newmate');
+  });
+
+  it('still REJECTS a session that is not in the chain at all', () => {
+    expect(agentOfTranscript(`/a/${FOREIGN_SESSION}.jsonl`, chain, 'team-lead')).toBeNull();
+    const f = `/a/${FOREIGN_SESSION}/subagents/agent-astranger-2222222222222222.jsonl`;
+    expect(agentOfTranscript(f, chain, 'team-lead')).toBeNull();
+  });
+
+  it('treats an empty chain exactly like an unresolved leadSessionId', () => {
+    // The unresolved-team window (see the cross-team leak tests below) relies
+    // on `undefined` and "known but empty" behaving identically: both must
+    // fall back to an UNSCOPED claim on the bare name for a subagent file, and
+    // both must refuse to claim any bare session transcript as the lead's.
+    const empty = new Set<string>();
+    const subagent = `/a/${LEAD_SESSION}/subagents/agent-aworker-1111111111111111.jsonl`;
+    expect(agentOfTranscript(subagent, empty, 'team-lead')).toBe(
+      agentOfTranscript(subagent, undefined, 'team-lead'),
+    );
+    expect(agentOfTranscript(`/a/${LEAD_SESSION}.jsonl`, empty, 'team-lead')).toBeNull();
+  });
+});
+
 describe('scope rule: agent teams only', () => {
   const LEAD = '98b0b4a7-3206-455b-aaf6-a5a81ad1e283';
   const base = `/Users/alanoliv/.claude/projects/${SLUG}`;
@@ -1437,5 +1476,170 @@ describe('a transcript FILE is the identity, not the name it carries', () => {
     // reaches the store IS what the buffers were holding.
     expect(storedRecords()).toBeGreaterThan(0);
     expect(storedRecords()).toBeLessThanOrEqual(PENDING_RECORDS);
+  });
+});
+
+// Claude Code's `/branch` moves the user's live conversation to a brand new
+// session id but never touches config.json's leadSessionId — config.json
+// keeps naming the ORIGINAL session forever. Confirmed live against a real
+// 98b0b4a7 -> 34d7d450 pair: the forked session's first line carries
+// `forkedFrom.sessionId` pointing at the original, and its own transcript is a
+// full copy of every record before the fork (identical uuids) plus whatever
+// came after. growForkChain in files.ts is what keeps the console's feed, and
+// any teammate spawned after the branch, from going stale at the fork point.
+describe('lead session chain (/branch)', () => {
+  const FORK_SESSION = '34d7d450-b74c-48d0-b909-a80188bf3387';
+  const FOREIGN_SESSION = '5cd370e5-2d86-4b64-878e-095f726aea82';
+
+  const leadTranscript = () => path.join(paths.projects, SLUG, `${LEAD_SESSION}.jsonl`);
+  const forkTranscript = () => path.join(paths.projects, SLUG, `${FORK_SESSION}.jsonl`);
+  const foreignTranscript = () => path.join(paths.projects, SLUG, `${FOREIGN_SESSION}.jsonl`);
+  const forkSubagentDir = () => path.join(paths.projects, SLUG, FORK_SESSION, 'subagents');
+  const foreignSubagentDir = () => path.join(paths.projects, SLUG, FOREIGN_SESSION, 'subagents');
+
+  const assistant = (tag: string, i: number, tsBase: number): TranscriptRecord => ({
+    type: 'assistant',
+    uuid: `${tag}-${i}`,
+    timestamp: new Date(tsBase + i * 1000).toISOString(),
+    message: {
+      id: `msg-${tag}-${i}`,
+      model: 'claude-opus-5',
+      role: 'assistant',
+      usage: { input_tokens: 10, output_tokens: 10, cache_read_input_tokens: 100, cache_creation_input_tokens: 10 },
+      content: [{ type: 'text', text: `${tag} ${i}` }],
+    },
+  });
+
+  // The real first line carries far more (attachment payload, cwd, version…),
+  // but forkedFrom.sessionId is the only field growForkChain reads.
+  const forkHeader = (parent: string) => ({
+    parentUuid: null,
+    isSidechain: false,
+    type: 'attachment',
+    uuid: 'fork-header',
+    timestamp: new Date(1787843300000).toISOString(),
+    forkedFrom: { sessionId: parent, messageUuid: 'whatever' },
+  });
+
+  const write = async (file: string, records: unknown[]) => {
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(file, records.map((r) => JSON.stringify(r)).join('\n') + '\n');
+  };
+
+  const sidecar = (name: string, teamName: string) => ({
+    agentType: name,
+    description: `desc ${name}`,
+    name,
+    spawnDepth: 0,
+    model: 'claude-opus-5',
+    taskKind: 'in_process_teammate',
+    teamName,
+  });
+
+  const start = () =>
+    startFileIngest(store, {
+      paths,
+      teamName: TEAM,
+      leadSessionId: LEAD_SESSION,
+      leadName: 'team-lead',
+      sweepIntervalMs: 0,
+      tailPollMs: 0,
+    });
+
+  beforeEach(async () => {
+    await fs.mkdir(path.join(paths.teams, TEAM), { recursive: true });
+    await fs.copyFile(
+      path.join(FIXTURES, 'config-4-members.json'),
+      path.join(paths.teams, TEAM, 'config.json'),
+    );
+  });
+
+  it("keeps the lead's transcript and cost live across a /branch instead of freezing at the fork point", async () => {
+    const before = Array.from({ length: 3 }, (_, i) => assistant('pre', i, 1787843400000));
+    await write(leadTranscript(), before);
+
+    const ingest = start();
+    try {
+      await ingest.sweep();
+      const first = project(store.replay(), false).agents.find((a) => a.name === 'team-lead')!;
+      expect(first.transcript.map((l) => l.text)).toEqual(['pre 0', 'pre 1', 'pre 2']);
+      const preCost = first.costUsd;
+      expect(preCost).toBeGreaterThan(0);
+
+      // The fork: a full copy of everything before it (same uuids), plus new
+      // content the ORIGINAL session file will never see.
+      const after = Array.from({ length: 2 }, (_, i) => assistant('post', i, 1787843500000));
+      await write(forkTranscript(), [forkHeader(LEAD_SESSION), ...before, ...after]);
+      await ingest.sweep();
+
+      const lead = project(store.replay(), false).agents.find((a) => a.name === 'team-lead')!;
+      // The pre-fork lines are not duplicated (uuid dedupe), and the post-fork
+      // lines — which only the forked session ever carries — now show up.
+      expect(lead.transcript.map((l) => l.text)).toEqual(['pre 0', 'pre 1', 'pre 2', 'post 0', 'post 1']);
+      // Cost grows by exactly the new content — the shared prefix's message
+      // ids collide across the two files, so totalsFor's merge cannot double them.
+      const expected = totalCost(dedupeUsage(usageRecordsOf([...before, ...after])));
+      expect(lead.costUsd).toBeCloseTo(expected, 9);
+      expect(lead.costUsd).toBeGreaterThan(preCost);
+    } finally {
+      ingest.close();
+    }
+  });
+
+  it('admits a teammate spawned under the FORKED session, not just the original leadSessionId', async () => {
+    await write(leadTranscript(), [assistant('pre', 0, 1787843400000)]);
+    await write(forkTranscript(), [forkHeader(LEAD_SESSION), assistant('pre', 0, 1787843400000)]);
+
+    const mateRecords = Array.from({ length: 5 }, (_, i) => assistant('mate', i, 1787843600000));
+    await write(path.join(forkSubagentDir(), 'agent-anewmate-1111111111111111.jsonl'), mateRecords);
+    await fs.writeFile(
+      path.join(forkSubagentDir(), 'agent-anewmate-1111111111111111.meta.json'),
+      JSON.stringify(sidecar('newmate', TEAM)),
+    );
+
+    const ingest = start();
+    try {
+      // One pass: growForkChain runs before this same pass's file dispatch, so
+      // the fork it just found is already in scope for the sidecar and
+      // transcript this very sweep goes on to read.
+      await ingest.sweep();
+    } finally {
+      ingest.close();
+    }
+
+    const mate = project(store.replay(), false).agents.find((a) => a.name === 'newmate');
+    expect(mate).toBeDefined();
+    expect(mate!.transcript.length).toBeGreaterThan(0);
+    expect(mate!.costUsd).toBeCloseTo(totalCost(dedupeUsage(usageRecordsOf(mateRecords))), 9);
+  });
+
+  it('PROOF: a session not forked from ours stays out of the roster, the feed and totalCostUsd', async () => {
+    const leadRecords = [assistant('pre', 0, 1787843400000)];
+    await write(leadTranscript(), leadRecords);
+
+    // A foreign session sitting beside ours in the SAME project directory,
+    // carrying our own team name in its sidecar and NO forkedFrom link back to
+    // us at all — the exact shape the scope rule exists to keep out, now that
+    // "ours" is a chain instead of one exact id.
+    const foreignRecords = Array.from({ length: 5 }, (_, i) => assistant('stranger', i, 1787843700000));
+    await write(foreignTranscript(), foreignRecords);
+    await write(path.join(foreignSubagentDir(), 'agent-astranger-2222222222222222.jsonl'), foreignRecords);
+    await fs.writeFile(
+      path.join(foreignSubagentDir(), 'agent-astranger-2222222222222222.meta.json'),
+      JSON.stringify(sidecar('stranger', TEAM)),
+    );
+
+    const ingest = start();
+    try {
+      await ingest.sweep();
+      await ingest.sweep();
+    } finally {
+      ingest.close();
+    }
+
+    const state = project(store.replay(), false);
+    expect(state.agents.map((a) => a.name)).not.toContain('stranger');
+    expect(state.agents.flatMap((a) => a.transcript).some((l) => l.text.includes('stranger'))).toBe(false);
+    expect(state.totalCostUsd).toBeCloseTo(totalCost(dedupeUsage(usageRecordsOf(leadRecords))), 9);
   });
 });

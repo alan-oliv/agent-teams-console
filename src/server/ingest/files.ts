@@ -90,6 +90,26 @@ export interface TranscriptClaim {
 }
 
 /**
+ * A single session id, or every session id `/branch` has ever forked from our
+ * lead — see `growForkChain` below. `claimOfTranscript` accepts either so
+ * every existing caller (a bare leadSessionId) still type-checks unchanged.
+ */
+export type LeadChain = string | ReadonlySet<string> | undefined;
+
+function chainHas(chain: LeadChain, sessionId: string): boolean {
+  if (!chain) return false;
+  return typeof chain === 'string' ? chain === sessionId : chain.has(sessionId);
+}
+
+// An EMPTY Set is a truthy object, unlike an empty leadSessionId string — so
+// "no lead session known yet" has to be tested by size, not by `!chain`, or
+// the unresolved-team window below falls through to the wrong branch.
+function chainKnown(chain: LeadChain): boolean {
+  if (!chain) return false;
+  return typeof chain === 'string' || chain.size > 0;
+}
+
+/**
  * SCOPE RULE: the console covers agent TEAMS only. Ordinary Agent-tool
  * subagents and workflow fan-outs are not team members and must never be
  * ingested — verified in the capture spike, where six workflow subagents were
@@ -97,30 +117,35 @@ export interface TranscriptClaim {
  *
  * Two exclusions are decidable from the path alone, before anything is parsed:
  *   - workflow fan-outs live under <session>/subagents/workflows/<runId>/
- *   - another session's subagents are not under our leadSessionId
+ *   - another session's subagents are not under our leadSessionId CHAIN — the
+ *     lead session itself, plus every session `/branch` has forked from it,
+ *     transitively (see `growForkChain`)
  * The third case — an Agent-tool subagent spawned by the lead, which lands in
  * the SAME directory as a teammate — is only decidable from its .meta.json
  * taskKind, so it is resolved by the pending buffer in handleLines.
  */
 export function claimOfTranscript(
   file: string,
-  leadSessionId: string | undefined,
+  leadSessionId: LeadChain,
   leadName: string,
 ): TranscriptClaim | null {
   if (file.includes(WORKFLOW_SEGMENT)) return null;
   const base = path.basename(file);
-  if (leadSessionId && base === `${leadSessionId}.jsonl`) return { agent: leadName, scoped: true };
+  const known = chainKnown(leadSessionId);
+  if (known && base.endsWith('.jsonl') && chainHas(leadSessionId, base.slice(0, -'.jsonl'.length))) {
+    return { agent: leadName, scoped: true };
+  }
   const m = SUBAGENT_FILE.exec(base);
   if (!m) return null;
-  if (!leadSessionId) return { agent: m[1], scoped: false };
-  // <projects>/<slug>/<leadSessionId>/subagents/agent-<name>-<hex>.jsonl
-  if (path.basename(path.dirname(path.dirname(file))) !== leadSessionId) return null;
+  if (!known) return { agent: m[1], scoped: false };
+  // <projects>/<slug>/<sessionId>/subagents/agent-<name>-<hex>.jsonl
+  if (!chainHas(leadSessionId, path.basename(path.dirname(path.dirname(file))))) return null;
   return { agent: m[1], scoped: true };
 }
 
 export function agentOfTranscript(
   file: string,
-  leadSessionId: string | undefined,
+  leadSessionId: LeadChain,
   leadName: string,
 ): string | null {
   return claimOfTranscript(file, leadSessionId, leadName)?.agent ?? null;
@@ -151,11 +176,57 @@ async function walk(root: string): Promise<string[]> {
   );
 }
 
+const FIRST_LINE_BYTES = 64 * 1024;
+
+/**
+ * Just the first line of a transcript file. Chain discovery only needs the
+ * `forkedFrom` header Claude Code writes as the very first record, and these
+ * files run into the megabytes — reading the whole thing to find one field on
+ * line 1 would cost real time for every sibling session that turns out not to
+ * be one of ours. 64 KiB is generous over any real header line (the largest
+ * observed carries a full hook payload) while still bounding a read that
+ * lands mid-write to something JSON.parse can only ever reject, not hang on.
+ */
+async function readFirstLine(file: string): Promise<string | null> {
+  const fh = await fs.open(file, 'r');
+  try {
+    const buf = Buffer.alloc(FIRST_LINE_BYTES);
+    const { bytesRead } = await fh.read(buf, 0, FIRST_LINE_BYTES, 0);
+    const text = buf.subarray(0, bytesRead).toString('utf8');
+    const nl = text.indexOf('\n');
+    return nl === -1 ? text : text.slice(0, nl);
+  } finally {
+    await fh.close();
+  }
+}
+
 export function startFileIngest(store: Store, config: IngestConfig): FileIngest {
   const { paths } = config;
   const leadName = config.leadName ?? 'team-lead';
   let teamName = config.teamName;
   let leadSessionId = config.leadSessionId;
+
+  // The lead session CHAIN: leadSessionId plus every session `/branch` has
+  // forked from one already in it, transitively. `/branch` moves the user's
+  // live conversation to a brand new session id but never touches
+  // config.json, so leadSessionId alone goes stale the instant that happens —
+  // this is what keeps the console's own feed, and any teammates spawned
+  // after the branch, in scope. Grown by growForkChain, reseeded to just
+  // leadSessionId whenever handleTeamsJson learns of an actual team change.
+  const chain = new Set<string>(leadSessionId ? [leadSessionId] : []);
+  // The one directory a fork of leadSessionId can appear in — every session in
+  // a fork lineage lives beside its parent, under the same project slug.
+  // Discovered once, from whichever sweep first sees leadSessionId's own file.
+  let leadProjectDir: string | null = null;
+  // sessionId -> the parent it was forked from, read once from its first line
+  // and cached forever: a file's own forkedFrom link never changes once
+  // Claude Code has written it.
+  const forkParent = new Map<string, string>();
+  // Session-root files beside leadSessionId whose first line has been fully
+  // read, forked or not — so an unrelated sibling is never reopened every
+  // sweep. A file is only added here once JSON.parse actually succeeds; a
+  // read that lands mid-write must be retried, not given up on forever.
+  const forkChecked = new Set<string>();
 
   let lastConfig: TeamConfig | null = null;
   // Keyed by the TRANSCRIPT FILE each sidecar describes, never by the name it
@@ -358,7 +429,7 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
   };
 
   const handleLines = (file: string, lines: string[], fromStart: boolean) => {
-    const claim = claimOfTranscript(file, leadSessionId, leadName);
+    const claim = claimOfTranscript(file, chain, leadName);
     if (!claim) return;
     if (disowned.has(file)) return;
     // The sidecar's own `name` is the roster's join key, so it decides the
@@ -420,11 +491,19 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
       // about to disown — and free whatever no longer qualifies.
       if (learned) {
         disowned.clear();
+        // A genuine team change, not a /branch: reseed the chain to just the
+        // new leadSessionId and forget everything growForkChain had cached
+        // for the old one, or a fork of the PREVIOUS team could linger in scope.
+        chain.clear();
+        if (leadSessionId) chain.add(leadSessionId);
+        leadProjectDir = null;
+        forkParent.clear();
+        forkChecked.clear();
         for (const f of [...pending.keys()]) {
-          if (claimOfTranscript(f, leadSessionId, leadName)?.scoped !== true) forget(f);
+          if (claimOfTranscript(f, chain, leadName)?.scoped !== true) forget(f);
         }
         for (const f of [...usageLedger.keys()]) {
-          if (claimOfTranscript(f, leadSessionId, leadName)?.scoped !== true) forget(f);
+          if (claimOfTranscript(f, chain, leadName)?.scoped !== true) forget(f);
         }
       }
       for (const [f, meta] of unresolvedSidecars) acceptSidecar(f, meta);
@@ -446,7 +525,7 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
     // a teamName is only the first 8 hex of a lead session id. `scoped !== true`
     // covers the wrong directory, a workflow fan-out, and the window before
     // config.json in one clause.
-    const claim = claimOfTranscript(transcriptPath, leadSessionId, leadName);
+    const claim = claimOfTranscript(transcriptPath, chain, leadName);
     if (meta.teamName !== teamName || claim?.scoped !== true) {
       // Not ours — discard anything buffered for the transcript it describes.
       forget(transcriptPath);
@@ -502,7 +581,7 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
   };
 
   const handleSessionJson = async (file: string) => {
-    if (leadSessionId && path.basename(file) !== `${leadSessionId}.json`) return;
+    if (chain.size > 0 && !chain.has(path.basename(file, '.json'))) return;
     const doc = await readJsonSafe<{ gitBranch?: string; branch?: string }>(file);
     const branch = doc?.gitBranch ?? doc?.branch;
     if (!branch) return;
@@ -531,7 +610,7 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
   });
 
   const sweepTranscript = async (file: string) => {
-    const claim = claimOfTranscript(file, leadSessionId, leadName);
+    const claim = claimOfTranscript(file, chain, leadName);
     if (!claim || disowned.has(file)) return;
     notePath(sidecars.get(file)?.name ?? claim.agent, file);
     await transcripts.pump(file);
@@ -547,6 +626,59 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
     await Promise.all([...files].map((file) => transcripts.pump(file)));
   };
 
+  /**
+   * Grows `chain` to include every session `/branch` has forked from one
+   * already in it, using only the file list a sweep of paths.projects just
+   * produced — no directory read of its own. Confined to leadProjectDir: the
+   * console must never open the first line of every session on the machine
+   * just to find its own forks, and a fork can only ever land beside its
+   * parent, under the same project slug.
+   */
+  const growForkChain = async (files: string[]): Promise<void> => {
+    if (!leadSessionId) return;
+    if (!leadProjectDir) {
+      const own = files.find((f) => path.basename(f) === `${leadSessionId}.jsonl`);
+      if (own) leadProjectDir = path.dirname(own);
+    }
+    if (!leadProjectDir) return;
+
+    for (const file of files) {
+      if (!file.endsWith('.jsonl') || path.dirname(file) !== leadProjectDir) continue;
+      const stem = path.basename(file, '.jsonl');
+      if (forkChecked.has(stem) || SUBAGENT_FILE.test(path.basename(file))) continue;
+      let firstLine: string | null;
+      try {
+        firstLine = await readFirstLine(file);
+      } catch {
+        continue; // vanished between the walk and this read — try again later
+      }
+      if (firstLine === null) continue;
+      let parsed: { forkedFrom?: { sessionId?: string } };
+      try {
+        parsed = JSON.parse(firstLine) as { forkedFrom?: { sessionId?: string } };
+      } catch {
+        continue; // read landed mid-write; the line is not complete yet
+      }
+      forkChecked.add(stem);
+      const parent = parsed.forkedFrom?.sessionId;
+      if (parent) forkParent.set(stem, parent);
+    }
+
+    // Transitive closure: a branch of a branch joins once its own parent is
+    // already in. `changed` only goes true when chain actually grows, so this
+    // always halts — bounded by forkParent's size either way.
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const [id, parent] of forkParent) {
+        if (chain.has(parent) && !chain.has(id)) {
+          chain.add(id);
+          changed = true;
+        }
+      }
+    }
+  };
+
   const sweep = async (): Promise<void> => {
     for (const root of [paths.teams, paths.projects, paths.tasks, paths.sessions]) {
       // Transcripts are drained after the walk, OLDEST mtime first. Two runs of
@@ -554,8 +686,13 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
       // currentTool and the last assistant row's error — so a dead run read
       // after the live one shows a live agent failed, with a stale command in
       // flight. Free at boot: index.ts awaits this sweep before it listens.
+      const files = await walk(root);
+      // Before anything below is judged against `chain`, so a fork discovered
+      // this pass is already in scope for the very same pass's drains — the
+      // sweep that finds a branch is the sweep that starts reading it.
+      if (root === paths.projects) await growForkChain(files);
       const drains: Array<{ file: string; mtimeMs: number }> = [];
-      for (const file of await walk(root)) {
+      for (const file of files) {
         if (closed) return;
         let st;
         try {
