@@ -91,9 +91,16 @@ cross-origin requests.
 
 **Writes:**
 
-- `agent-teams-console/events.db` — its own append-only event log (JSON lines,
-  despite the name). Scoped to the current team, pruned at startup, capped per
-  event kind. Safe to delete; it is rebuilt from the files above.
+- `agent-teams-console/logs/<team>.jsonl` — its own append-only event log, one
+  file per team, so a console started for a second team cannot write over the
+  first team's history. Pruned at startup, capped per event kind, and dropped
+  once nothing has touched it for a week. Safe to delete, but only mostly
+  rebuilt from the files above: the roster, transcripts, tasks and mail come
+  back on the next sweep, while what the hooks push in — the status line, the
+  per-agent substatus, the permission and plan cards — exists nowhere else and
+  does not. If you ran an older version, the now-unused
+  `agent-teams-console/events.db` is left where it is; delete it whenever you
+  like.
 - `agent-teams-console.log` — the detached server's stdout and stderr
 - `teams/<team>/.console-announced` — a marker so the URL is printed once per team,
   not once per teammate

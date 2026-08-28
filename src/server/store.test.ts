@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { openStore, KIND_RETENTION } from './store';
+import { openStore, logPathFor, KIND_RETENTION, STALE_LOG_MS } from './store';
 import { project } from './project';
 import type { NeedsYouItem } from '../shared/domain';
 
@@ -93,6 +93,118 @@ describe('team scoping', () => {
     } finally {
       store.close();
     }
+  });
+});
+
+describe('multi-team log safety', () => {
+  it("keeps a second team's console from destroying the first's log", async () => {
+    const dbPath = path.join(dir, 'events.db');
+    const first = openStore(dbPath, 'session-aaaa1111');
+    for (let i = 0; i < 200; i++) {
+      first.append('transcript', { agent: 'probe-alpha', records: [i] }, 'probe-alpha');
+    }
+    first.close();
+
+    const firstLog = logPathFor(dbPath, 'session-aaaa1111');
+    const bytes = (await fs.stat(firstLog)).size;
+    expect(bytes).toBeGreaterThan(0);
+
+    const second = openStore(dbPath, 'session-bbbb2222');
+    second.append('transcript', { agent: 'probe-bravo', records: [] }, 'probe-bravo');
+    second.close();
+
+    expect((await fs.stat(firstLog)).size).toBe(bytes);
+    const reopened = openStore(dbPath, 'session-aaaa1111');
+    expect(reopened.replay()).toHaveLength(200);
+    reopened.close();
+  });
+
+  it('leaves a log written by another team alone when the team is unknown', async () => {
+    const dbPath = path.join(dir, 'events.db');
+    const named = openStore(dbPath, 'session-aaaa1111');
+    for (let i = 0; i < 200; i++) named.append('task', { id: `t-${i}`, status: 'in_progress' });
+    named.close();
+
+    const namedLog = logPathFor(dbPath, 'session-aaaa1111');
+    const bytes = (await fs.stat(namedLog)).size;
+
+    const unknown = openStore(dbPath);
+    expect(unknown.replay()).toEqual([]);
+    unknown.close();
+
+    expect((await fs.stat(namedLog)).size).toBe(bytes);
+  });
+
+  it('rejects a team name that would escape the log directory', () => {
+    const dbPath = path.join(dir, 'events.db');
+    const unknownLog = logPathFor(dbPath, 'unknown');
+    const logsDir = path.join(path.dirname(dbPath), 'logs');
+
+    for (const hostile of ['..', '.', '../../evil', 'a/b', '']) {
+      const resolved = path.resolve(logPathFor(dbPath, hostile));
+      expect(path.dirname(resolved)).toBe(path.resolve(logsDir));
+      expect(resolved).toBe(path.resolve(unknownLog));
+    }
+
+    expect(logPathFor(dbPath, 'session-7c01fcd1')).toBe(
+      path.join(logsDir, 'session-7c01fcd1.jsonl'),
+    );
+  });
+
+  it('adopts pre-team events into a team log that already has history', () => {
+    const dbPath = path.join(dir, 'events.db');
+    const earlier = openStore(dbPath, 'session-xxxx0001');
+    earlier.append('task', { id: 'from-an-earlier-run', status: 'in_progress' });
+    earlier.close();
+
+    const store = openStore(dbPath);
+    store.append('statusline', { branch: 'main' });
+    store.setTeam('session-xxxx0001');
+    expect(store.replay().map((e) => e.kind)).toEqual(['task', 'statusline']);
+    store.close();
+
+    const reopened = openStore(dbPath, 'session-xxxx0001');
+    expect(reopened.replay().map((e) => e.kind)).toEqual(['task', 'statusline']);
+    reopened.close();
+  });
+
+  it('repairs a torn tail in the team log it adopts into', async () => {
+    const dbPath = path.join(dir, 'events.db');
+    const teamLog = logPathFor(dbPath, 'session-torn0001');
+    const earlier = openStore(dbPath, 'session-torn0001');
+    earlier.append('roster', { config: null, sidecars: [] });
+    earlier.append('task', { id: 'half-written', status: 'in_progress' });
+    earlier.close();
+    const whole = await fs.readFile(teamLog, 'utf8');
+    await fs.writeFile(teamLog, whole.slice(0, whole.length - 12));
+
+    const store = openStore(dbPath);
+    store.append('statusline', { branch: 'main' });
+    store.setTeam('session-torn0001');
+    store.close();
+
+    const reopened = openStore(dbPath, 'session-torn0001');
+    expect(reopened.replay().map((e) => e.kind)).toEqual(['roster', 'statusline']);
+    reopened.close();
+  });
+
+  it('deletes a team log nothing has touched in a week', async () => {
+    const dbPath = path.join(dir, 'events.db');
+    const dead = logPathFor(dbPath, 'session-dead0000');
+    const recent = logPathFor(dbPath, 'session-recent01');
+    await fs.mkdir(path.dirname(dead), { recursive: true });
+    await fs.writeFile(dead, '');
+    await fs.writeFile(recent, '');
+
+    const eightDaysAgo = new Date(Date.now() - STALE_LOG_MS - 24 * 60 * 60 * 1000);
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    await fs.utimes(dead, eightDaysAgo, eightDaysAgo);
+    await fs.utimes(recent, yesterday, yesterday);
+
+    openStore(dbPath, 'session-live0000').close();
+
+    await expect(fs.stat(dead)).rejects.toThrow();
+    await expect(fs.stat(recent)).resolves.toBeDefined();
   });
 });
 
@@ -217,13 +329,14 @@ describe('openStore', () => {
 
   it('drops a final line a crash truncated mid-write', async () => {
     const dbPath = path.join(dir, 'torn.db');
+    const logPath = logPathFor(dbPath, '');
     const store = openStore(dbPath);
     store.append('roster', { config: null, sidecars: [] });
     store.append('task', { id: 'half-written', status: 'in_progress' });
     store.close();
 
-    const whole = await fs.readFile(dbPath, 'utf8');
-    await fs.writeFile(dbPath, whole.slice(0, whole.length - 12));
+    const whole = await fs.readFile(logPath, 'utf8');
+    await fs.writeFile(logPath, whole.slice(0, whole.length - 12));
 
     const reopened = openStore(dbPath);
     expect(reopened.replay().map((e) => e.kind)).toEqual(['roster']);
@@ -241,7 +354,9 @@ describe('openStore', () => {
     const kept = store.replay();
     store.close();
 
-    const lines = (await fs.readFile(dbPath, 'utf8')).split('\n').filter(Boolean);
+    const lines = (await fs.readFile(logPathFor(dbPath, 'session-trim0000'), 'utf8'))
+      .split('\n')
+      .filter(Boolean);
     expect(lines).toHaveLength(kept.length);
     expect(JSON.parse(lines[0]).seq).toBe(kept[0].seq);
   });

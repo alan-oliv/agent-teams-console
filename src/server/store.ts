@@ -1,4 +1,13 @@
-import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 
 export type EventKind =
@@ -58,6 +67,31 @@ export const KIND_RETENTION: Partial<Record<EventKind, number>> = {
 };
 
 const PRUNE_EVERY = 250;
+
+const TEAM_NAME = /^[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}$/;
+
+/**
+ * One log FILE per team, so a console opened for team B can never write over
+ * team A's history. `dbPath` is no longer a file, only the anchor that names
+ * the console's own directory. The team comes off disk (`config.json`), so a
+ * name that is not a plain slug falls back to the shared unknown log rather
+ * than escaping the directory — the leading character class is what rejects
+ * `..`.
+ */
+export function logPathFor(dbPath: string, team: string): string {
+  const name = TEAM_NAME.test(team) ? team : 'unknown';
+  return path.join(path.dirname(dbPath), 'logs', `${name}.jsonl`);
+}
+
+/**
+ * A live team's log is capped by its own process; a dead team's is frozen at
+ * whatever it held, so only the number of dead teams is unbounded. Seven days
+ * is longer than any team lives and short enough that abandoned logs do not
+ * accumulate. A team dormant for longer that comes back loses its history —
+ * the same outcome as before per-team logs, and the sweep rebuilds the half
+ * that came from files.
+ */
+export const STALE_LOG_MS = 7 * 24 * 60 * 60 * 1000;
 
 function encode(event: StoredEvent, team: string): string {
   return `${JSON.stringify({ ...event, team })}\n`;
@@ -136,43 +170,83 @@ function trim(events: StoredEvent[]): StoredEvent[] {
   });
 }
 
-export function openStore(dbPath: string, team = ''): Store {
-  mkdirSync(path.dirname(dbPath), { recursive: true });
+/** Drops the logs of teams that have not been written to in STALE_LOG_MS. */
+function gcStaleLogs(logsDir: string, keep: string): void {
+  const cutoff = Date.now() - STALE_LOG_MS;
+  let names: string[];
+  try {
+    names = readdirSync(logsDir);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    if (!name.endsWith('.jsonl')) continue;
+    const candidate = path.join(logsDir, name);
+    if (candidate === keep) continue;
+    try {
+      if (statSync(candidate).mtimeMs < cutoff) unlinkSync(candidate);
+    } catch {
+      // Another console may have removed it first; the GC is best-effort.
+    }
+  }
+}
 
+export function openStore(dbPath: string, team = ''): Store {
   let current = team;
+  let file = logPathFor(dbPath, current);
+  const logsDir = path.dirname(file);
+  mkdirSync(logsDir, { recursive: true });
+  gcStaleLogs(logsDir, file);
+
   let sincePrune = 0;
   let nextSeq = 1;
   // Everything held here belongs to `current`: the load below drops the other
   // teams, and every append stamps `current`. Only the file carries the team.
   let events: StoredEvent[] = [];
+  // Set when the file stops matching a clean encode of `events` — a line
+  // decode() rejected, i.e. a crash-torn tail. A whole-file rewrite is only
+  // justified when the file is actually wrong.
+  let dirty = false;
 
-  let contents = '';
-  try {
-    contents = readFileSync(dbPath, 'utf8');
-  } catch {
-    contents = '';
-  }
-  for (const line of contents.split('\n')) {
-    if (!line) continue;
-    const record = decode(line);
-    if (!record) continue;
-    // seq is never reused, not even by a record the prune below drops.
-    if (record.event.seq >= nextSeq) nextSeq = record.event.seq + 1;
-    // A second team's run inherited the first's tasks, mail and — worst —
-    // permission cards whose permits died with the previous process, so they
-    // 404'd on allow and could never be dismissed.
-    if (record.team === current) events.push(record.event);
-  }
-
-  const rewrite = () => {
-    const tmp = `${dbPath}.tmp`;
-    writeFileSync(tmp, events.map((e) => encode(e, current)).join(''));
-    // A rename is the only whole-file write that cannot leave a torn log.
-    renameSync(tmp, dbPath);
+  const load = () => {
+    events = [];
+    nextSeq = 1;
+    let contents = '';
+    try {
+      contents = readFileSync(file, 'utf8');
+    } catch {
+      contents = '';
+    }
+    for (const line of contents.split('\n')) {
+      if (!line) continue;
+      const record = decode(line);
+      if (!record) {
+        dirty = true;
+        continue;
+      }
+      // seq is never reused, not even by a record the prune below drops.
+      if (record.event.seq >= nextSeq) nextSeq = record.event.seq + 1;
+      // A per-team file holds only its own team, but the unknown log is shared
+      // by every run that has not discovered its team yet, so the stamp is
+      // still what says which rows are ours to adopt.
+      if (record.team === current) events.push(record.event);
+    }
   };
 
+  const rewrite = () => {
+    const tmp = `${file}.tmp`;
+    writeFileSync(tmp, events.map((e) => encode(e, current)).join(''));
+    // A rename is the only whole-file write that cannot leave a torn log.
+    renameSync(tmp, file);
+  };
+
+  load();
+  const loaded = events.length;
   events = trim(events);
-  rewrite();
+  if (dirty || events.length !== loaded) {
+    rewrite();
+    dirty = false;
+  }
 
   return {
     append(kind, payload, agent) {
@@ -180,7 +254,7 @@ export function openStore(dbPath: string, team = ''): Store {
       const seq = nextSeq++;
       const event: StoredEvent = { seq, ts, kind, agent, payload: payload ?? null };
       events.push(event);
-      appendFileSync(dbPath, encode(event, current));
+      appendFileSync(file, encode(event, current));
       if (++sincePrune >= PRUNE_EVERY) {
         sincePrune = 0;
         const before = events.length;
@@ -196,10 +270,25 @@ export function openStore(dbPath: string, team = ''): Store {
       if (next === current || next === '') return;
       // Events recorded before the team was known belong to this run; a switch
       // between two named teams adopts nothing.
-      if (current !== '') events = [];
+      const adopted = current === '' ? events : [];
+      const scratch = file;
       current = next;
+      file = logPathFor(dbPath, current);
+      load();
+      for (const e of adopted) {
+        const moved = { ...e, seq: nextSeq++ };
+        events.push(moved);
+        appendFileSync(file, encode(moved, current));
+      }
+      const before = events.length;
       events = trim(events);
-      rewrite();
+      if (dirty || events.length !== before) {
+        rewrite();
+        dirty = false;
+      }
+      // Drained into the team's own log; leaving them would let the next run
+      // that opens the unknown log adopt this run's events as its own.
+      if (scratch !== file && adopted.length > 0) writeFileSync(scratch, '');
     },
     close() {
       // Every append is already on disk — there is nothing buffered to flush.
