@@ -38,10 +38,60 @@ session=$(printf '%s' "$payload" \
   | head -1)
 [ -n "$session" ] || bail
 
-# teamName = "session-" + first 8 of the lead session id
+# Resolve the team this session belongs to, in order of preference:
+#   1. A team whose config.json already names this session as leadSessionId.
+#   2. `/branch` gives the forked session a brand new id but never touches
+#      config.json, so a forked session's real team is keyed on an ANCESTOR's
+#      id. Walk forkedFrom.sessionId up from this session's own transcript,
+#      retrying (1) at each ancestor, until one resolves or the chain runs out.
+#   3. Neither found a team — this session is about to create its FIRST one
+#      (or CLAUDE_DIR/projects is unreadable) — so fall back to the original
+#      derivation: "session-" + first 8 of this session's own id.
+# Entirely read-only: nothing below creates a directory.
+find_team_for_session() {
+  # $1: session id. On a match, prints the team dir name and returns 0.
+  for cfg in "$CLAUDE_DIR"/teams/*/config.json; do
+    [ -f "$cfg" ] || continue
+    lead=$(sed -n 's/.*"leadSessionId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$cfg" 2>/dev/null | head -1)
+    [ "$lead" = "$1" ] || continue
+    basename "$(dirname "$cfg")"
+    return 0
+  done
+  return 1
+}
+
 short=$(printf '%s' "$session" | cut -c1-8)
 [ ${#short} -eq 8 ] || bail
-team="session-$short"
+
+# Same formula index.ts uses to turn a member's cwd into its project-dir slug
+# (toDiscovered): every non-alnum byte becomes '-'. Unlike ROOT above, this
+# cwd IS the one we want — the fork chain's transcripts live beside it.
+slug=$(pwd | sed 's/[^a-zA-Z0-9]/-/g')
+sid="$session"
+visited=""
+depth=0
+team=""
+while :; do
+  if team=$(find_team_for_session "$sid"); then break; fi
+  case " $visited " in *" $sid "*) break ;; esac
+  visited="$visited $sid"
+  depth=$((depth + 1))
+  # 20 /branch hops is far beyond any real chain — a stop so a malformed
+  # forkedFrom link can never loop this script forever.
+  [ "$depth" -le 20 ] || break
+  transcript="$CLAUDE_DIR/projects/$slug/$sid.jsonl"
+  [ -f "$transcript" ] || break
+  # Claude Code stamps forkedFrom.sessionId on every record of a branched
+  # session, so the first line always carries it when there is one. Capped at
+  # 64 KiB — the same bound src/server/ingest/files.ts's growForkChain uses
+  # for this exact header — generous over any real line, bounded against one
+  # that never closes.
+  parent=$(head -c 65536 "$transcript" 2>/dev/null | sed -n '1{p;q;}' \
+    | sed -n 's/.*"forkedFrom"[[:space:]]*:[[:space:]]*{[^}]*"sessionId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+  [ -n "$parent" ] || break
+  sid="$parent"
+done
+[ -n "$team" ] || team="session-$short"
 
 case "$event" in
   PreToolUse)
@@ -100,12 +150,17 @@ if ! curl -sf -m 1 "$HEALTH" >/dev/null 2>&1; then
 fi
 
 # Announce once per team, not once per teammate, and not twice for the same
-# team across a PreToolUse/PostToolUse pair. At PreToolUse time the team
-# directory may not exist yet at all, so make sure it does before marking.
-teamdir="$CLAUDE_DIR/teams/$team"
-marker="$teamdir/.console-announced"
+# team across a PreToolUse/PostToolUse pair. The marker lives under the
+# console's OWN state directory, never under teams/<team>: that path is the
+# user's real team config, and at PreToolUse time the team may not exist at
+# all yet (fires before the spawn that creates config.json) — writing a
+# directory there for a team that may never exist would be a phantom entry
+# in the user's real config. markerdir is ours alone, so it is always safe
+# to create.
+markerdir="$CLAUDE_DIR/agent-teams-console/announced"
+marker="$markerdir/$team"
 [ -f "$marker" ] && bail
-mkdir -p "$teamdir" 2>/dev/null
+mkdir -p "$markerdir" 2>/dev/null
 : > "$marker" 2>/dev/null || bail
 
 printf '{"systemMessage":"Agent teams console → http://127.0.0.1:%s/?team=%s"}\n' "$PORT" "$team"

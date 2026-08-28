@@ -114,8 +114,8 @@ cross-origin requests.
   still, `events.db` was a SQLite database rather than a log — the console
   reports `recovered 0 row(s)` and renames it aside unread.
 - `agent-teams-console.log` — the detached server's stdout and stderr
-- `teams/<team>/.console-announced` — a marker so the URL is printed once per team,
-  not once per teammate
+- `agent-teams-console/announced/<team>` — a marker so the URL is printed once
+  per team, not once per teammate
 - `teams/<team>/inboxes/<agent>.json` — **only** when you act in the UI. Messaging a
   teammate, asking one to wrap up or stop, and requesting a respawn are all just
   entries appended to that teammate's inbox, exactly as the lead would write them.
