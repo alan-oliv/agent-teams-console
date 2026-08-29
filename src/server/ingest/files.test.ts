@@ -272,6 +272,68 @@ describe('scope rule: agent teams only', () => {
   });
 });
 
+describe('a message the recipient has drained', () => {
+  const CHARLIE = path.join('subagents', 'agent-aprobe-charlie-12ee4cb1ed35cf7c.jsonl');
+  const SENT_AT = '2026-08-27T15:30:00.000Z';
+  const BODY = 'roll the findings up when you are done';
+
+  async function withFrame(): Promise<void> {
+    await layout();
+    // How Claude Code hands a teammate its mail: the frame arrives as a user
+    // record in the RECIPIENT's own transcript, at the turn that drained it.
+    const record = {
+      type: 'user',
+      uuid: 'frame-1',
+      timestamp: SENT_AT,
+      message: {
+        role: 'user',
+        content: `<teammate-message teammate_id="team-lead">\n${BODY}\n</teammate-message>`,
+      },
+    };
+    const file = path.join(paths.projects, SLUG, LEAD_SESSION, CHARLIE);
+    await fs.appendFile(file, `${JSON.stringify(record)}\n`);
+  }
+
+  async function sweep(): Promise<StoredEvent[]> {
+    const ingest = startFileIngest(store, { paths, sweepIntervalMs: 0 });
+    try {
+      await settle();
+      await ingest.sweep();
+    } finally {
+      ingest.close();
+    }
+    return store.replay();
+  }
+
+  // The inbox copy is written `read: false` and DELETED once drained, so it can
+  // never report true. A frame in the recipient's transcript is the only thing
+  // that can, and nothing was emitting one.
+  it('emits the frame as transcript-sourced mail', async () => {
+    await withFrame();
+    const fromTranscript = of(await sweep(), 'mail')
+      .map((e) => e.payload as MailPayload)
+      .filter((m) => m.source === 'transcript');
+
+    // Two: the spawn prompt the captured fixture already carries, and ours.
+    expect(fromTranscript).toHaveLength(2);
+    const mail = fromTranscript.find(
+      (m) => m.source === 'transcript' && m.text.includes(BODY),
+    );
+    if (!mail || mail.source !== 'transcript') throw new Error('frame not recovered');
+    expect(mail.to).toBe('probe-charlie');
+    // The turn boundary that drained it — what `read at turn N` is counted from.
+    expect(mail.deliveredAt).toBe(Date.parse(SENT_AT));
+  });
+
+  it('reads as read, so the console stops calling it unread forever', async () => {
+    await withFrame();
+    const state = project(await sweep(), false);
+    const message = state.mail.find((m) => m.text.includes(BODY));
+    expect(message).toBeDefined();
+    expect(message!.read).toBe(true);
+  });
+});
+
 describe('startFileIngest with roots that do not exist', () => {
   it('starts and sweeps without throwing when every ~/.claude root is missing', async () => {
     // A fresh install has no ~/.claude/tasks and no ~/.claude/sessions. fs.watch
@@ -329,8 +391,12 @@ describe('startFileIngest', () => {
     expect(task.status).toBe('completed');
     expect(task.owner).toBe('probe-alpha');
 
-    const mail = of(events, 'mail').at(-1)!.payload as MailPayload;
-    expect(mail.source).toBe('inbox');
+    // Picked by source, not by position: a transcript carrying a teammate frame
+    // appends mail of its own, so the last mail event is not always the inbox.
+    const mail = of(events, 'mail')
+      .map((e) => e.payload as MailPayload)
+      .filter((m) => m.source === 'inbox')
+      .at(-1)!;
     expect(mail.to).toBe('team-lead');
     if (mail.source === 'inbox') {
       expect(mail.entries[0].msg_id).toBe('4a236089-e8f5-4688-bca2-e47c6f0d8310');

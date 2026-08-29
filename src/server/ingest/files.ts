@@ -425,6 +425,34 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
       if (i + INGEST_BATCH_RECORDS >= records.length) payload.totals = totals;
       store.append('transcript', payload, agent);
     }
+    appendDrainedMail(agent, records);
+  };
+
+  /**
+   * Mail the recipient has already drained, recovered from its own transcript.
+   *
+   * The inbox copy is written `read: false` and DELETED the moment the agent
+   * takes it, so it can never report a message as read — leaving every message
+   * in the console permanently `delivered · unread`, including ones acted on
+   * seconds earlier. A `<teammate-message>` frame in the RECIPIENT's transcript
+   * is the one artefact that proves delivery: the message is in that agent's
+   * context window, at the turn boundary that pulled it in.
+   *
+   * Re-emitting on a re-read costs nothing — mergeMail folds by content and
+   * `read` is monotonic, so the inbox copy and this one converge on the same
+   * message.
+   */
+  const appendDrainedMail = (agent: string, records: TranscriptRecord[]) => {
+    for (const rec of records) {
+      if (rec.type !== 'user') continue;
+      const content = rec.message?.content;
+      // A frame arrives as the whole user turn, so the content is a bare
+      // string; the array form is tool results, which never carries one.
+      if (typeof content !== 'string' || !content.includes('<teammate-message')) continue;
+      const deliveredAt = rec.timestamp ? Date.parse(rec.timestamp) : NaN;
+      if (Number.isNaN(deliveredAt)) continue;
+      store.append('mail', { source: 'transcript', to: agent, text: content, deliveredAt }, agent);
+    }
   };
 
   const flushPending = (agent: string, transcript: string) => {
