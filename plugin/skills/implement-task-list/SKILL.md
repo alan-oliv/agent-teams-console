@@ -1,9 +1,9 @@
 ---
-name: delegating-a-backlog
-description: Use when a session has settled on several pieces of work and the user asks to delegate them, hand them to teammates, split them up, or run them as a team
+name: implement-task-list
+description: Use when a task list exists and the user asks to implement it, work through it, start on it, or run it — or when a session has settled on several pieces of work and the user asks to delegate them, hand them to teammates, or split them up as a team
 ---
 
-# Delegating a Backlog
+# Implement Task List
 
 ## Overview
 
@@ -19,6 +19,8 @@ of hands, not an owner — and the lead becomes the bottleneck it was trying to 
 1. **Name the work.** List the items from session context. Show the list.
 2. **Settle the terminal deliverable — once, before dispatching.** See below.
 3. **`TaskCreate` one task per item**, before any teammate exists.
+   **REQUIRED SUB-SKILL:** `agent-teams-console:to-agents-task-list` — what each
+   task has to carry, and the model each one is worth.
 4. **Decide how many teammates.** Count tracks, not tasks.
 5. **Dispatch**, using the contract below. Assign the owner with `TaskUpdate`.
 6. **Stay free.** Review diffs, answer questions, relay results.
