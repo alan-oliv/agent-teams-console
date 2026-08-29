@@ -6,8 +6,8 @@ A browser UI for Claude Code **agent teams** (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TE
 Six views behind one switcher in the status bar (turn 4 in the HTML, `#4a` — build this one; other turns are explorations and studies):
 - **wall** — teammate columns side by side, lead pinned left. The default.
 - **overview** — the same wall condensed so every teammate fits without scrolling.
-- **comms** — inter-agent conversation as a chat. See below.
-- **tasks** — shared task list + mailbox traffic.
+- **comms** — inter-agent conversation as a chat, with two kinds of room: an **everyone** room pinned at the top (the whole team's traffic in one group chat — the default) and the per-pair inbox threads below it under a `PAIRS` heading. See below.
+- **tasks** — the shared task list, nothing else. Messages belong to comms.
 - **rail** — teammate list on the left, one full transcript on the right (for reading one agent closely).
 - **grid** — fixed 3x2 panes, tmux-style.
 
@@ -41,6 +41,8 @@ The files in this bundle are **design references created in HTML** — prototype
    - `experimental` pill: 1px `var(--color-accent-700)` border, `var(--color-accent-300)` text, 10px, `border-radius: var(--radius-sm)`, `padding: 1px 6px`
    - branch (`var(--color-accent-400)`), PR + diffstat (`var(--color-neutral-600)`)
    - right side: `tasks 3/11`, `6 context windows`, total tokens, an ASCII aggregate meter (`var(--color-accent-500)`, `letter-spacing: -.5px`), elapsed, spend
+1b. **Config popover** — a `⚙` at the bar's right edge opens appearance settings: accent scheme (four hue-rotated ramps applied as `--color-accent*` overrides on the console root — never per component), line density, fade-older-output, agent portraits, motion, JSON line numbers. Reset link in its header; footer notes the settings are per machine. Every control must actually change the render — a decorative settings panel is worse than none.
+
 2. **The wall** — `flex: 1`, `display: flex`, `overflow-x: auto`, `overflow-y: hidden`, `gap: 1px`, `background: var(--color-neutral-900)` (the gap reads as a 1px rule between columns). One column per agent, `flex: none`, default `width: 366px`.
    - **The lead column is `position: sticky; left: 0; z-index: 2`** with `box-shadow: 1px 0 0 var(--color-neutral-800), 8px 0 18px rgba(0,0,0,.5)` so it stays visible while teammates scroll. Put sticky on the column element itself, not on a `:first-child` stylesheet rule — a per-column width override otherwise wins and unpins it.
    - **Columns are resizable.** A 7px hit strip sits on each column's right edge (`position: absolute; right: -3px; height: 100%; cursor: col-resize; z-index: 4`) with a 1px line inside that is transparent at rest and `var(--color-accent-500)` while dragging. Drag adjusts that column only, clamped **232–720px**; double-click resets to 366. Width is per-column state, keyed by agent name, and persists across view switches.
@@ -72,7 +74,7 @@ The files in this bundle are **design references created in HTML** — prototype
 
 **Purpose:** make agent-to-agent communication legible. In the wall it is invisible — a `SendMessage` call scrolls past in one column and its effect appears in another. This view shows the conversation itself.
 
-**Left, thread list** (`width: 296px`). Header `THREADS` + unread count. Each row is a **pair of inboxes**, not a channel: both agents' 12×12 portraits overlapped 14px apart, the pair name (`perf ⇄ security`), the topic beneath it, a state glyph (`●` live / `◆` unread, `#d99e5c` / `·` settled) and an unread pill (`var(--color-accent-600)` on `#161826` text). Selected row: `var(--color-accent-900)` with `box-shadow: inset 2px 0 0 var(--color-accent-500)`. Footer states the model: "a thread is two inboxes · the lead does not relay". Top-aligned, own scroll.
+**Left, thread list** (`width: 296px`). Header `THREADS` + unread count. The first row is the **everyone** room — a `⌗` glyph, "every message, one room", its own unread pill — separated from the pair rows by a hairline and a `PAIRS` label. Selecting it shows the whole team's traffic as one group chat with `to <agent>` / `to everyone` under each run, so the recipient is still legible in the merged stream. Each row is a **pair of inboxes**, not a channel: both agents' 12×12 portraits overlapped 14px apart, the pair name (`perf ⇄ security`), the topic beneath it, a state glyph (`●` live / `◆` unread, `#d99e5c` / `·` settled) and an unread pill (`var(--color-accent-600)` on `#161826` text). Selected row: `var(--color-accent-900)` with `box-shadow: inset 2px 0 0 var(--color-accent-500)`. Footer states the model: "a thread is two inboxes · the lead does not relay". Top-aligned, own scroll.
 
 **Right, thread pane.** Header: pair name, topic, the task ids the exchange concerns, and a `show in wall` action that jumps to both agents' columns. Body is a two-sided chat, bottom-anchored with its own scroll:
 
@@ -81,7 +83,7 @@ The files in this bundle are **design references created in HTML** — prototype
 - A **composing indicator** (sender name + "composing a reply" + three pulsing 3px dots) when an agent's current turn contains an unsent `SendMessage`.
 - **Composer**: the operator can join the thread — both agents see the message. Footer note: "a message wakes an idle recipient".
 
-Source: `~/.claude/teams/{team}/inboxes/{agent}.json`. Group messages into threads by unordered participant pair. Per message: `ts`, `from`, `to`, `text`, `state` (`unread | read`), `readAtTurn`.
+Source: `~/.claude/teams/{team}/inboxes/{agent}.json`. Group messages into threads by unordered participant pair, and keep the merged everyone stream as its own room. Every room must render its own messages — a header derived from the selected room over a hard-coded body is a visible contradiction. Room-dependent chrome (member count, composer hint) follows the room too. Per message: `ts`, `from`, `to`, `text`, `state` (`unread | read`), `readAtTurn`.
 
 ## Screen 2 — Coordination view (`3b`)
 

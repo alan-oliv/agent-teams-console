@@ -61,7 +61,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <span style="color:var(--color-accent-500);width:9px;flex:none">{{ l.mark }}</span>
 <span style="color:var(--color-neutral-300);overflow:hidden;text-overflow:ellipsis">{{ l.text }}</span>
 <span style="flex:1"></span>
-<span style="color:var(--color-neutral-700);flex:none;font-size:10px">{{ l.caret }}</span>
+<span style="color:var(--color-neutral-600);flex:none;font-size:10px">{{ l.caret }}</span>
 </div>
 </sc-for>
 <div style="background:var(--color-bg);border:1px solid var(--color-neutral-900);border-radius:var(--radius-md);padding:10px 12px 11px;margin:4px 0;display:flex;flex-direction:column;gap:10px;box-shadow:var(--shadow-sm)">
@@ -70,19 +70,19 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <span style="color:var(--color-neutral-500);font-size:10.5px">SendMessage · response</span>
 <span style="border:1px solid var(--color-neutral-800);color:var(--color-neutral-600);border-radius:var(--radius-sm);padding:0 5px;font-size:9.5px">json</span>
 <span style="flex:1"></span>
-<span style="color:var(--color-neutral-700);font-size:10px">{{ jsonMeta }}</span>
+<span style="color:var(--color-neutral-600);font-size:10px">{{ jsonMeta }}</span>
 <span style="color:var(--color-accent-400);flex:none;font-size:10px">▾</span>
 </div>
 <div class="tscroll" style="max-height:210px;background:#12141f;border:1px solid var(--color-neutral-900);border-radius:var(--radius-sm);padding:9px 0;display:flex;flex-direction:column;gap:2px">
 <sc-for list="{{ jsonLines }}" as="j" hint-placeholder-count="22">
 <div style="display:flex;gap:10px;align-items:baseline;white-space:pre;padding:0 11px 0 0;font-size:11px;line-height:1.5">
-<span style="color:var(--color-neutral-800);flex:none;width:34px;text-align:right;font-size:10px">{{ j.no }}</span>
+<span style="color:var(--color-neutral-800);flex:none;width:34px;text-align:right;font-size:10px;display:{{ conf.lineNo }}">{{ j.no }}</span>
 <span style="min-width:0"><span style="color:var(--color-neutral-900)">{{ j.pad }}</span><sc-for list="{{ j.parts }}" as="p" hint-placeholder-count="3"><span style="color:{{ p.c }}">{{ p.t }}</span></sc-for></span>
 </div>
 </sc-for>
 </div>
 <div style="display:flex;gap:10px;align-items:center">
-<span style="color:var(--color-neutral-700);font-size:10px">click the row again to collapse</span>
+<span style="color:var(--color-neutral-600);font-size:10px">click the row again to collapse</span>
 <span style="flex:1"></span>
 <span style="border:1px solid var(--color-neutral-800);color:var(--color-neutral-500);border-radius:var(--radius-sm);padding:1px 7px;font-size:10px" style-hover="background:var(--color-neutral-900)">copy json</span>
 <span style="border:1px solid var(--color-neutral-800);color:var(--color-neutral-500);border-radius:var(--radius-sm);padding:1px 7px;font-size:10px" style-hover="background:var(--color-neutral-900)">raw</span>
@@ -103,7 +103,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 </sc-for>
 </div>
 <div style="display:flex;gap:10px;align-items:center;padding-left:16px">
-<span style="color:var(--color-neutral-700);font-size:10px">47 lines</span>
+<span style="color:var(--color-neutral-600);font-size:10px">47 lines</span>
 <span style="flex:1"></span>
 <span style="border:1px solid var(--color-neutral-800);color:var(--color-neutral-500);border-radius:var(--radius-sm);padding:1px 7px;font-size:10px" style-hover="background:var(--color-neutral-900)">copy</span>
 <span style="border:1px solid var(--color-accent-700);color:var(--color-accent-300);border-radius:var(--radius-sm);padding:1px 7px;font-size:10px" style-hover="background:var(--color-accent-900)">collapse</span>
@@ -112,7 +112,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 </div>
 <div style="border-top:1px solid var(--color-neutral-900);padding:9px 12px;display:flex;gap:7px;align-items:center;background:var(--color-bg)">
 <span style="color:var(--color-accent-600)">❯</span>
-<span style="color:var(--color-neutral-700)">message team-lead</span>
+<span style="color:var(--color-neutral-600)">message team-lead</span>
 </div>
 </div>
 </div>
@@ -130,37 +130,37 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <div class="dv-olabel"><a class="dv-oid" href="#4a">4a</a>Click the view names: wall (<a class="dv-oid" href="#3a">3a</a>) · overview (<a class="dv-oid" href="#2b">2b</a>) · tasks (<a class="dv-oid" href="#3b">3b</a>) · rail (<a class="dv-oid" href="#1a">1a</a>) · grid (<a class="dv-oid" href="#1b">1b</a>). Same team, same header, same needs-you strip.</div>
 <div class="dv-card" style="width:1180px">
 <x-import component-from-global-scope="ChromeWindow" from="./browser-window.jsx" width="{{ w }}" height="{{ h3 }}" url="localhost:4823/team/session-8f2a1c" tabs="{{ tabs }}" hint-size="1180px,800px">
-<div style="height:100%;display:flex;flex-direction:column;background:#12141f;color:var(--color-text);font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;line-height:1.55">
+<div style="height:100%;display:flex;flex-direction:column;background:var(--term);color:var(--color-text);font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;line-height:1.55;--color-accent:{{ conf.a }};--color-accent-300:{{ conf.a3 }};--color-accent-400:{{ conf.a4 }};--color-accent-500:{{ conf.a5 }};--color-accent-600:{{ conf.a6 }};--color-accent-700:{{ conf.a7 }};--color-accent-900:{{ conf.a9 }};--color-bg:{{ conf.bg }};--color-text:{{ conf.text }};--color-neutral-200:{{ conf.n2 }};--color-neutral-300:{{ conf.n3 }};--color-neutral-400:{{ conf.n4 }};--color-neutral-500:{{ conf.n5 }};--color-neutral-600:{{ conf.n6 }};--color-neutral-700:{{ conf.n7 }};--color-neutral-800:{{ conf.n8 }};--color-neutral-900:{{ conf.n9 }};--term:{{ conf.term }};--warn:{{ conf.warn }};--warn-edge:{{ conf.warnEdge }};--warn-tint:{{ conf.warnTint }};--fail:{{ conf.fail }};--on-accent:{{ conf.onAccent }};color:{{ conf.text }}">
 
 <div style="display:flex;align-items:center;flex-wrap:nowrap;gap:10px;padding:9px 14px;border-bottom:1px solid var(--color-neutral-900);background:var(--color-bg);font-size:12.5px">
 <span style="color:var(--color-accent);letter-spacing:.14em;font-weight:700;font-size:11px;flex:none">TEAM</span>
 <div style="position:relative;flex:none">
 <div onClick="{{ toggleSess }}" style="display:flex;align-items:center;gap:7px;padding:3px 8px;margin:-3px 0;flex:none;white-space:nowrap;border:1px solid var(--color-neutral-800);border-radius:var(--radius-sm);cursor:pointer" style-hover="border-color:var(--color-accent-700);background:var(--color-accent-900)">
-<span style="color:var(--color-text);white-space:nowrap;flex:none">{{ sessName }}</span>
+<span style="color:var(--color-text);max-width:146px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:none">{{ sessGoal }}</span>
 <span style="color:var(--color-accent-400);font-size:10px">{{ sessCaret }}</span>
 </div>
 <div style="position:absolute;top:calc(100% + 6px);left:0;z-index:20;display:{{ sessMenu }};flex-direction:column;width:432px;background:var(--color-bg);border:1px solid var(--color-neutral-800);border-radius:var(--radius-md);box-shadow:0 18px 40px rgba(0,0,0,.6);overflow:hidden">
-<div style="padding:8px 12px 7px;color:var(--color-neutral-700);font-size:10px;letter-spacing:.12em;border-bottom:1px solid var(--color-neutral-900)">SESSIONS ON THIS MACHINE · 5</div>
+<div style="padding:8px 12px 7px;color:var(--color-neutral-600);font-size:10px;letter-spacing:.12em;border-bottom:1px solid var(--color-neutral-900)">SESSIONS ON THIS MACHINE · 5</div>
 <sc-for list="{{ sessions }}" as="s" hint-placeholder-count="5">
 <div onClick="{{ s.pick }}" style="padding:8px 12px;display:flex;gap:9px;align-items:flex-start;cursor:pointer;background:{{ s.rowBg }};border-bottom:1px solid var(--color-neutral-900)" style-hover="background:var(--color-neutral-900)">
 <span style="font-size:10px;color:{{ s.dotCol }};margin-top:2px">{{ s.dot }}</span>
 <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
 <div style="display:flex;gap:8px;align-items:baseline">
-<span style="color:{{ s.nameCol }};font-size:12px">{{ s.name }}</span>
-<span style="color:var(--color-neutral-700);font-size:10.5px">{{ s.branch }}</span>
+<span style="color:{{ s.nameCol }};font-size:12px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ s.goal }}</span>
 <span style="flex:1"></span>
-<span style="color:var(--color-accent-400);font-size:10.5px">{{ s.check }}</span>
+<span style="color:var(--color-accent-400);font-size:10.5px;flex:none">{{ s.check }}</span>
 </div>
 <div style="display:flex;gap:8px;align-items:baseline">
-<span style="color:var(--color-neutral-500);font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ s.goal }}</span>
+<span style="color:var(--color-neutral-600);font-size:10.5px;white-space:nowrap">{{ s.name }}</span>
+<span style="color:var(--color-neutral-600);font-size:10.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ s.branch }}</span>
 <span style="flex:1"></span>
-<span style="color:var(--color-neutral-700);font-size:10px;white-space:nowrap">{{ s.agents }}</span>
+<span style="color:var(--color-neutral-600);font-size:10px;white-space:nowrap">{{ s.agents }}</span>
 <span style="color:var(--color-neutral-600);font-size:10px;white-space:nowrap">{{ s.state }}</span>
 </div>
 </div>
 </div>
 </sc-for>
-<div style="padding:8px 12px;display:flex;gap:12px;color:var(--color-neutral-700);font-size:10px">
+<div style="padding:8px 12px;display:flex;gap:12px;color:var(--color-neutral-600);font-size:10px">
 <span>⌘K to search</span><span style="flex:1"></span><span>a session is one team · switching keeps both running</span>
 </div>
 </div>
@@ -179,15 +179,169 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <span style="color:var(--color-neutral-500);white-space:nowrap;flex:none">{{ t.tok }}</span>
 <span style="color:var(--color-accent-500);letter-spacing:-.5px;white-space:nowrap;flex:none">{{ t.bar }}</span>
 <span style="color:var(--color-neutral-500);white-space:nowrap;flex:none">{{ t.elapsed }} · {{ t.cost }}</span>
+<div style="position:relative;flex:none">
+<span onClick="{{ conf.toggle }}" title="layout &amp; appearance" style="display:block;color:var(--color-neutral-500);cursor:pointer;padding:0 5px;border-radius:var(--radius-sm);font-size:12px;line-height:18px" style-hover="color:var(--color-accent-300);background:var(--color-accent-900)">{{ conf.glyph }}</span>
+<div style="position:absolute;top:calc(100% + 8px);right:0;z-index:30;display:{{ conf.open }};flex-direction:column;width:302px;background:var(--color-bg);border:1px solid var(--color-neutral-800);border-radius:var(--radius-md);box-shadow:0 18px 40px rgba(0,0,0,.6);overflow:hidden">
+
+<div style="padding:9px 13px;border-bottom:1px solid var(--color-neutral-900);display:flex;align-items:center;gap:8px">
+<span style="color:var(--color-neutral-600);font-size:10px;letter-spacing:.12em">APPEARANCE</span>
+<span style="flex:1"></span>
+<span onClick="{{ conf.reset }}" style="color:var(--color-neutral-600);font-size:10px;cursor:pointer;border-bottom:1px solid var(--color-neutral-800)" style-hover="color:var(--color-accent-300)">reset</span>
+</div>
+
+<div style="padding:11px 13px 12px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--color-neutral-900)">
+<span style="color:var(--color-neutral-500);font-size:10.5px">theme</span>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+<div onClick="{{ conf.themes.nocturne.on }}" title="{{ conf.themes.nocturne.note }}" style="display:flex;flex-direction:column;gap:5px;cursor:pointer;padding:6px;border-radius:var(--radius-sm);border:1px solid {{ conf.themes.nocturne.edge }};background:{{ conf.themes.nocturne.bg }}" style-hover="background:var(--color-neutral-900)">
+<span style="display:flex;border-radius:3px;overflow:hidden;box-shadow:0 0 0 1px var(--color-neutral-800)">
+<span style="flex:2;height:18px;background:{{ conf.themes.nocturne.swatchA }}"></span>
+<span style="flex:1;height:18px;background:{{ conf.themes.nocturne.swatchB }}"></span>
+<span style="flex:1;height:18px;background:{{ conf.themes.nocturne.swatchC }}"></span>
+</span>
+<span style="display:flex;gap:5px;align-items:baseline">
+<span style="color:{{ conf.themes.nocturne.col }};font-size:10.5px;white-space:nowrap">{{ conf.themes.nocturne.label }}</span>
+<span style="flex:1"></span>
+<span style="color:var(--color-accent-400);font-size:9.5px">{{ conf.themes.nocturne.check }}</span>
+</span>
+</div>
+<div onClick="{{ conf.themes.organic.on }}" title="{{ conf.themes.organic.note }}" style="display:flex;flex-direction:column;gap:5px;cursor:pointer;padding:6px;border-radius:var(--radius-sm);border:1px solid {{ conf.themes.organic.edge }};background:{{ conf.themes.organic.bg }}" style-hover="background:var(--color-neutral-900)">
+<span style="display:flex;border-radius:3px;overflow:hidden;box-shadow:0 0 0 1px var(--color-neutral-800)">
+<span style="flex:2;height:18px;background:{{ conf.themes.organic.swatchA }}"></span>
+<span style="flex:1;height:18px;background:{{ conf.themes.organic.swatchB }}"></span>
+<span style="flex:1;height:18px;background:{{ conf.themes.organic.swatchC }}"></span>
+</span>
+<span style="display:flex;gap:5px;align-items:baseline">
+<span style="color:{{ conf.themes.organic.col }};font-size:10.5px;white-space:nowrap">{{ conf.themes.organic.label }}</span>
+<span style="flex:1"></span>
+<span style="color:var(--color-accent-400);font-size:9.5px">{{ conf.themes.organic.check }}</span>
+</span>
+</div>
+<div onClick="{{ conf.themes.ember.on }}" title="{{ conf.themes.ember.note }}" style="display:flex;flex-direction:column;gap:5px;cursor:pointer;padding:6px;border-radius:var(--radius-sm);border:1px solid {{ conf.themes.ember.edge }};background:{{ conf.themes.ember.bg }}" style-hover="background:var(--color-neutral-900)">
+<span style="display:flex;border-radius:3px;overflow:hidden;box-shadow:0 0 0 1px var(--color-neutral-800)">
+<span style="flex:2;height:18px;background:{{ conf.themes.ember.swatchA }}"></span>
+<span style="flex:1;height:18px;background:{{ conf.themes.ember.swatchB }}"></span>
+<span style="flex:1;height:18px;background:{{ conf.themes.ember.swatchC }}"></span>
+</span>
+<span style="display:flex;gap:5px;align-items:baseline">
+<span style="color:{{ conf.themes.ember.col }};font-size:10.5px;white-space:nowrap">{{ conf.themes.ember.label }}</span>
+<span style="flex:1"></span>
+<span style="color:var(--color-accent-400);font-size:9.5px">{{ conf.themes.ember.check }}</span>
+</span>
+</div>
+<div onClick="{{ conf.themes.frost.on }}" title="{{ conf.themes.frost.note }}" style="display:flex;flex-direction:column;gap:5px;cursor:pointer;padding:6px;border-radius:var(--radius-sm);border:1px solid {{ conf.themes.frost.edge }};background:{{ conf.themes.frost.bg }}" style-hover="background:var(--color-neutral-900)">
+<span style="display:flex;border-radius:3px;overflow:hidden;box-shadow:0 0 0 1px var(--color-neutral-800)">
+<span style="flex:2;height:18px;background:{{ conf.themes.frost.swatchA }}"></span>
+<span style="flex:1;height:18px;background:{{ conf.themes.frost.swatchB }}"></span>
+<span style="flex:1;height:18px;background:{{ conf.themes.frost.swatchC }}"></span>
+</span>
+<span style="display:flex;gap:5px;align-items:baseline">
+<span style="color:{{ conf.themes.frost.col }};font-size:10.5px;white-space:nowrap">{{ conf.themes.frost.label }}</span>
+<span style="flex:1"></span>
+<span style="color:var(--color-accent-400);font-size:9.5px">{{ conf.themes.frost.check }}</span>
+</span>
+</div>
+<div onClick="{{ conf.themes.slate.on }}" title="{{ conf.themes.slate.note }}" style="display:flex;flex-direction:column;gap:5px;cursor:pointer;padding:6px;border-radius:var(--radius-sm);border:1px solid {{ conf.themes.slate.edge }};background:{{ conf.themes.slate.bg }}" style-hover="background:var(--color-neutral-900)">
+<span style="display:flex;border-radius:3px;overflow:hidden;box-shadow:0 0 0 1px var(--color-neutral-800)">
+<span style="flex:2;height:18px;background:{{ conf.themes.slate.swatchA }}"></span>
+<span style="flex:1;height:18px;background:{{ conf.themes.slate.swatchB }}"></span>
+<span style="flex:1;height:18px;background:{{ conf.themes.slate.swatchC }}"></span>
+</span>
+<span style="display:flex;gap:5px;align-items:baseline">
+<span style="color:{{ conf.themes.slate.col }};font-size:10.5px;white-space:nowrap">{{ conf.themes.slate.label }}</span>
+<span style="flex:1"></span>
+<span style="color:var(--color-accent-400);font-size:9.5px">{{ conf.themes.slate.check }}</span>
+</span>
+</div>
+<div onClick="{{ conf.themes.phosphor.on }}" title="{{ conf.themes.phosphor.note }}" style="display:flex;flex-direction:column;gap:5px;cursor:pointer;padding:6px;border-radius:var(--radius-sm);border:1px solid {{ conf.themes.phosphor.edge }};background:{{ conf.themes.phosphor.bg }}" style-hover="background:var(--color-neutral-900)">
+<span style="display:flex;border-radius:3px;overflow:hidden;box-shadow:0 0 0 1px var(--color-neutral-800)">
+<span style="flex:2;height:18px;background:{{ conf.themes.phosphor.swatchA }}"></span>
+<span style="flex:1;height:18px;background:{{ conf.themes.phosphor.swatchB }}"></span>
+<span style="flex:1;height:18px;background:{{ conf.themes.phosphor.swatchC }}"></span>
+</span>
+<span style="display:flex;gap:5px;align-items:baseline">
+<span style="color:{{ conf.themes.phosphor.col }};font-size:10.5px;white-space:nowrap">{{ conf.themes.phosphor.label }}</span>
+<span style="flex:1"></span>
+<span style="color:var(--color-accent-400);font-size:9.5px">{{ conf.themes.phosphor.check }}</span>
+</span>
+</div>
+</div>
+</div>
+<div style="padding:11px 13px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--color-neutral-900)">
+<span style="color:var(--color-neutral-500);font-size:10.5px">accent scheme</span>
+<div style="display:flex;gap:10px;align-items:center">
+<span onClick="{{ conf.schemes.blurple.on }}" title="{{ conf.schemes.blurple.title }}" style="width:20px;height:20px;border-radius:10px;cursor:pointer;background:{{ conf.schemes.blurple.dot }};box-shadow:{{ conf.schemes.blurple.ring }}"></span>
+<span onClick="{{ conf.schemes.teal.on }}" title="{{ conf.schemes.teal.title }}" style="width:20px;height:20px;border-radius:10px;cursor:pointer;background:{{ conf.schemes.teal.dot }};box-shadow:{{ conf.schemes.teal.ring }}"></span>
+<span onClick="{{ conf.schemes.amber.on }}" title="{{ conf.schemes.amber.title }}" style="width:20px;height:20px;border-radius:10px;cursor:pointer;background:{{ conf.schemes.amber.dot }};box-shadow:{{ conf.schemes.amber.ring }}"></span>
+<span onClick="{{ conf.schemes.rose.on }}" title="{{ conf.schemes.rose.title }}" style="width:20px;height:20px;border-radius:10px;cursor:pointer;background:{{ conf.schemes.rose.dot }};box-shadow:{{ conf.schemes.rose.ring }}"></span>
+<span style="flex:1"></span>
+<span style="color:var(--color-neutral-600);font-size:9.5px">four per theme</span>
+</div>
+</div>
+
+<div style="padding:11px 13px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--color-neutral-900)">
+<span style="color:var(--color-neutral-500);font-size:10.5px">line density</span>
+<div style="display:flex;gap:6px">
+<span onClick="{{ conf.dens.compact.on }}" style="flex:1;text-align:center;cursor:pointer;font-size:10.5px;padding:3px 0;border-radius:var(--radius-sm);border:1px solid {{ conf.dens.compact.edge }};background:{{ conf.dens.compact.bg }};color:{{ conf.dens.compact.col }}" style-hover="background:var(--color-neutral-900)">compact</span>
+<span onClick="{{ conf.dens.default.on }}" style="flex:1;text-align:center;cursor:pointer;font-size:10.5px;padding:3px 0;border-radius:var(--radius-sm);border:1px solid {{ conf.dens.default.edge }};background:{{ conf.dens.default.bg }};color:{{ conf.dens.default.col }}" style-hover="background:var(--color-neutral-900)">default</span>
+<span onClick="{{ conf.dens.roomy.on }}" style="flex:1;text-align:center;cursor:pointer;font-size:10.5px;padding:3px 0;border-radius:var(--radius-sm);border:1px solid {{ conf.dens.roomy.edge }};background:{{ conf.dens.roomy.bg }};color:{{ conf.dens.roomy.col }}" style-hover="background:var(--color-neutral-900)">roomy</span>
+</div>
+</div>
+
+<div style="padding:6px 13px 10px;display:flex;flex-direction:column">
+<div style="display:flex;align-items:center;gap:9px;padding:7px 0">
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:1px">
+<span style="color:var(--color-neutral-400);font-size:11px">fade older output</span>
+<span style="color:var(--color-neutral-600);font-size:9.5px">newest line reads brightest</span>
+</div>
+<span style="color:{{ conf.fade.col }};font-size:9.5px;width:18px;text-align:right">{{ conf.fade.label }}</span>
+<span onClick="{{ conf.fade.on }}" style="position:relative;width:26px;height:14px;border-radius:8px;cursor:pointer;background:{{ conf.fade.track }};flex:none">
+<span style="position:absolute;top:1px;left:{{ conf.fade.knobX }};width:12px;height:12px;border-radius:6px;background:var(--color-bg);transition:left .12s ease"></span>
+</span>
+</div>
+<div style="display:flex;align-items:center;gap:9px;padding:7px 0;border-top:1px solid var(--color-neutral-900)">
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:1px">
+<span style="color:var(--color-neutral-400);font-size:11px">agent portraits</span>
+<span style="color:var(--color-neutral-600);font-size:9.5px">8-bit faces per role</span>
+</div>
+<span style="color:{{ conf.avatarsT.col }};font-size:9.5px;width:18px;text-align:right">{{ conf.avatarsT.label }}</span>
+<span onClick="{{ conf.avatarsT.on }}" style="position:relative;width:26px;height:14px;border-radius:8px;cursor:pointer;background:{{ conf.avatarsT.track }};flex:none">
+<span style="position:absolute;top:1px;left:{{ conf.avatarsT.knobX }};width:12px;height:12px;border-radius:6px;background:var(--color-bg);transition:left .12s ease"></span>
+</span>
+</div>
+<div style="display:flex;align-items:center;gap:9px;padding:7px 0;border-top:1px solid var(--color-neutral-900)">
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:1px">
+<span style="color:var(--color-neutral-400);font-size:11px">motion</span>
+<span style="color:var(--color-neutral-600);font-size:9.5px">cursor blink, typing dots</span>
+</div>
+<span style="color:{{ conf.motionT.col }};font-size:9.5px;width:18px;text-align:right">{{ conf.motionT.label }}</span>
+<span onClick="{{ conf.motionT.on }}" style="position:relative;width:26px;height:14px;border-radius:8px;cursor:pointer;background:{{ conf.motionT.track }};flex:none">
+<span style="position:absolute;top:1px;left:{{ conf.motionT.knobX }};width:12px;height:12px;border-radius:6px;background:var(--color-bg);transition:left .12s ease"></span>
+</span>
+</div>
+<div style="display:flex;align-items:center;gap:9px;padding:7px 0;border-top:1px solid var(--color-neutral-900)">
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:1px">
+<span style="color:var(--color-neutral-400);font-size:11px">JSON line numbers</span>
+<span style="color:var(--color-neutral-600);font-size:9.5px">gutter in expanded payloads</span>
+</div>
+<span style="color:{{ conf.numbersT.col }};font-size:9.5px;width:18px;text-align:right">{{ conf.numbersT.label }}</span>
+<span onClick="{{ conf.numbersT.on }}" style="position:relative;width:26px;height:14px;border-radius:8px;cursor:pointer;background:{{ conf.numbersT.track }};flex:none">
+<span style="position:absolute;top:1px;left:{{ conf.numbersT.knobX }};width:12px;height:12px;border-radius:6px;background:var(--color-bg);transition:left .12s ease"></span>
+</span>
+</div>
+</div>
+
+<div style="padding:8px 13px;border-top:1px solid var(--color-neutral-900);color:var(--color-neutral-600);font-size:9.5px">saved per machine, not per session</div>
+</div>
+</div>
 </div>
 
 <sc-if value="{{ isWall }}" hint-placeholder-val="{{ true }}">
 <div class="wall" style="flex:1;display:flex;overflow-x:auto;overflow-y:hidden;min-height:0;gap:1px;background:var(--color-neutral-900)">
 <sc-for list="{{ team }}" as="a" hint-placeholder-count="6">
-<div style="flex:none;width:{{ a.colW }};background:#12141f;display:flex;flex-direction:column;min-height:0;position:{{ a.colPos }};left:0;z-index:{{ a.colZ }};box-shadow:{{ a.colShadow }}">
+<div style="flex:none;width:{{ a.colW }};background:var(--term);display:flex;flex-direction:column;min-height:0;position:{{ a.colPos }};left:0;z-index:{{ a.colZ }};box-shadow:{{ a.colShadow }}">
 <div style="padding:9px 12px 8px;background:var(--color-bg);border-bottom:1px solid var(--color-neutral-900);display:flex;gap:11px;align-items:flex-start">
 <div style="width:24px;height:24px;position:relative;flex:none;margin-top:3px">
-<div style="position:absolute;top:0;left:0;width:2px;height:2px;background:transparent;box-shadow:{{ a.spr }}"></div>
+<div style="position:absolute;top:0;left:0;width:2px;height:2px;background:transparent;display:{{ conf.avatar }};box-shadow:{{ a.spr }}"></div>
 </div>
 <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:5px">
 <div style="display:flex;align-items:baseline;gap:7px">
@@ -195,25 +349,27 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <span style="color:var(--color-text);font-weight:500;font-size:13px">{{ a.name }}</span>
 <span style="border:1px solid var(--color-neutral-800);color:var(--color-neutral-500);border-radius:var(--radius-sm);padding:0 5px;font-size:9.5px">{{ a.type }}</span>
 <span style="flex:1"></span>
-<span style="color:var(--color-neutral-700);font-size:10.5px">{{ a.model }}</span>
+<span style="color:var(--color-neutral-600);font-size:10.5px">{{ a.model }}</span>
 </div>
 <div style="display:flex;align-items:baseline;gap:7px">
 <span style="font-size:11px;color:{{ a.col }}">{{ a.label }}</span>
 <span style="color:var(--color-neutral-600);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ a.role }}</span>
 <span style="flex:1"></span>
-<span style="color:var(--color-neutral-700);font-size:10.5px">{{ a.elapsed }}</span>
+<span style="color:var(--color-neutral-600);font-size:10.5px">{{ a.elapsed }}</span>
+<span onClick="{{ a.sendNow }}" title="drain now — forces a turn boundary" style="display:{{ a.inflightShow }};align-items:baseline;gap:4px;cursor:pointer;padding:0 5px;border-radius:8px;border:1px solid var(--warn-edge);color:var(--warn);font-size:9.5px;white-space:nowrap" style-hover="background:var(--warn-tint)">{{ a.inflight }}</span>
+<span onClick="{{ a.askStop }}" title="{{ a.stopTitle }}" style="color:var(--color-neutral-600);font-size:10.5px;cursor:pointer;padding:0 2px;border-radius:3px" style-hover="color:var(--fail);background:var(--color-neutral-900)">{{ a.stopGlyph }}</span>
 </div>
 <div style="display:flex;align-items:baseline;gap:8px">
 <span style="letter-spacing:-.5px;color:var(--color-accent-600);font-size:11.5px">{{ a.bar }}</span>
 <span style="color:var(--color-neutral-500);font-size:10.5px">{{ a.pct }}</span>
-<span style="color:#d99e5c;font-size:10.5px;width:7px">{{ a.warnMark }}</span>
+<span style="color:var(--warn);font-size:10.5px;width:7px">{{ a.warnMark }}</span>
 <span style="color:var(--color-neutral-600);font-size:10.5px">{{ a.ctx }}</span>
 <span style="flex:1"></span>
 <span style="color:var(--color-neutral-600);font-size:10.5px">{{ a.cost }}</span>
 </div>
 </div>
 </div>
-<div class="tscroll tail" style="flex:1;padding:13px 12px;display:flex;flex-direction:column;gap:10px">
+<div class="tscroll tail" style="flex:1;padding:13px 12px;display:flex;flex-direction:column;gap:{{ conf.gap }}">
 <sc-for list="{{ a.wall }}" as="l" hint-placeholder-count="16">
 <div style="display:flex;gap:7px;align-items:baseline;white-space:nowrap;opacity:{{ l.op }}">
 <span style="color:var(--color-accent-500);width:9px;flex:none;font-size:11px">{{ l.mark }}</span>
@@ -221,12 +377,34 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 </div>
 </sc-for>
 </div>
-<div style="border-top:1px solid var(--color-neutral-900);padding:7px 12px;color:var(--color-neutral-700);font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.tool }}</div>
-<div style="border-top:1px solid var(--color-neutral-900);padding:8px 12px;display:flex;align-items:center;gap:7px;background:var(--color-bg)">
-<span style="color:var(--color-accent-600);font-size:11px">❯</span>
-<span style="color:var(--color-neutral-700);font-size:11px">message {{ a.name }}</span>
+<div style="border-top:1px solid var(--color-neutral-900);padding:7px 12px;color:var(--color-neutral-600);font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.tool }}</div>
+<div style="border-top:1px solid var(--color-neutral-900);padding:8px 12px;display:{{ a.composerShow }};align-items:center;gap:8px;background:var(--color-bg);position:relative">
+<span style="color:var(--color-accent-600);font-size:11px;flex:none">❯</span>
+<span style="flex:none;display:{{ comp.chipShow }};align-items:baseline;padding:1px 6px;border-radius:var(--radius-sm);border:1px solid var(--color-accent-700);background:var(--color-accent-900);color:var(--color-accent-300);font-size:10.5px">{{ comp.target }}</span>
+<span onClick="{{ comp.toggle }}" style="min-width:0;flex:1;display:flex;gap:1px;align-items:baseline;cursor:text">
+<span style="color:var(--color-text);font-size:11px;white-space:pre">{{ comp.typed }}</span>
+<span style="width:6px;height:14px;background:var(--color-accent-400);animation:{{ conf.blink }};flex:none"></span>
+<span style="color:var(--color-neutral-600);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ comp.hint }}</span>
+</span>
+<span style="color:var(--color-neutral-600);font-size:10px;flex:none">⏎</span>
+<div style="position:absolute;bottom:calc(100% + 8px);left:10px;z-index:25;display:{{ comp.menu }};flex-direction:column;width:262px;background:var(--color-bg);border:1px solid var(--color-neutral-800);border-radius:var(--radius-md);box-shadow:0 -14px 34px rgba(0,0,0,.6);overflow:hidden">
+<div style="padding:7px 11px;border-bottom:1px solid var(--color-neutral-900);display:flex;gap:8px;align-items:baseline">
+<span style="color:var(--color-neutral-600);font-size:9.5px;letter-spacing:.12em">TEAMMATES</span>
 <span style="flex:1"></span>
-<span style="color:var(--color-neutral-800);font-size:10px">⌘⏎</span>
+<span style="color:var(--color-neutral-600);font-size:9.5px">{{ comp.filter }}</span>
+</div>
+<sc-for list="{{ comp.options }}" as="o" hint-placeholder-count="6">
+<div onClick="{{ o.pick }}" style="padding:7px 11px;cursor:pointer;display:flex;flex-direction:column;gap:1px;background:{{ o.bg }};border-bottom:1px solid var(--color-neutral-900)" style-hover="background:var(--color-neutral-900)">
+<div style="display:flex;gap:7px;align-items:baseline">
+<span style="color:{{ o.col }};font-size:11px">{{ o.name }}</span>
+<span style="color:var(--color-neutral-600);font-size:9.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ o.state }}</span>
+<span style="flex:1"></span>
+<span style="color:var(--color-accent-400);font-size:9.5px">{{ o.check }}</span>
+</div>
+</div>
+</sc-for>
+<div style="padding:7px 11px;color:var(--color-neutral-600);font-size:9.5px">↑↓ pick · ⏎ insert · esc dismiss</div>
+</div>
 </div>
 <div onMouseDown="{{ a.onGrip }}" onDoubleClick="{{ a.onGripDbl }}" title="drag to resize · double-click to reset" style="position:absolute;top:0;right:-3px;width:7px;height:100%;cursor:col-resize;z-index:4;display:flex;justify-content:center">
 <span style="width:1px;height:100%;background:{{ a.grip }}"></span>
@@ -239,11 +417,11 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <sc-if value="{{ isOver }}">
 <div style="flex:1;display:flex;gap:1px;background:var(--color-neutral-900);min-height:0">
 <sc-for list="{{ team }}" as="a" hint-placeholder-count="6">
-<div onClick="{{ a.sel }}" style="flex:1;min-width:0;background:#12141f;display:flex;flex-direction:column;cursor:pointer" style-hover="background:var(--color-bg)">
+<div onClick="{{ a.sel }}" style="flex:1;min-width:0;background:var(--term);display:flex;flex-direction:column;cursor:pointer" style-hover="background:var(--color-bg)">
 <div style="padding:9px 10px 8px;border-bottom:1px solid var(--color-neutral-900);display:flex;flex-direction:column;gap:6px">
 <div style="display:flex;gap:8px;align-items:flex-start">
 <div style="width:24px;height:24px;position:relative;flex:none">
-<div style="position:absolute;top:0;left:0;width:2px;height:2px;background:transparent;box-shadow:{{ a.spr }}"></div>
+<div style="position:absolute;top:0;left:0;width:2px;height:2px;background:transparent;display:{{ conf.avatar }};box-shadow:{{ a.spr }}"></div>
 </div>
 <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
 <div style="display:flex;gap:5px;align-items:baseline">
@@ -261,7 +439,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <div style="height:100%;background:var(--color-accent-600);width:{{ a.pct }}"></div>
 </div>
 </div>
-<div class="tscroll tail" style="flex:1;padding:10px 10px;display:flex;flex-direction:column;gap:8px">
+<div class="tscroll tail" style="flex:1;padding:10px 10px;display:flex;flex-direction:column;gap:{{ conf.gapTight }}">
 <sc-for list="{{ a.wall }}" as="l" hint-placeholder-count="12">
 <div style="display:flex;gap:5px;align-items:baseline;white-space:nowrap;opacity:{{ l.op }}">
 <span style="color:var(--color-accent-500);width:8px;flex:none;font-size:9.5px">{{ l.mark }}</span>
@@ -269,7 +447,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 </div>
 </sc-for>
 </div>
-<div style="border-top:1px solid var(--color-neutral-900);padding:6px 10px;display:flex;gap:6px;color:var(--color-neutral-700);font-size:9.5px">
+<div style="border-top:1px solid var(--color-neutral-900);padding:6px 10px;display:flex;gap:6px;color:var(--color-neutral-600);font-size:9.5px">
 <span>{{ a.elapsed }}</span><span style="flex:1"></span><span>{{ a.cost }}</span>
 </div>
 </div>
@@ -280,14 +458,24 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <sc-if value="{{ isComms }}">
 <div style="flex:1;display:flex;min-height:0">
 <div style="width:296px;flex:none;display:flex;flex-direction:column;border-right:1px solid var(--color-neutral-900)">
-<div style="padding:10px 14px 8px;color:var(--color-neutral-700);font-size:10.5px;letter-spacing:.12em;border-bottom:1px solid var(--color-neutral-900);display:flex">
+<div style="padding:10px 14px 8px;color:var(--color-neutral-600);font-size:10.5px;letter-spacing:.12em;border-bottom:1px solid var(--color-neutral-900);display:flex">
 <span>THREADS</span><span style="flex:1"></span><span>2 unread</span>
 </div>
 <div class="tscroll" style="flex:1;display:flex;flex-direction:column;gap:2px;padding:6px 8px">
+<div onClick="{{ groupRow.pick }}" style="padding:9px;border-radius:var(--radius-sm);cursor:pointer;display:flex;gap:9px;align-items:center;background:{{ groupRow.bg }};box-shadow:inset 2px 0 0 {{ groupRow.bar }}" style-hover="background:var(--color-neutral-900)">
+<span style="width:34px;flex:none;text-align:center;color:var(--color-accent-400);font-size:13px">⌗</span>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+<span style="color:{{ groupRow.name }};font-size:11.5px">all messages</span>
+<span style="color:var(--color-neutral-600);font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">every inbox, merged</span>
+</div>
+<span style="flex:none;font-size:9.5px;padding:0 5px;border-radius:8px;background:var(--color-accent-600);color:var(--on-accent)">2</span>
+</div>
+<div style="height:1px;background:var(--color-neutral-900);margin:5px 2px 3px"></div>
+<span style="color:var(--color-neutral-600);font-size:9.5px;letter-spacing:.12em;padding:0 2px 3px">PAIRS</span>
 <sc-for list="{{ channels }}" as="c" hint-placeholder-count="6">
-<div style="padding:8px 9px;border-radius:var(--radius-sm);cursor:pointer;display:flex;gap:9px;align-items:center;background:{{ c.rowBg }};box-shadow:inset 2px 0 0 {{ c.rowBar }}" style-hover="background:var(--color-neutral-900)">
+<div onClick="{{ c.pick }}" style="padding:8px 9px;border-radius:var(--radius-sm);cursor:pointer;display:flex;gap:9px;align-items:center;background:{{ c.rowBg }};box-shadow:inset 2px 0 0 {{ c.rowBar }}" style-hover="background:var(--color-neutral-900)">
 <div style="width:34px;height:20px;position:relative;flex:none">
-<div style="position:absolute;top:0;left:0;width:2px;height:2px;background:transparent;box-shadow:{{ c.sprA }};transform:scale(.83);transform-origin:top left"></div>
+<div style="position:absolute;top:0;left:0;width:2px;height:2px;background:transparent;display:{{ conf.avatar }};box-shadow:{{ c.sprA }};transform:scale(.83);transform-origin:top left"></div>
 <div style="position:absolute;top:0;left:14px;width:2px;height:2px;background:transparent;box-shadow:{{ c.sprB }};transform:scale(.83);transform-origin:top left"></div>
 </div>
 <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
@@ -301,51 +489,80 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 </div>
 </sc-for>
 </div>
-<div style="border-top:1px solid var(--color-neutral-900);padding:9px 14px;color:var(--color-neutral-700);font-size:10px;line-height:1.5">a thread is two inboxes · the lead does not relay</div>
+<div style="border-top:1px solid var(--color-neutral-900);padding:9px 14px;color:var(--color-neutral-600);font-size:10px;line-height:1.5">a thread is two inboxes · the lead does not relay</div>
 </div>
 
 <div style="flex:1;min-width:0;display:flex;flex-direction:column">
 <div style="padding:9px 16px;border-bottom:1px solid var(--color-neutral-900);background:var(--color-bg);display:flex;gap:10px;align-items:center">
-<span style="color:var(--color-text);font-size:12.5px">perf ⇄ security</span>
-<span style="color:var(--color-neutral-600);font-size:11px">batching vs rotation</span>
+<sc-if value="{{ inGroup }}" hint-placeholder-val="{{ true }}">
+<span style="color:var(--color-text);font-size:12.5px;white-space:nowrap">all messages</span>
+</sc-if>
+<sc-if value="{{ inPair }}">
+<span style="color:var(--color-text);font-size:12.5px;white-space:nowrap">{{ pairName }}</span>
+</sc-if>
+<span style="color:var(--color-neutral-600);font-size:11px">{{ pairTopic }}</span>
 <span style="flex:1"></span>
-<span style="color:var(--color-neutral-700);font-size:10.5px">T-07 · T-03</span>
-<span style="border:1px solid var(--color-neutral-800);color:var(--color-neutral-500);border-radius:var(--radius-sm);padding:1px 7px;font-size:10px" style-hover="background:var(--color-neutral-900)">show in wall</span>
+<span style="color:var(--color-neutral-600);font-size:10.5px;white-space:nowrap">{{ roomMembers }}</span>
+<span style="border:1px solid var(--color-neutral-800);color:var(--color-neutral-500);border-radius:var(--radius-sm);padding:1px 7px;font-size:10px;white-space:nowrap" style-hover="background:var(--color-neutral-900)">show in wall</span>
 </div>
-<div class="tscroll tail" style="flex:1;padding:14px 16px;display:flex;flex-direction:column;gap:14px">
-<sc-for list="{{ thread }}" as="m" hint-placeholder-count="4">
-<div style="display:flex;flex-direction:column;align-items:{{ m.align }};gap:4px">
-<div style="display:flex;flex-direction:{{ m.rowDir }};gap:9px;align-items:flex-end;max-width:78%">
-<div style="width:22px;height:22px;position:relative;flex:none;margin-bottom:2px">
-<div style="position:absolute;top:0;left:0;width:2px;height:2px;background:transparent;box-shadow:{{ m.spr }};transform:scale(.9);transform-origin:top left"></div>
+<div class="tscroll tail" style="flex:1;padding:14px 18px 10px;display:flex;flex-direction:column;gap:0">
+<sc-if value="{{ inGroup }}" hint-placeholder-val="{{ true }}">
+<sc-for list="{{ mail }}" as="m" hint-placeholder-count="12">
+<div style="display:flex;flex-direction:column;align-items:{{ m.align }};margin-top:{{ m.gap }}">
+<span style="color:var(--color-neutral-600);padding:0 32px {{ m.headPad }};letter-spacing:.04em;font-size:10px">{{ m.head }}</span>
+<div style="display:flex;flex-direction:{{ m.row }};gap:8px;align-items:flex-end;max-width:64%">
+<div style="width:22px;height:22px;position:relative;flex:none;visibility:{{ m.sprVis }}">
+<div style="position:absolute;top:0;left:0;width:2px;height:2px;background:transparent;display:{{ conf.avatar }};box-shadow:{{ m.spr }};transform:scale(.9);transform-origin:top left"></div>
 </div>
-<div style="background:{{ m.bg }};border:1px solid {{ m.edge }};border-radius:var(--radius-md);padding:9px 12px;min-width:0">
-<div style="display:flex;gap:8px;align-items:baseline;margin-bottom:5px">
-<span style="color:var(--color-accent-400);font-size:10.5px">{{ m.from }}</span>
+<div style="background:{{ m.bg }};border:1px solid {{ m.edge }};border-radius:{{ m.radius }};padding:8px 12px 9px;min-width:0">
+<span style="color:{{ m.fg }};font-size:11.5px;line-height:1.6;text-wrap:pretty">{{ m.text }}</span>
+</div>
+</div>
+<div style="display:flex;gap:7px;align-items:baseline;padding:3px 32px 0">
+<span style="color:var(--color-neutral-600);font-size:10px">{{ m.toLabel }}</span>
 <span style="color:var(--color-neutral-600);font-size:10px">{{ m.ts }}</span>
+<span style="color:var(--color-neutral-600);font-size:10px">{{ m.receipt }}</span>
 </div>
-<span style="color:var(--color-neutral-300);font-size:11.5px;line-height:1.6;text-wrap:pretty">{{ m.text }}</span>
-</div>
-</div>
-<span style="color:{{ m.stateCol }};font-size:10px;padding:0 32px">{{ m.state }}</span>
 </div>
 </sc-for>
-<div style="display:flex;gap:9px;align-items:center;padding-left:31px;opacity:.6">
-<span style="color:var(--color-accent-400);font-size:10.5px">perf</span>
+</sc-if>
+<sc-if value="{{ inPair }}">
+<sc-for list="{{ thread }}" as="m" hint-placeholder-count="4">
+<div style="display:flex;flex-direction:column;align-items:{{ m.align }};margin-top:{{ m.gap }}">
+<span style="color:var(--color-neutral-600);font-size:10px;padding:0 32px {{ m.headPad }};letter-spacing:.04em">{{ m.head }}</span>
+<div style="display:flex;flex-direction:{{ m.rowDir }};gap:8px;align-items:flex-end;max-width:64%">
+<div style="width:22px;height:22px;position:relative;flex:none;visibility:{{ m.sprVis }}">
+<div style="position:absolute;top:0;left:0;width:2px;height:2px;background:transparent;display:{{ conf.avatar }};box-shadow:{{ m.spr }};transform:scale(.9);transform-origin:top left"></div>
+</div>
+<div style="background:{{ m.bg }};border:1px solid {{ m.edge }};border-radius:{{ m.radius }};padding:8px 12px 9px;min-width:0">
+<span style="color:{{ m.fg }};font-size:11.5px;line-height:1.6;text-wrap:pretty">{{ m.text }}</span>
+</div>
+</div>
+<div style="display:flex;gap:7px;align-items:baseline;padding:3px 32px 0">
+<span style="color:var(--color-neutral-600);font-size:10px">{{ m.ts }}</span>
+<span style="color:{{ m.stateCol }};font-size:10px">{{ m.state }}</span>
+</div>
+</div>
+</sc-for>
+</sc-if>
+<sc-if value="{{ composing }}">
+<div style="display:flex;gap:9px;align-items:center;padding:14px 0 0 31px;opacity:.6">
+<span style="color:var(--color-accent-400);font-size:10.5px">{{ composingName }}</span>
 <span style="color:var(--color-neutral-600);font-size:10.5px">composing a reply</span>
 <span style="display:flex;gap:3px">
-<span style="width:3px;height:3px;border-radius:2px;background:var(--color-accent-400);animation:pulse 1.2s ease-in-out infinite"></span>
-<span style="width:3px;height:3px;border-radius:2px;background:var(--color-accent-400);animation:pulse 1.2s ease-in-out .2s infinite"></span>
-<span style="width:3px;height:3px;border-radius:2px;background:var(--color-accent-400);animation:pulse 1.2s ease-in-out .4s infinite"></span>
+<span style="width:3px;height:3px;border-radius:2px;background:var(--color-accent-400);animation:{{ conf.pulse1 }}"></span>
+<span style="width:3px;height:3px;border-radius:2px;background:var(--color-accent-400);animation:{{ conf.pulse2 }}"></span>
+<span style="width:3px;height:3px;border-radius:2px;background:var(--color-accent-400);animation:{{ conf.pulse3 }}"></span>
 </span>
 </div>
+</sc-if>
 </div>
 <div style="border-top:1px solid var(--color-neutral-900);padding:10px 16px;background:var(--color-bg);display:flex;gap:9px;align-items:center">
 <span style="color:var(--color-accent)">❯</span>
-<span style="color:var(--color-neutral-600);font-size:11.5px">join as the operator — both agents see it</span>
-<span style="width:7px;height:15px;background:var(--color-accent-400);animation:blink 1.1s step-end infinite"></span>
+<span style="color:var(--color-neutral-600);font-size:11.5px">{{ composerHint }}</span>
+<span style="width:7px;height:15px;background:var(--color-accent-400);animation:{{ conf.blink }}"></span>
 <span style="flex:1"></span>
-<span style="color:var(--color-neutral-700);font-size:10px">a message wakes an idle recipient</span>
+<span style="color:var(--color-neutral-600);font-size:10px">a message wakes an idle recipient</span>
 </div>
 </div>
 </div>
@@ -353,8 +570,8 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 
 <sc-if value="{{ isTasks }}">
 <div style="flex:1;display:flex;min-height:0">
-<div style="flex:1;min-width:0;display:flex;flex-direction:column;border-right:1px solid var(--color-neutral-900)">
-<div style="display:flex;gap:10px;padding:10px 16px 8px;color:var(--color-neutral-700);font-size:10.5px;letter-spacing:.12em;border-bottom:1px solid var(--color-neutral-900)">
+<div style="flex:1;min-width:0;display:flex;flex-direction:column">
+<div style="display:flex;gap:10px;padding:10px 16px 8px;color:var(--color-neutral-600);font-size:10.5px;letter-spacing:.12em;border-bottom:1px solid var(--color-neutral-900)">
 <span style="width:44px">TASK</span>
 <span style="flex:1">DESCRIPTION</span>
 <span style="width:92px">STATE</span>
@@ -363,37 +580,20 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 </div>
 <div class="tscroll" style="flex:1;display:flex;flex-direction:column">
 <sc-for list="{{ tasks }}" as="k" hint-placeholder-count="11">
-<div style="display:flex;gap:10px;align-items:baseline;padding:12px 16px;border-bottom:1px solid #1b1d2b;font-size:11.5px" style-hover="background:var(--color-bg)">
+<div style="display:flex;gap:10px;align-items:baseline;padding:12px 16px;border-bottom:1px solid var(--color-neutral-900);font-size:11.5px" style-hover="background:var(--color-bg)">
 <span style="width:44px;color:var(--color-neutral-600)">{{ k.id }}</span>
 <span style="flex:1;color:var(--color-neutral-300);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ k.text }}</span>
 <span style="width:92px;display:flex;gap:5px;align-items:baseline;color:{{ k.col }}"><span style="font-size:10px">{{ k.dot }}</span><span>{{ k.label }}</span></span>
 <span style="width:80px;color:var(--color-neutral-500)">{{ k.owner }}</span>
-<span style="width:88px;color:var(--color-neutral-700)">{{ k.deps }}</span>
+<span style="width:88px;color:var(--color-neutral-600)">{{ k.deps }}</span>
 </div>
 </sc-for>
 </div>
-<div style="border-top:1px solid var(--color-neutral-900);padding:9px 16px;display:flex;gap:14px;color:var(--color-neutral-700);font-size:10.5px">
+<div style="border-top:1px solid var(--color-neutral-900);padding:9px 16px;display:flex;gap:14px;color:var(--color-neutral-600);font-size:10.5px">
 <span>~/.claude/tasks/session-8f2a1c/</span>
 <span style="flex:1"></span>
 <span>claiming is file-locked · completing a task unblocks its dependents</span>
 </div>
-</div>
-<div style="width:404px;display:flex;flex-direction:column;background:var(--color-bg)">
-<div style="padding:10px 14px 8px;color:var(--color-neutral-700);font-size:10.5px;letter-spacing:.12em;border-bottom:1px solid var(--color-neutral-900)">MAILBOX TRAFFIC</div>
-<div class="tscroll tail" style="flex:1;padding:14px 14px;display:flex;flex-direction:column;gap:18px">
-<sc-for list="{{ mail }}" as="m" hint-placeholder-count="10">
-<div style="display:flex;flex-direction:column;gap:2px">
-<div style="display:flex;gap:6px;align-items:baseline;font-size:10.5px">
-<span style="color:var(--color-neutral-600)">{{ m.ts }}</span>
-<span style="color:var(--color-accent-400)">{{ m.from }}</span>
-<span style="color:var(--color-neutral-700)">→</span>
-<span style="color:var(--color-accent-400)">{{ m.to }}</span>
-</div>
-<div style="color:var(--color-neutral-500);font-size:11.5px;padding-left:2px;text-wrap:pretty">{{ m.text }}</div>
-</div>
-</sc-for>
-</div>
-<div style="border-top:1px solid var(--color-neutral-900);padding:9px 14px;color:var(--color-neutral-700);font-size:10.5px">~/.claude/teams/session-8f2a1c/inboxes/</div>
 </div>
 </div>
 </sc-if>
@@ -408,7 +608,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <sc-for list="{{ team }}" as="a" hint-placeholder-count="6">
 <div onClick="{{ a.sel }}" style="padding:8px 10px;border-radius:var(--radius-sm);cursor:pointer;display:flex;gap:10px;align-items:flex-start;background:{{ a.selBg }};border-left:2px solid {{ a.selBar }}">
 <div style="width:24px;height:24px;position:relative;flex:none;margin-top:1px">
-<div style="position:absolute;top:0;left:0;width:2px;height:2px;background:transparent;box-shadow:{{ a.spr }}"></div>
+<div style="position:absolute;top:0;left:0;width:2px;height:2px;background:transparent;display:{{ conf.avatar }};box-shadow:{{ a.spr }}"></div>
 </div>
 <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px">
 <div style="display:flex;align-items:baseline;gap:7px">
@@ -416,7 +616,9 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <span style="color:var(--color-text);font-weight:500">{{ a.name }}</span>
 <span style="color:var(--color-neutral-600);font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ a.type }}</span>
 <span style="flex:1"></span>
-<span style="color:var(--color-neutral-700);font-size:10.5px">{{ a.elapsed }}</span>
+<span style="color:var(--color-neutral-600);font-size:10.5px">{{ a.elapsed }}</span>
+<span onClick="{{ a.sendNow }}" title="drain now — forces a turn boundary" style="display:{{ a.inflightShow }};align-items:baseline;gap:4px;cursor:pointer;padding:0 5px;border-radius:8px;border:1px solid var(--warn-edge);color:var(--warn);font-size:9.5px;white-space:nowrap" style-hover="background:var(--warn-tint)">{{ a.inflight }}</span>
+<span onClick="{{ a.askStop }}" title="{{ a.stopTitle }}" style="color:var(--color-neutral-600);font-size:10.5px;cursor:pointer;padding:0 2px;border-radius:3px" style-hover="color:var(--fail);background:var(--color-neutral-900)">{{ a.stopGlyph }}</span>
 </div>
 <div style="display:flex;align-items:baseline;gap:8px">
 <span style="letter-spacing:-.5px;font-size:11px;color:var(--color-accent-600)">{{ a.bar }}</span>
@@ -428,14 +630,14 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 </div>
 </sc-for>
 </div>
-<div style="padding:9px 16px;border-top:1px solid var(--color-neutral-900);color:var(--color-neutral-700);font-size:10.5px;display:flex;gap:12px">
+<div style="padding:9px 16px;border-top:1px solid var(--color-neutral-900);color:var(--color-neutral-600);font-size:10.5px;display:flex;gap:12px">
 <span>↑↓ select</span><span>⏎ attach</span><span>esc interrupt</span>
 </div>
 </div>
 <div style="flex:1;display:flex;flex-direction:column;min-width:0">
 <div style="padding:10px 18px;border-bottom:1px solid var(--color-neutral-900);background:var(--color-bg);display:flex;gap:11px;align-items:center">
 <div style="width:24px;height:24px;position:relative;flex:none">
-<div style="position:absolute;top:0;left:0;width:2px;height:2px;background:transparent;box-shadow:{{ focus.spr }}"></div>
+<div style="position:absolute;top:0;left:0;width:2px;height:2px;background:transparent;display:{{ conf.avatar }};box-shadow:{{ focus.spr }}"></div>
 </div>
 <span style="color:var(--color-text);font-weight:500;font-size:13px">{{ focus.name }}</span>
 <span style="border:1px solid var(--color-neutral-800);color:var(--color-neutral-500);border-radius:var(--radius-sm);padding:0 5px;font-size:9.5px">{{ focus.type }}</span>
@@ -446,7 +648,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <span style="color:var(--color-neutral-500);font-size:11px">{{ focus.ctx }}</span>
 <span style="color:var(--color-neutral-600);font-size:11px">{{ focus.cost }}</span>
 </div>
-<div class="tscroll tail" style="flex:1;padding:15px 18px;display:flex;flex-direction:column;gap:11px">
+<div class="tscroll tail" style="flex:1;padding:15px 18px;display:flex;flex-direction:column;gap:{{ conf.gap }}">
 <sc-for list="{{ focus.wall }}" as="l" hint-placeholder-count="18">
 <div style="display:flex;gap:9px;align-items:baseline;white-space:nowrap;opacity:{{ l.op }}">
 <span style="color:var(--color-accent-500);width:10px;flex:none;font-size:11px">{{ l.mark }}</span>
@@ -455,11 +657,9 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 </sc-for>
 </div>
 <div style="border-top:1px solid var(--color-neutral-900);padding:11px 18px;display:flex;align-items:center;gap:9px;background:var(--color-bg)">
-<span style="color:var(--color-accent)">❯</span>
-<span style="color:var(--color-neutral-600)">message {{ focus.name }} directly</span>
-<span style="width:7px;height:15px;background:var(--color-accent-400);animation:blink 1.1s step-end infinite"></span>
+<span style="color:var(--color-neutral-600);font-size:11px">read-only · the composer lives in the lead's column</span>
 <span style="flex:1"></span>
-<span style="color:var(--color-neutral-700);font-size:11px">{{ focus.tool }}</span>
+<span style="color:var(--color-neutral-600);font-size:11px">{{ focus.tool }}</span>
 </div>
 </div>
 </div>
@@ -468,27 +668,27 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <sc-if value="{{ isGrid }}">
 <div style="flex:1;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr);gap:1px;background:var(--color-neutral-900);min-height:0">
 <sc-for list="{{ team }}" as="a" hint-placeholder-count="6">
-<div onClick="{{ a.sel }}" style="background:#12141f;display:flex;flex-direction:column;min-height:0;min-width:0;cursor:pointer">
+<div onClick="{{ a.sel }}" style="background:var(--term);display:flex;flex-direction:column;min-height:0;min-width:0;cursor:pointer">
 <div style="display:flex;gap:9px;align-items:center;padding:8px 11px;background:var(--color-bg);border-bottom:1px solid var(--color-neutral-900)">
 <div style="width:24px;height:24px;position:relative;flex:none">
-<div style="position:absolute;top:0;left:0;width:2px;height:2px;background:transparent;box-shadow:{{ a.spr }}"></div>
+<div style="position:absolute;top:0;left:0;width:2px;height:2px;background:transparent;display:{{ conf.avatar }};box-shadow:{{ a.spr }}"></div>
 </div>
 <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:1px">
 <div style="display:flex;gap:6px;align-items:baseline">
 <span style="font-size:10px;color:{{ a.col }}">{{ a.dot }}</span>
 <span style="color:var(--color-text);font-weight:500;font-size:12.5px">{{ a.name }}</span>
 <span style="flex:1"></span>
-<span style="color:var(--color-neutral-700);font-size:10px">{{ a.model }}</span>
+<span style="color:var(--color-neutral-600);font-size:10px">{{ a.model }}</span>
 </div>
 <div style="display:flex;gap:7px;align-items:baseline">
 <span style="letter-spacing:-.5px;color:var(--color-accent-600);font-size:10.5px">{{ a.bar }}</span>
 <span style="color:var(--color-neutral-600);font-size:10px">{{ a.pct }}</span>
 <span style="flex:1"></span>
-<span style="color:var(--color-neutral-700);font-size:10px">{{ a.elapsed }}</span>
+<span style="color:var(--color-neutral-600);font-size:10px">{{ a.elapsed }}</span>
 </div>
 </div>
 </div>
-<div class="tscroll tail" style="flex:1;padding:10px 11px;display:flex;flex-direction:column;gap:8px">
+<div class="tscroll tail" style="flex:1;padding:10px 11px;display:flex;flex-direction:column;gap:{{ conf.gapTight }}">
 <sc-for list="{{ a.wall }}" as="l" hint-placeholder-count="12">
 <div style="display:flex;gap:6px;align-items:baseline;white-space:nowrap;opacity:{{ l.op }}">
 <span style="color:var(--color-accent-500);width:8px;flex:none;font-size:10px">{{ l.mark }}</span>
@@ -496,43 +696,51 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 </div>
 </sc-for>
 </div>
-<div style="border-top:1px solid var(--color-neutral-900);padding:6px 11px;color:var(--color-neutral-700);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.tool }}</div>
+<div style="border-top:1px solid var(--color-neutral-900);padding:6px 11px;color:var(--color-neutral-600);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.tool }}</div>
 </div>
 </sc-for>
 </div>
 </sc-if>
 
+<div style="display:{{ confirm.show }};align-items:center;gap:10px;border-top:1px solid var(--color-neutral-800);background:var(--color-neutral-900);padding:9px 14px">
+<span style="color:var(--fail);font-size:11px;white-space:nowrap;flex:none">{{ confirm.q }}</span>
+<span style="color:var(--color-neutral-400);font-size:11px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ confirm.why }}</span>
+<span style="flex:1"></span>
+<span onClick="{{ confirm.go }}" style="border:1px solid var(--warn-edge);color:var(--warn);border-radius:var(--radius-sm);padding:2px 9px;font-size:10.5px;cursor:pointer;white-space:nowrap;flex:none" style-hover="background:var(--warn-tint)">{{ confirm.verb }}</span>
+<span onClick="{{ confirm.cancel }}" style="border:1px solid var(--color-neutral-800);color:var(--color-neutral-500);border-radius:var(--radius-sm);padding:2px 9px;font-size:10.5px;cursor:pointer;flex:none" style-hover="background:var(--color-bg)">cancel</span>
+</div>
 <div style="border-top:1px solid var(--color-neutral-900);background:var(--color-bg);padding:9px 14px;display:flex;align-items:stretch;gap:10px">
-<span style="color:#d99e5c;font-size:10.5px;letter-spacing:.12em;align-self:center;white-space:nowrap">NEEDS YOU · 2</span>
+<span style="color:var(--warn);font-size:10.5px;letter-spacing:.12em;align-self:center;white-space:nowrap">NEEDS YOU · 2</span>
 <div style="flex:1;display:flex;gap:8px;min-width:0">
-<div style="flex:1;min-width:0;border:1px solid #6b4f2c;border-radius:var(--radius-sm);padding:6px 10px;display:flex;align-items:center;gap:10px">
-<span style="color:#d99e5c;font-size:11px;white-space:nowrap">architect · plan approval</span>
+<div style="flex:1;min-width:0;border:1px solid var(--warn-edge);border-radius:var(--radius-sm);padding:6px 10px;display:flex;align-items:center;gap:10px">
+<span style="color:var(--warn);font-size:11px;white-space:nowrap">architect · plan approval</span>
 <span style="color:var(--color-neutral-500);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">4 steps · step 4 drops migrations/legacy/</span>
 <span style="flex:1"></span>
 <span style="border:1px solid var(--color-accent-700);color:var(--color-accent-300);border-radius:var(--radius-sm);padding:1px 8px;font-size:10.5px" style-hover="background:var(--color-accent-900)">approve</span>
 <span style="border:1px solid var(--color-neutral-800);color:var(--color-neutral-500);border-radius:var(--radius-sm);padding:1px 8px;font-size:10.5px" style-hover="background:var(--color-neutral-900)">reject with feedback</span>
 </div>
 <div style="flex:none;border:1px solid var(--color-neutral-800);border-radius:var(--radius-sm);padding:6px 10px;display:flex;align-items:center;gap:10px">
-<span style="color:#c98d8d;font-size:11px">repro · failed</span>
+<span style="color:var(--fail);font-size:11px">repro · failed</span>
 <span style="color:var(--color-neutral-600);font-size:11px">529 overloaded_error</span>
 <span style="border:1px solid var(--color-accent-700);color:var(--color-accent-300);border-radius:var(--radius-sm);padding:1px 8px;font-size:10.5px" style-hover="background:var(--color-accent-900)">respawn</span>
 </div>
 </div>
 </div>
 
-<div style="border-top:1px solid var(--color-neutral-900);background:#12141f;padding:8px 14px;display:flex;align-items:center;gap:12px;font-size:10.5px">
-<span style="color:var(--color-neutral-700);letter-spacing:.12em">PANEL</span>
+<div style="border-top:1px solid var(--color-neutral-900);background:var(--term);padding:8px 14px;display:flex;align-items:center;gap:12px;font-size:10.5px">
+<span style="color:var(--color-neutral-600);letter-spacing:.12em">PANEL</span>
 <div style="display:flex;gap:6px;flex:1;overflow:hidden">
 <sc-for list="{{ team }}" as="a" hint-placeholder-count="6">
 <span onClick="{{ a.sel }}" style="border:1px solid var(--color-neutral-900);border-radius:var(--radius-sm);padding:2px 7px;display:flex;gap:5px;align-items:baseline;white-space:nowrap;cursor:pointer" style-hover="border-color:var(--color-accent-700)">
 <span style="font-size:10px;color:{{ a.col }}">{{ a.dot }}</span>
 <span style="color:var(--color-neutral-400)">{{ a.name }}</span>
-<span style="color:var(--color-neutral-700)">{{ a.pct }}</span>
+<span style="color:var(--color-neutral-600)">{{ a.pct }}</span>
+<span onClick="{{ a.askStop }}" title="{{ a.stopTitle }}" style="color:var(--color-neutral-600);cursor:pointer;padding-left:2px" style-hover="color:var(--fail)">{{ a.stopGlyph }}</span>
 </span>
 </sc-for>
-<span style="border:1px dashed var(--color-neutral-800);border-radius:var(--radius-sm);padding:2px 7px;color:var(--color-neutral-700);white-space:nowrap">1 idle agent</span>
+<span style="border:1px dashed var(--color-neutral-800);border-radius:var(--radius-sm);padding:2px 7px;color:var(--color-neutral-600);white-space:nowrap">1 idle agent</span>
 </div>
-<span style="color:var(--color-neutral-700);white-space:nowrap">↑↓ select · ⏎ open · esc interrupt · x stop · ⌃T tasks</span>
+<span style="color:var(--color-neutral-600);white-space:nowrap">↑↓ select · ⏎ open · esc interrupt · x stop · ⌃T tasks</span>
 </div>
 </div>
 </x-import>
@@ -544,7 +752,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 </section>
 
 <section class="dv-turn" id="t3">
-<div class="dv-thd"><a class="dv-tid" href="#t3">3</a><span class="dv-tname">Agent teams — the wall, built on the real model (lead · teammates · shared task list · mailboxes)</span></div>
+<div class="dv-thd"><a class="dv-tid" href="#t3">3</a><span class="dv-tname">Agent teams — the wall, built on the real model (lead · teammates · shared task list)</span></div>
 <div class="dv-opts">
 
 <div class="dv-opt" id="3a">
@@ -557,32 +765,32 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <span style="color:var(--color-accent);letter-spacing:.14em;font-weight:700;font-size:11px">TEAM</span>
 <div style="position:relative;flex:none">
 <div onClick="{{ toggleSess }}" style="display:flex;align-items:center;gap:7px;padding:3px 8px;margin:-3px 0;flex:none;white-space:nowrap;border:1px solid var(--color-neutral-800);border-radius:var(--radius-sm);cursor:pointer" style-hover="border-color:var(--color-accent-700);background:var(--color-accent-900)">
-<span style="color:var(--color-text);white-space:nowrap;flex:none">{{ sessName }}</span>
-<span style="color:var(--color-neutral-600);font-size:10.5px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ sessGoal }}</span>
+<span style="color:var(--color-text);max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:none">{{ sessGoal }}</span>
+<span style="color:var(--color-neutral-600);font-size:10.5px;white-space:nowrap;flex:none">{{ sessShort }}</span>
 <span style="color:var(--color-accent-400);font-size:10px">{{ sessCaret }}</span>
 </div>
 <div style="position:absolute;top:calc(100% + 6px);left:0;z-index:20;display:{{ sessMenu }};flex-direction:column;width:432px;background:var(--color-bg);border:1px solid var(--color-neutral-800);border-radius:var(--radius-md);box-shadow:0 18px 40px rgba(0,0,0,.6);overflow:hidden">
-<div style="padding:8px 12px 7px;color:var(--color-neutral-700);font-size:10px;letter-spacing:.12em;border-bottom:1px solid var(--color-neutral-900)">SESSIONS ON THIS MACHINE · 5</div>
+<div style="padding:8px 12px 7px;color:var(--color-neutral-600);font-size:10px;letter-spacing:.12em;border-bottom:1px solid var(--color-neutral-900)">SESSIONS ON THIS MACHINE · 5</div>
 <sc-for list="{{ sessions }}" as="s" hint-placeholder-count="5">
 <div onClick="{{ s.pick }}" style="padding:8px 12px;display:flex;gap:9px;align-items:flex-start;cursor:pointer;background:{{ s.rowBg }};border-bottom:1px solid var(--color-neutral-900)" style-hover="background:var(--color-neutral-900)">
 <span style="font-size:10px;color:{{ s.dotCol }};margin-top:2px">{{ s.dot }}</span>
 <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
 <div style="display:flex;gap:8px;align-items:baseline">
-<span style="color:{{ s.nameCol }};font-size:12px">{{ s.name }}</span>
-<span style="color:var(--color-neutral-700);font-size:10.5px">{{ s.branch }}</span>
+<span style="color:{{ s.nameCol }};font-size:12px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ s.goal }}</span>
 <span style="flex:1"></span>
-<span style="color:var(--color-accent-400);font-size:10.5px">{{ s.check }}</span>
+<span style="color:var(--color-accent-400);font-size:10.5px;flex:none">{{ s.check }}</span>
 </div>
 <div style="display:flex;gap:8px;align-items:baseline">
-<span style="color:var(--color-neutral-500);font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ s.goal }}</span>
+<span style="color:var(--color-neutral-600);font-size:10.5px;white-space:nowrap">{{ s.name }}</span>
+<span style="color:var(--color-neutral-600);font-size:10.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ s.branch }}</span>
 <span style="flex:1"></span>
-<span style="color:var(--color-neutral-700);font-size:10px;white-space:nowrap">{{ s.agents }}</span>
+<span style="color:var(--color-neutral-600);font-size:10px;white-space:nowrap">{{ s.agents }}</span>
 <span style="color:var(--color-neutral-600);font-size:10px;white-space:nowrap">{{ s.state }}</span>
 </div>
 </div>
 </div>
 </sc-for>
-<div style="padding:8px 12px;display:flex;gap:12px;color:var(--color-neutral-700);font-size:10px">
+<div style="padding:8px 12px;display:flex;gap:12px;color:var(--color-neutral-600);font-size:10px">
 <span>⌘K to search</span><span style="flex:1"></span><span>a session is one team · switching keeps both running</span>
 </div>
 </div>
@@ -612,13 +820,14 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <span style="color:var(--color-text);font-weight:500;font-size:13px">{{ a.name }}</span>
 <span style="border:1px solid var(--color-neutral-800);color:var(--color-neutral-500);border-radius:var(--radius-sm);padding:0 5px;font-size:9.5px">{{ a.type }}</span>
 <span style="flex:1"></span>
-<span style="color:var(--color-neutral-700);font-size:10.5px">{{ a.model }}</span>
+<span style="color:var(--color-neutral-600);font-size:10.5px">{{ a.model }}</span>
 </div>
 <div style="display:flex;align-items:baseline;gap:7px">
 <span style="font-size:11px;color:{{ a.col }}">{{ a.label }}</span>
 <span style="color:var(--color-neutral-600);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ a.role }}</span>
 <span style="flex:1"></span>
-<span style="color:var(--color-neutral-700);font-size:10.5px">{{ a.elapsed }}</span>
+<span style="color:var(--color-neutral-600);font-size:10.5px">{{ a.elapsed }}</span>
+<span onClick="{{ a.askStop }}" title="{{ a.stopTitle }}" style="color:var(--color-neutral-600);font-size:10.5px;cursor:pointer;padding:0 2px;border-radius:3px" style-hover="color:#c98d8d;background:var(--color-neutral-900)">{{ a.stopGlyph }}</span>
 </div>
 <div style="display:flex;align-items:baseline;gap:8px">
 <span style="letter-spacing:-.5px;color:var(--color-accent-600);font-size:11.5px">{{ a.bar }}</span>
@@ -638,12 +847,34 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 </div>
 </sc-for>
 </div>
-<div style="border-top:1px solid var(--color-neutral-900);padding:7px 12px;color:var(--color-neutral-700);font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.tool }}</div>
-<div style="border-top:1px solid var(--color-neutral-900);padding:8px 12px;display:flex;align-items:center;gap:7px;background:var(--color-bg)">
-<span style="color:var(--color-accent-600);font-size:11px">❯</span>
-<span style="color:var(--color-neutral-700);font-size:11px">message {{ a.name }}</span>
+<div style="border-top:1px solid var(--color-neutral-900);padding:7px 12px;color:var(--color-neutral-600);font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.tool }}</div>
+<div style="border-top:1px solid var(--color-neutral-900);padding:8px 12px;display:{{ a.composerShow }};align-items:center;gap:8px;background:var(--color-bg);position:relative">
+<span style="color:var(--color-accent-600);font-size:11px;flex:none">❯</span>
+<span style="flex:none;display:{{ comp.chipShow }};align-items:baseline;padding:1px 6px;border-radius:var(--radius-sm);border:1px solid var(--color-accent-700);background:var(--color-accent-900);color:var(--color-accent-300);font-size:10.5px">{{ comp.target }}</span>
+<span onClick="{{ comp.toggle }}" style="min-width:0;flex:1;display:flex;gap:1px;align-items:baseline;cursor:text">
+<span style="color:var(--color-text);font-size:11px;white-space:pre">{{ comp.typed }}</span>
+<span style="width:6px;height:14px;background:var(--color-accent-400);animation:{{ conf.blink }};flex:none"></span>
+<span style="color:var(--color-neutral-600);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ comp.hint }}</span>
+</span>
+<span style="color:var(--color-neutral-600);font-size:10px;flex:none">⏎</span>
+<div style="position:absolute;bottom:calc(100% + 8px);left:10px;z-index:25;display:{{ comp.menu }};flex-direction:column;width:262px;background:var(--color-bg);border:1px solid var(--color-neutral-800);border-radius:var(--radius-md);box-shadow:0 -14px 34px rgba(0,0,0,.6);overflow:hidden">
+<div style="padding:7px 11px;border-bottom:1px solid var(--color-neutral-900);display:flex;gap:8px;align-items:baseline">
+<span style="color:var(--color-neutral-600);font-size:9.5px;letter-spacing:.12em">TEAMMATES</span>
 <span style="flex:1"></span>
-<span style="color:var(--color-neutral-800);font-size:10px">⌘⏎</span>
+<span style="color:var(--color-neutral-600);font-size:9.5px">{{ comp.filter }}</span>
+</div>
+<sc-for list="{{ comp.options }}" as="o" hint-placeholder-count="6">
+<div onClick="{{ o.pick }}" style="padding:7px 11px;cursor:pointer;display:flex;flex-direction:column;gap:1px;background:{{ o.bg }};border-bottom:1px solid var(--color-neutral-900)" style-hover="background:var(--color-neutral-900)">
+<div style="display:flex;gap:7px;align-items:baseline">
+<span style="color:{{ o.col }};font-size:11px">{{ o.name }}</span>
+<span style="color:var(--color-neutral-600);font-size:9.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ o.state }}</span>
+<span style="flex:1"></span>
+<span style="color:var(--color-accent-400);font-size:9.5px">{{ o.check }}</span>
+</div>
+</div>
+</sc-for>
+<div style="padding:7px 11px;color:var(--color-neutral-600);font-size:9.5px">↑↓ pick · ⏎ insert · esc dismiss</div>
+</div>
 </div>
 <div onMouseDown="{{ a.onGrip }}" onDoubleClick="{{ a.onGripDbl }}" title="drag to resize · double-click to reset" style="position:absolute;top:0;right:-3px;width:7px;height:100%;cursor:col-resize;z-index:4;display:flex;justify-content:center">
 <span style="width:1px;height:100%;background:{{ a.grip }}"></span>
@@ -671,18 +902,19 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 </div>
 
 <div style="border-top:1px solid var(--color-neutral-900);background:#12141f;padding:8px 14px;display:flex;align-items:center;gap:12px;font-size:10.5px">
-<span style="color:var(--color-neutral-700);letter-spacing:.12em">PANEL</span>
+<span style="color:var(--color-neutral-600);letter-spacing:.12em">PANEL</span>
 <div style="display:flex;gap:6px;flex:1;overflow:hidden">
 <sc-for list="{{ team }}" as="a" hint-placeholder-count="6">
 <span style="border:1px solid var(--color-neutral-900);border-radius:var(--radius-sm);padding:2px 7px;display:flex;gap:5px;align-items:baseline;white-space:nowrap" style-hover="border-color:var(--color-accent-700)">
 <span style="font-size:10px;color:{{ a.col }}">{{ a.dot }}</span>
 <span style="color:var(--color-neutral-400)">{{ a.name }}</span>
-<span style="color:var(--color-neutral-700)">{{ a.pct }}</span>
+<span style="color:var(--color-neutral-600)">{{ a.pct }}</span>
+<span onClick="{{ a.askStop }}" title="{{ a.stopTitle }}" style="color:var(--color-neutral-600);cursor:pointer;padding-left:2px" style-hover="color:#c98d8d">{{ a.stopGlyph }}</span>
 </span>
 </sc-for>
-<span style="border:1px dashed var(--color-neutral-800);border-radius:var(--radius-sm);padding:2px 7px;color:var(--color-neutral-700);white-space:nowrap">1 idle agent</span>
+<span style="border:1px dashed var(--color-neutral-800);border-radius:var(--radius-sm);padding:2px 7px;color:var(--color-neutral-600);white-space:nowrap">1 idle agent</span>
 </div>
-<span style="color:var(--color-neutral-700);white-space:nowrap">↑↓ select · ⏎ open · esc interrupt · x stop · ⌃T tasks</span>
+<span style="color:var(--color-neutral-600);white-space:nowrap">↑↓ select · ⏎ open · esc interrupt · x stop · ⌃T tasks</span>
 </div>
 </div>
 </x-import>
@@ -690,7 +922,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 </div>
 
 <div class="dv-opt" id="3b">
-<div class="dv-olabel"><a class="dv-oid" href="#3b">3b</a>Coordination view — the shared task list and the mailbox traffic the wall can't show: who claimed what, what's blocked, who told whom</div>
+<div class="dv-olabel"><a class="dv-oid" href="#3b">3b</a>Coordination view — the shared task list the wall can't show: who claimed what, what's blocked, what unblocks next. Messages live in the comms view.</div>
 <div class="dv-card" style="width:1180px">
 <x-import component-from-global-scope="ChromeWindow" from="./browser-window.jsx" width="{{ w }}" height="{{ h4 }}" url="localhost:4823/team/session-8f2a1c/tasks" tabs="{{ tabs }}" hint-size="1180px,660px">
 <div style="height:100%;display:flex;flex-direction:column;background:#12141f;color:var(--color-text);font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;line-height:1.55">
@@ -699,37 +931,37 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <span style="color:var(--color-accent);letter-spacing:.14em;font-weight:700;font-size:11px">TEAM</span>
 <div style="position:relative;flex:none">
 <div onClick="{{ toggleSess }}" style="display:flex;align-items:center;gap:7px;padding:3px 8px;margin:-3px 0;flex:none;white-space:nowrap;border:1px solid var(--color-neutral-800);border-radius:var(--radius-sm);cursor:pointer" style-hover="border-color:var(--color-accent-700);background:var(--color-accent-900)">
-<span style="color:var(--color-text);white-space:nowrap;flex:none">{{ sessName }}</span>
-<span style="color:var(--color-neutral-600);font-size:10.5px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ sessGoal }}</span>
+<span style="color:var(--color-text);max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:none">{{ sessGoal }}</span>
+<span style="color:var(--color-neutral-600);font-size:10.5px;white-space:nowrap;flex:none">{{ sessShort }}</span>
 <span style="color:var(--color-accent-400);font-size:10px">{{ sessCaret }}</span>
 </div>
 <div style="position:absolute;top:calc(100% + 6px);left:0;z-index:20;display:{{ sessMenu }};flex-direction:column;width:432px;background:var(--color-bg);border:1px solid var(--color-neutral-800);border-radius:var(--radius-md);box-shadow:0 18px 40px rgba(0,0,0,.6);overflow:hidden">
-<div style="padding:8px 12px 7px;color:var(--color-neutral-700);font-size:10px;letter-spacing:.12em;border-bottom:1px solid var(--color-neutral-900)">SESSIONS ON THIS MACHINE · 5</div>
+<div style="padding:8px 12px 7px;color:var(--color-neutral-600);font-size:10px;letter-spacing:.12em;border-bottom:1px solid var(--color-neutral-900)">SESSIONS ON THIS MACHINE · 5</div>
 <sc-for list="{{ sessions }}" as="s" hint-placeholder-count="5">
 <div onClick="{{ s.pick }}" style="padding:8px 12px;display:flex;gap:9px;align-items:flex-start;cursor:pointer;background:{{ s.rowBg }};border-bottom:1px solid var(--color-neutral-900)" style-hover="background:var(--color-neutral-900)">
 <span style="font-size:10px;color:{{ s.dotCol }};margin-top:2px">{{ s.dot }}</span>
 <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
 <div style="display:flex;gap:8px;align-items:baseline">
-<span style="color:{{ s.nameCol }};font-size:12px">{{ s.name }}</span>
-<span style="color:var(--color-neutral-700);font-size:10.5px">{{ s.branch }}</span>
+<span style="color:{{ s.nameCol }};font-size:12px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ s.goal }}</span>
 <span style="flex:1"></span>
-<span style="color:var(--color-accent-400);font-size:10.5px">{{ s.check }}</span>
+<span style="color:var(--color-accent-400);font-size:10.5px;flex:none">{{ s.check }}</span>
 </div>
 <div style="display:flex;gap:8px;align-items:baseline">
-<span style="color:var(--color-neutral-500);font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ s.goal }}</span>
+<span style="color:var(--color-neutral-600);font-size:10.5px;white-space:nowrap">{{ s.name }}</span>
+<span style="color:var(--color-neutral-600);font-size:10.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ s.branch }}</span>
 <span style="flex:1"></span>
-<span style="color:var(--color-neutral-700);font-size:10px;white-space:nowrap">{{ s.agents }}</span>
+<span style="color:var(--color-neutral-600);font-size:10px;white-space:nowrap">{{ s.agents }}</span>
 <span style="color:var(--color-neutral-600);font-size:10px;white-space:nowrap">{{ s.state }}</span>
 </div>
 </div>
 </div>
 </sc-for>
-<div style="padding:8px 12px;display:flex;gap:12px;color:var(--color-neutral-700);font-size:10px">
+<div style="padding:8px 12px;display:flex;gap:12px;color:var(--color-neutral-600);font-size:10px">
 <span>⌘K to search</span><span style="flex:1"></span><span>a session is one team · switching keeps both running</span>
 </div>
 </div>
 </div>
-<span style="color:var(--color-neutral-700)">·</span>
+<span style="color:var(--color-neutral-600)">·</span>
 <span style="color:var(--color-neutral-500)">coordination</span>
 <span style="flex:1"></span>
 <span style="color:var(--color-neutral-600);white-space:nowrap;flex:none">{{ t.done }}/{{ t.total }} tasks · 3 blocked</span>
@@ -738,8 +970,8 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 </div>
 
 <div style="flex:1;display:flex;min-height:0">
-<div style="flex:1;min-width:0;display:flex;flex-direction:column;border-right:1px solid var(--color-neutral-900)">
-<div style="display:flex;gap:10px;padding:10px 16px 8px;color:var(--color-neutral-700);font-size:10.5px;letter-spacing:.12em;border-bottom:1px solid var(--color-neutral-900)">
+<div style="flex:1;min-width:0;display:flex;flex-direction:column">
+<div style="display:flex;gap:10px;padding:10px 16px 8px;color:var(--color-neutral-600);font-size:10.5px;letter-spacing:.12em;border-bottom:1px solid var(--color-neutral-900)">
 <span style="width:44px">TASK</span>
 <span style="flex:1">DESCRIPTION</span>
 <span style="width:92px">STATE</span>
@@ -753,38 +985,17 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <span style="flex:1;color:var(--color-neutral-300);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ k.text }}</span>
 <span style="width:92px;display:flex;gap:5px;align-items:baseline;color:{{ k.col }}"><span style="font-size:10px">{{ k.dot }}</span><span>{{ k.label }}</span></span>
 <span style="width:80px;color:var(--color-neutral-500)">{{ k.owner }}</span>
-<span style="width:88px;color:var(--color-neutral-700)">{{ k.deps }}</span>
+<span style="width:88px;color:var(--color-neutral-600)">{{ k.deps }}</span>
 </div>
 </sc-for>
 </div>
-<div style="border-top:1px solid var(--color-neutral-900);padding:9px 16px;display:flex;gap:14px;color:var(--color-neutral-700);font-size:10.5px">
+<div style="border-top:1px solid var(--color-neutral-900);padding:9px 16px;display:flex;gap:14px;color:var(--color-neutral-600);font-size:10.5px">
 <span>~/.claude/tasks/session-8f2a1c/</span>
 <span style="flex:1"></span>
 <span>claiming is file-locked · completing a task unblocks its dependents</span>
 </div>
 </div>
 
-<div style="width:404px;display:flex;flex-direction:column;background:var(--color-bg)">
-<div style="padding:10px 14px 8px;color:var(--color-neutral-700);font-size:10.5px;letter-spacing:.12em;border-bottom:1px solid var(--color-neutral-900)">MAILBOX TRAFFIC</div>
-<div class="tscroll tail" style="flex:1;padding:14px 14px;display:flex;flex-direction:column;gap:18px">
-<sc-for list="{{ mail }}" as="m" hint-placeholder-count="10">
-<div style="display:flex;flex-direction:column;gap:2px">
-<div style="display:flex;gap:6px;align-items:baseline;font-size:10.5px">
-<span style="color:var(--color-neutral-600)">{{ m.ts }}</span>
-<span style="color:var(--color-accent-400)">{{ m.from }}</span>
-<span style="color:var(--color-neutral-700)">→</span>
-<span style="color:var(--color-accent-400)">{{ m.to }}</span>
-</div>
-<div style="color:var(--color-neutral-500);font-size:11.5px;padding-left:2px;text-wrap:pretty">{{ m.text }}</div>
-</div>
-</sc-for>
-</div>
-<div style="border-top:1px solid var(--color-neutral-900);padding:9px 14px;color:var(--color-neutral-700);font-size:10.5px;display:flex;flex-direction:column;gap:3px">
-<span>~/.claude/teams/session-8f2a1c/inboxes/</span>
-<span>teammates message each other directly — the lead doesn't relay</span>
-</div>
-</div>
-</div>
 </div>
 </x-import>
 </div>
@@ -826,13 +1037,13 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <span style="color:var(--color-text);font-weight:500;font-size:12.5px">{{ a.name }}</span>
 <span style="color:var(--color-neutral-500)">{{ a.task }}</span>
 <span style="flex:1"></span>
-<span style="color:var(--color-neutral-700);font-size:10.5px">{{ a.model }}</span>
+<span style="color:var(--color-neutral-600);font-size:10.5px">{{ a.model }}</span>
 </div>
 <div style="display:flex;align-items:baseline;gap:8px">
 <span style="letter-spacing:-.5px;color:var(--color-accent-600);font-size:11.5px">{{ a.bar }}</span>
 <span style="color:var(--color-neutral-500);font-size:10.5px">{{ a.pct }}</span>
 <span style="flex:1"></span>
-<span style="color:var(--color-neutral-700);font-size:10.5px">{{ a.elapsed }}</span>
+<span style="color:var(--color-neutral-600);font-size:10.5px">{{ a.elapsed }}</span>
 <span style="color:var(--color-neutral-600);font-size:10.5px">{{ a.cost }}</span>
 </div>
 </div>
@@ -846,14 +1057,14 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 </div>
 <div style="border-top:1px solid var(--color-neutral-900);padding:8px 12px;display:flex;align-items:center;gap:7px;background:var(--color-bg)">
 <span style="color:var(--color-accent-600);font-size:11px">❯</span>
-<span style="color:var(--color-neutral-700);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ a.tool }}</span>
+<span style="color:var(--color-neutral-600);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ a.tool }}</span>
 </div>
 </div>
 </sc-for>
 </div>
 
 <div style="border-top:1px solid var(--color-neutral-900);background:var(--color-bg);padding:8px 14px;display:flex;align-items:center;gap:14px">
-<span style="color:var(--color-neutral-700);font-size:10.5px;letter-spacing:.12em">WALL</span>
+<span style="color:var(--color-neutral-600);font-size:10.5px;letter-spacing:.12em">WALL</span>
 <div style="display:flex;gap:3px;flex:1">
 <div style="height:6px;flex:1;background:var(--color-accent-600);border-radius:1px"></div>
 <div style="height:6px;flex:1;background:var(--color-accent-600);border-radius:1px"></div>
@@ -862,7 +1073,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <div style="height:6px;flex:1;background:var(--color-neutral-800);border-radius:1px"></div>
 <div style="height:6px;flex:1;background:var(--color-neutral-800);border-radius:1px"></div>
 </div>
-<span style="color:var(--color-neutral-700);font-size:10.5px">⇧scroll · h/l jump column · z zoom out</span>
+<span style="color:var(--color-neutral-600);font-size:10.5px">⇧scroll · h/l jump column · z zoom out</span>
 </div>
 </div>
 </x-import>
@@ -892,7 +1103,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <span style="color:var(--color-accent-400);font-size:10px">{{ a.dot }}</span>
 <span style="color:var(--color-text);font-weight:500">{{ a.name }}</span>
 <span style="flex:1"></span>
-<span style="color:var(--color-neutral-700);font-size:9.5px">{{ a.pct }}</span>
+<span style="color:var(--color-neutral-600);font-size:9.5px">{{ a.pct }}</span>
 </div>
 <div style="color:var(--color-neutral-600);font-size:9.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.task }}</div>
 <div style="height:4px;border-radius:2px;background:var(--color-neutral-900);overflow:hidden">
@@ -907,14 +1118,14 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 </div>
 </sc-for>
 </div>
-<div style="border-top:1px solid var(--color-neutral-900);padding:6px 9px;display:flex;gap:6px;color:var(--color-neutral-700);font-size:9.5px">
+<div style="border-top:1px solid var(--color-neutral-900);padding:6px 9px;display:flex;gap:6px;color:var(--color-neutral-600);font-size:9.5px">
 <span>{{ a.elapsed }}</span><span style="flex:1"></span><span>{{ a.cost }}</span>
 </div>
 </div>
 </sc-for>
 </div>
 
-<div style="border-top:1px solid var(--color-neutral-900);background:var(--color-bg);padding:7px 12px;display:flex;gap:14px;color:var(--color-neutral-700);font-size:10px">
+<div style="border-top:1px solid var(--color-neutral-900);background:var(--color-bg);padding:7px 12px;display:flex;gap:14px;color:var(--color-neutral-600);font-size:10px">
 <span>click column → widen</span><span>z zoom in</span><span>esc interrupt all</span>
 <span style="flex:1"></span>
 <span style="color:#d99e5c">1 agent waiting on you</span>
@@ -941,14 +1152,14 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <div style="display:flex;align-items:center;gap:18px;padding:9px 14px;border-bottom:1px solid var(--color-neutral-900);background:var(--color-bg)">
 <span style="color:var(--color-accent);letter-spacing:.14em;font-weight:700;font-size:11px">OCTO</span>
 <span style="color:var(--color-neutral-500)">octo-runtime</span>
-<span style="color:var(--color-neutral-700)">on</span>
+<span style="color:var(--color-neutral-600)">on</span>
 <span style="color:var(--color-accent-400)">feat/octo-runtime</span>
 <span style="color:var(--color-neutral-600)">+412 −118 · 9 files</span>
 <span style="flex:1"></span>
 <span style="color:var(--color-neutral-600)">session {{ s.id }}</span>
 <span style="color:var(--color-neutral-500)">{{ s.elapsed }}</span>
 <span style="color:var(--color-neutral-500)">{{ s.cost }}</span>
-<span style="color:var(--color-neutral-700)">|</span>
+<span style="color:var(--color-neutral-600)">|</span>
 <span style="color:var(--color-neutral-500)">ctx {{ s.pct }}</span>
 <span style="color:var(--color-accent-500);letter-spacing:-.5px">{{ s.bar }}</span>
 </div>
@@ -966,24 +1177,24 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <span style="color:var(--color-text);font-weight:500">{{ a.name }}</span>
 <span style="color:var(--color-neutral-500)">{{ a.task }}</span>
 <span style="flex:1"></span>
-<span style="color:var(--color-neutral-700);font-size:11px">{{ a.model }}</span>
+<span style="color:var(--color-neutral-600);font-size:11px">{{ a.model }}</span>
 </div>
 <div style="display:flex;align-items:baseline;gap:7px;padding-left:16px">
 <span style="color:var(--color-neutral-600);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:236px">{{ a.tool }}</span>
 <span style="flex:1"></span>
-<span style="color:var(--color-neutral-700);font-size:11px">{{ a.elapsed }}</span>
+<span style="color:var(--color-neutral-600);font-size:11px">{{ a.elapsed }}</span>
 </div>
 <div style="display:flex;align-items:baseline;gap:8px;padding-left:16px">
 <span style="letter-spacing:-.5px;font-size:11.5px;color:var(--color-accent-600)">{{ a.bar }}</span>
 <span style="color:var(--color-neutral-500);font-size:11px">{{ a.pct }}</span>
 <span style="flex:1"></span>
-<span style="color:var(--color-neutral-700);font-size:11px">{{ a.tok }}</span>
+<span style="color:var(--color-neutral-600);font-size:11px">{{ a.tok }}</span>
 <span style="color:var(--color-neutral-600);font-size:11px">{{ a.cost }}</span>
 </div>
 </div>
 </sc-for>
 </div>
-<div style="padding:9px 16px;border-top:1px solid var(--color-neutral-900);color:var(--color-neutral-700);font-size:10.5px;display:flex;gap:12px">
+<div style="padding:9px 16px;border-top:1px solid var(--color-neutral-900);color:var(--color-neutral-600);font-size:10.5px;display:flex;gap:12px">
 <span>↑↓ select</span><span>⏎ attach</span><span>esc interrupt</span>
 </div>
 </div>
@@ -997,10 +1208,10 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <div style="display:flex;flex-direction:column;gap:2px;padding-left:4px;font-size:12px">
 <div><span style="color:var(--color-accent-500)">[×]</span> <span style="color:var(--color-neutral-600);text-decoration:line-through">map every call site of createSession()</span></div>
 <div><span style="color:var(--color-accent-500)">[×]</span> <span style="color:var(--color-neutral-600);text-decoration:line-through">split token issuance out of the request handler</span></div>
-<div><span style="color:var(--color-accent-400)">[~]</span> <span style="color:var(--color-text)">rewrite session store against the new interface</span> <span style="color:var(--color-neutral-700)">arm-1</span></div>
-<div><span style="color:var(--color-accent-400)">[~]</span> <span style="color:var(--color-text)">bring the suite back to green</span> <span style="color:var(--color-neutral-700)">arm-2</span></div>
-<div><span style="color:var(--color-neutral-700)">[ ]</span> <span style="color:var(--color-neutral-500)">write the forward migration</span> <span style="color:#d99e5c">arm-4 blocked</span></div>
-<div><span style="color:var(--color-neutral-700)">[ ]</span> <span style="color:var(--color-neutral-500)">regenerate types + docs</span> <span style="color:var(--color-neutral-700)">queued</span></div>
+<div><span style="color:var(--color-accent-400)">[~]</span> <span style="color:var(--color-text)">rewrite session store against the new interface</span> <span style="color:var(--color-neutral-600)">arm-1</span></div>
+<div><span style="color:var(--color-accent-400)">[~]</span> <span style="color:var(--color-text)">bring the suite back to green</span> <span style="color:var(--color-neutral-600)">arm-2</span></div>
+<div><span style="color:var(--color-neutral-600)">[ ]</span> <span style="color:var(--color-neutral-500)">write the forward migration</span> <span style="color:#d99e5c">arm-4 blocked</span></div>
+<div><span style="color:var(--color-neutral-600)">[ ]</span> <span style="color:var(--color-neutral-500)">regenerate types + docs</span> <span style="color:var(--color-neutral-600)">queued</span></div>
 </div>
 </div>
 <div class="tscroll tail" style="flex:1;padding:15px 18px;display:flex;flex-direction:column;gap:11px">
@@ -1053,7 +1264,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <span style="color:var(--color-text);font-weight:500">{{ a.name }}</span>
 <span style="color:var(--color-neutral-600);font-size:11px">{{ a.task }}</span>
 <span style="flex:1"></span>
-<span style="color:var(--color-neutral-700);font-size:10.5px">{{ a.model }}</span>
+<span style="color:var(--color-neutral-600);font-size:10.5px">{{ a.model }}</span>
 </div>
 <div style="padding:6px 11px 4px;color:var(--color-neutral-500);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-bottom:1px dashed var(--color-neutral-900)">{{ a.tool }}</div>
 <div class="tscroll" style="flex:1;padding:7px 11px;color:var(--color-neutral-600);font-size:11px;white-space:pre;display:flex;align-items:flex-end">{{ a.tail }}</div>
@@ -1061,14 +1272,14 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <span style="letter-spacing:-.5px;color:var(--color-accent-600)">{{ a.bar }}</span>
 <span style="color:var(--color-neutral-500);font-size:11px">{{ a.pct }}</span>
 <span style="flex:1"></span>
-<span style="color:var(--color-neutral-700);font-size:10.5px">{{ a.elapsed }}</span>
+<span style="color:var(--color-neutral-600);font-size:10.5px">{{ a.elapsed }}</span>
 <span style="color:var(--color-neutral-600);font-size:10.5px">{{ a.cost }}</span>
 </div>
 </div>
 </sc-for>
 </div>
 
-<div style="padding:10px 14px;border-top:1px solid var(--color-neutral-900);background:var(--color-bg);display:flex;align-items:center;gap:16px;color:var(--color-neutral-700);font-size:11px">
+<div style="padding:10px 14px;border-top:1px solid var(--color-neutral-900);background:var(--color-bg);display:flex;align-items:center;gap:16px;color:var(--color-neutral-600);font-size:11px">
 <span>1–6 focus pane</span><span>z zoom</span><span>esc interrupt pane</span><span>⌥⏎ steer pane</span>
 <span style="flex:1"></span>
 <span style="color:#d99e5c">arm-4 waiting on approval — press a</span>
@@ -1106,7 +1317,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <span style="color:var(--color-accent)">❯</span>
 <span style="width:7px;height:15px;background:var(--color-accent-400);animation:blink 1.1s step-end infinite"></span>
 <span style="flex:1"></span>
-<span style="color:var(--color-neutral-700);font-size:11px">/agents · /kill arm-3 · /budget 120k</span>
+<span style="color:var(--color-neutral-600);font-size:11px">/agents · /kill arm-3 · /budget 120k</span>
 </div>
 </div>
 
@@ -1147,7 +1358,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <span style="border:1px solid var(--color-neutral-800);color:var(--color-neutral-500);border-radius:var(--radius-sm);padding:2px 8px" style-hover="background:var(--color-neutral-900)">deny</span>
 </div>
 </div>
-<div style="color:var(--color-neutral-700);font-size:10.5px;line-height:1.5">arm-2 will hit compaction in ~8k tokens.</div>
+<div style="color:var(--color-neutral-600);font-size:10.5px;line-height:1.5">arm-2 will hit compaction in ~8k tokens.</div>
 </div>
 </div>
 </div>
@@ -1533,13 +1744,34 @@ const CHANNELS = [
   ['lead', 'tests', 2, 0, 'wake — claim T-08', 'read'],
 ];
 
-/* the open thread: perf ⇄ security */
-const THREAD = [
-  ['perf', 'I want to batch sessionsByUser into a single IN () query. Before I touch it — does per-request rotation depend on the lookup being per-session?', -412, 'read', 'read at turn 9'],
-  ['security', 'Rotation is keyed on the session row, not the lookup. Batching is fine as long as you keep the rotated_at write inside the same transaction.', -388, 'read', 'read at turn 9'],
-  ['perf', 'It is. Benchmarks after the change: 1.9ms p50, 6.4ms p99 — back to baseline.', -96, 'read', 'read at turn 11'],
-  ['security', 'Good. I am marking finding 1 as resolved-by-perf and dropping it from my report.', -34, 'unread', 'delivered · unread 34s'],
-];
+/* one exchange per pair thread, keyed by "a|b" */
+const THREADS = {
+  'perf|security': [
+    ['perf', 'I want to batch sessionsByUser into a single IN () query. Before I touch it — does per-request rotation depend on the lookup being per-session?', -412, 'read', 'read at turn 9'],
+    ['security', 'Rotation is keyed on the session row, not the lookup. Batching is fine as long as you keep the rotated_at write inside the same transaction.', -388, 'read', 'read at turn 9'],
+    ['perf', 'It is. Benchmarks after the change: 1.9ms p50, 6.4ms p99 — back to baseline.', -96, 'read', 'read at turn 11'],
+    ['security', 'Good. I am marking finding 1 as resolved-by-perf and dropping it from my report.', -34, 'unread', 'delivered · unread 34s'],
+  ],
+  'security|tests': [
+    ['security', 'Do you cover the 401 path on an expired refresh token? issuer.ts:82 throws a 500 before the 401 branch.', -690, 'read', 'read at turn 6'],
+    ['tests', 'No case for it — the suite only exercises a valid refresh. Writing one now.', -664, 'read', 'read at turn 7'],
+    ['tests', 'Added tests/auth/issuer.spec.ts, 38 lines. It fails against the current code, which is what you wanted.', -520, 'read', 'read at turn 8'],
+  ],
+  'lead|security': [
+    ['lead', 'Review token handling and session rotation on PR #142. Rate each finding — I need severity, not a list.', -880, 'read', 'read at turn 3'],
+    ['security', '1 high, 2 medium so far. The high is an error-path information leak in issuer.ts.', -240, 'unread', 'delivered · unread 4m'],
+  ],
+  'architect|lead': [
+    ['architect', 'Plan submitted for approval: add sessions.rotated_at, backfill from tokens.issued_at, index (user_id, rotated_at), drop migrations/legacy/. Step 4 needs your call.', -192, 'unread', 'delivered · unread 3m'],
+  ],
+  'repro|lead': [
+    ['repro', 'Turn failed: API error 529 overloaded_error. I am not retrying on my own — the repro is half-finished.', -300, 'read', 'read at turn 10'],
+  ],
+  'lead|tests': [
+    ['lead', 'You are idle and T-08 is unblocked. Claim it — the expired-refresh regression test.', -150, 'read', 'read at turn 12'],
+    ['tests', 'Claimed. Marking in_progress.', -120, 'read', 'read at turn 12'],
+  ],
+};
 
 const TASKS = [
   ['T-01', 'split PR #142 into three review lenses', 'done', 'lead', '—'],
@@ -1560,8 +1792,10 @@ const MAIL = [
   ['lead', 'perf', 'benchmark the authenticated request path before and after'],
   ['security', 'tests', 'do you cover the 401 path on an expired refresh token?'],
   ['tests', 'security', 'no case for it — writing one now'],
+  ['tests', 'security', 'done: tests/auth/issuer.spec.ts, 38 lines'],
   ['perf', 'security', 'I want to batch sessionsByUser; rotation stays per-session'],
   ['security', 'perf', 'fine by me, rotation is keyed on the session row'],
+  ['you', 'all', 'do not land the batch until the suite is green'],
   ['tests', 'lead', 'coverage 84% → 91%, 46 tests green'],
   ['architect', 'lead', 'plan submitted for approval — 4 steps, 1 drop'],
   ['repro', 'lead', 'turn failed: API error 529 overloaded_error'],
@@ -1657,6 +1891,86 @@ const SPRITES = {
     '.ee.eeee.ee.',
   ],
 };
+/* Whole themes. Each carries a terminal ground, a surface, text, a neutral ramp
+   ordered by USE (900 = hairline/quietest fill … 200 = strongest text) so the
+   same markup reads correctly on a dark or a light ground, plus four accent
+   ramps of its own. Accent ramp order: base, 300, 400, 500, 600, 700, 900. */
+const THEMES = {
+  nocturne: {
+    label: 'Nocturne', note: 'dark · blue-grey',
+    term: '#12141f', bg: '#161826', text: '#e9e9ed', onAccent: '#161826',
+    n: ['#e2e3ea', '#c8cad6', '#b2b6ca', '#9397ab', '#75798c', '#595d6c', '#3f424d', '#292b31'],
+    warn: '#d99e5c', warnEdge: '#6b4f2c', warnTint: '#2b2028', fail: '#c98d8d',
+    accents: {
+      a: ['#9184d9', '#d2cefd', '#b5abfc', '#968ae0', '#796cbf', '#5d5294', '#2b2741', 'blurple'],
+      b: ['#6fb3ac', '#c3e6e1', '#9fd2cc', '#7ab8b1', '#5d9791', '#46716d', '#1f2f2e', 'teal'],
+      c: ['#c9a469', '#f0d8b4', '#dfbe8a', '#c9a469', '#a58551', '#7b643e', '#33291a', 'amber'],
+      d: ['#c88897', '#f1c9d4', '#dfa6b6', '#c88897', '#a66c7a', '#7d515c', '#331f25', 'rose'],
+    },
+  },
+  organic: {
+    label: 'Organic', note: 'light · paper & clay',
+    term: '#f6f1e7', bg: '#ece5d7', text: '#2c2721', onAccent: '#f6f1e7',
+    n: ['#221e19', '#2f2a23', '#3f382f', '#574d41', '#6f6353', '#8d7f6c', '#bdb09a', '#dcd3c1'],
+    warn: '#a8702a', warnEdge: '#d8bd93', warnTint: '#f0e2cc', fail: '#a4504c',
+    accents: {
+      a: ['#5f7a4a', '#33452a', '#3f5634', '#4e6a3e', '#5f7a4a', '#8ca379', '#dfe6d3', 'moss'],
+      b: ['#3f6f77', '#22434a', '#2b525a', '#35636c', '#3f6f77', '#7ba3aa', '#d5e4e6', 'lake'],
+      c: ['#a1622f', '#5a3417', '#6d411f', '#8a5326', '#a1622f', '#c99a6b', '#f0e0cd', 'clay'],
+      d: ['#7b4e73', '#43283f', '#54324e', '#67405f', '#7b4e73', '#a98aa3', '#ecdfea', 'plum'],
+    },
+  },
+  frost: {
+    label: 'Frost', note: 'light · cool grey',
+    term: '#f3f6f9', bg: '#e5ebf1', text: '#1c2530', onAccent: '#f3f6f9',
+    n: ['#151c25', '#222c38', '#334050', '#4a5a6d', '#657687', '#8a99a8', '#b6c2cd', '#d5dde5'],
+    warn: '#96631f', warnEdge: '#d9c194', warnTint: '#f2e6cd', fail: '#9e4a4a',
+    accents: {
+      a: ['#4a6b96', '#22344b', '#2c4460', '#3a577a', '#4a6b96', '#8aa1bd', '#dbe4ef', 'indigo'],
+      b: ['#2f7b78', '#153b3a', '#1d4d4b', '#26625f', '#2f7b78', '#79aead', '#d3e7e6', 'pine'],
+      c: ['#7a5a9e', '#3a2a4d', '#4a3663', '#5e447d', '#7a5a9e', '#ab94c4', '#e6dff0', 'violet'],
+      d: ['#a9564e', '#4f2723', '#63322d', '#7f4039', '#a9564e', '#c99490', '#f2dedb', 'coral'],
+    },
+  },
+  slate: {
+    label: 'Slate', note: 'dark · zero hue',
+    term: '#131313', bg: '#1b1b1b', text: '#ededed', onAccent: '#131313',
+    n: ['#ededed', '#dadada', '#c0c0c0', '#9e9e9e', '#7d7d7d', '#5e5e5e', '#414141', '#2a2a2a'],
+    warn: '#c9a06a', warnEdge: '#63502f', warnTint: '#2b2419', fail: '#c58c8c',
+    accents: {
+      a: ['#9a9a9a', '#e4e4e4', '#cccccc', '#adadad', '#8a8a8a', '#5f5f5f', '#2e2e2e', 'graphite'],
+      b: ['#7fa8c9', '#cfe2f0', '#a8c8de', '#7fa8c9', '#5f83a1', '#455f75', '#1c2530', 'steel'],
+      c: ['#a3bd85', '#dceccb', '#bfd6a8', '#a3bd85', '#7f9666', '#5c6d4a', '#1f2619', 'sage'],
+      d: ['#c093a6', '#eed6e0', '#d7b3c2', '#c093a6', '#9a7183', '#71525f', '#271d22', 'mauve'],
+    },
+  },
+  ember: {
+    label: 'Ember', note: 'dark · warm carbon',
+    term: '#16120f', bg: '#1d1815', text: '#efe7e0', onAccent: '#1d1815',
+    n: ['#efe7e0', '#ddd2c9', '#c7bab0', '#a89a8f', '#8a7c72', '#6a5e56', '#4a413b', '#2b2521'],
+    warn: '#dda15e', warnEdge: '#6f4f2c', warnTint: '#2f2318', fail: '#d08a80',
+    accents: {
+      a: ['#d2794f', '#f5cbb4', '#eaab88', '#d2794f', '#a95f3e', '#7c452c', '#332016', 'ember'],
+      b: ['#c9a76a', '#f2dcb6', '#e2c48d', '#c9a76a', '#a2854f', '#77613a', '#2f2618', 'brass'],
+      c: ['#8fae7e', '#cfe0c4', '#b3caa4', '#8fae7e', '#6f8b60', '#516645', '#1f2a1c', 'olive'],
+      d: ['#b98a92', '#e8ccd0', '#d3aab1', '#b98a92', '#956c73', '#6d4f54', '#2a1e20', 'rosewood'],
+    },
+  },
+  phosphor: {
+    label: 'Phosphor', note: 'dark · CRT glow',
+    term: '#080d09', bg: '#0e150f', text: '#d8f2d9', onAccent: '#080d09',
+    n: ['#d8f2d9', '#bfe3c1', '#a2cda5', '#82b085', '#628a66', '#48664b', '#324734', '#1d2a1f'],
+    warn: '#d9c85c', warnEdge: '#5e5726', warnTint: '#232213', fail: '#d97f7f',
+    accents: {
+      a: ['#5fd97f', '#c7f7d4', '#96eaad', '#5fd97f', '#3fa85c', '#2b7440', '#102518', 'green'],
+      b: ['#5fd0d9', '#c4f4f7', '#93e5ea', '#5fd0d9', '#3f9fa8', '#2b6f75', '#102425', 'cyan'],
+      c: ['#d95fbe', '#f7c4ec', '#ea93d8', '#d95fbe', '#a83f92', '#752b65', '#25101f', 'magenta'],
+      d: ['#d9c85f', '#f7f0c4', '#eae293', '#d9c85f', '#a89b3f', '#756b2b', '#25220f', 'amber'],
+    },
+  },
+};
+const DENSITY = { compact: 5, default: 10, roomy: 16 };
+
 const SPR_C = { a: '#b5abfc', b: '#5d5294', h: '#3f424d', k: '#292b31', w: '#e9e9ed', d: '#d99e5c', e: '#c98d8d' };
 const SPR_SKIN = {
   lead: ['#e0c3a8', '#b99a80'],
@@ -1830,6 +2144,7 @@ class Component extends DCLogic {
     }
 
     const TST = {
+      stopped: ['⊗', 'stopped by you', 'var(--color-neutral-600)'],
       work: ['●', 'working', 'var(--color-accent-400)'],
       idle: ['○', 'idle', 'var(--color-neutral-600)'],
       plan: ['▲', 'plan approval', '#d99e5c'],
@@ -1840,19 +2155,110 @@ class Component extends DCLogic {
       run: ['●', 'in progress', 'var(--color-accent-400)'],
     };
 
-    const team = TEAM.map((a, i) => {
+    /* ---- config panel ---- */
+    const cfg = Object.assign(
+      { theme: 'nocturne', scheme: 'a', density: 'default', fade: true, avatars: true, motion: true, numbers: true },
+      this.state.cfg
+    );
+    const th = THEMES[cfg.theme] || THEMES.nocturne;
+    const sch = th.accents[cfg.scheme] || th.accents.a;
+    const set = (k, v) => () => this.setState((s) => ({ cfg: Object.assign({}, cfg, { [k]: v }) }));
+    const flip = (k) => () => this.setState((s) => ({ cfg: Object.assign({}, cfg, { [k]: !cfg[k] }) }));
+    const opt = (k, v) => ({
+      on: set(k, v),
+      bg: cfg[k] === v ? 'var(--color-accent-900)' : 'transparent',
+      edge: cfg[k] === v ? 'var(--color-accent-600)' : 'var(--color-neutral-800)',
+      col: cfg[k] === v ? 'var(--color-accent-300)' : 'var(--color-neutral-500)',
+    });
+    const sw = (name) => ({
+      on: set('scheme', name),
+      dot: th.accents[name][0],
+      title: th.accents[name][7],
+      ring: cfg.scheme === name ? '0 0 0 2px ' + th.bg + ', 0 0 0 3px ' + th.accents[name][4] : 'none',
+    });
+    const themeOpt = (name) => ({
+      on: set('theme', name),
+      label: THEMES[name].label,
+      note: THEMES[name].note,
+      swatchA: THEMES[name].term,
+      swatchB: THEMES[name].accents.a[0],
+      swatchC: THEMES[name].text,
+      bg: cfg.theme === name ? 'var(--color-accent-900)' : 'transparent',
+      edge: cfg.theme === name ? 'var(--color-accent-600)' : 'var(--color-neutral-800)',
+      col: cfg.theme === name ? 'var(--color-accent-300)' : 'var(--color-neutral-400)',
+      check: cfg.theme === name ? '✓' : '',
+    });
+    const tog = (k) => ({
+      on: flip(k),
+      track: cfg[k] ? 'var(--color-accent-600)' : 'var(--color-neutral-800)',
+      knobX: cfg[k] ? '11px' : '1px',
+      label: cfg[k] ? 'on' : 'off',
+      col: cfg[k] ? 'var(--color-accent-300)' : 'var(--color-neutral-600)',
+    });
+    const conf = {
+      open: this.state.cfgOpen ? 'flex' : 'none',
+      toggle: () => this.setState((s) => ({ cfgOpen: !s.cfgOpen })),
+      glyph: this.state.cfgOpen ? '✕' : '⚙',
+      reset: () => this.setState({ cfg: null }),
+      a: sch[0], a3: sch[1], a4: sch[2], a5: sch[3], a6: sch[4], a7: sch[5], a9: sch[6],
+      term: th.term, bg: th.bg, text: th.text, onAccent: th.onAccent,
+      n2: th.n[0], n3: th.n[1], n4: th.n[2], n5: th.n[3], n6: th.n[4], n7: th.n[5], n8: th.n[6], n9: th.n[7],
+      warn: th.warn, warnEdge: th.warnEdge, warnTint: th.warnTint, fail: th.fail,
+      themes: {
+        nocturne: themeOpt('nocturne'), organic: themeOpt('organic'), ember: themeOpt('ember'),
+        frost: themeOpt('frost'), slate: themeOpt('slate'), phosphor: themeOpt('phosphor'),
+      },
+      gap: DENSITY[cfg.density] + 'px',
+      gapTight: Math.max(3, DENSITY[cfg.density] - 3) + 'px',
+      avatar: cfg.avatars ? 'block' : 'none',
+      motion: cfg.motion ? undefined : 'none',
+      blink: cfg.motion ? 'blink 1.1s step-end infinite' : 'none',
+      pulse1: cfg.motion ? 'pulse 1.2s ease-in-out infinite' : 'none',
+      pulse2: cfg.motion ? 'pulse 1.2s ease-in-out .2s infinite' : 'none',
+      pulse3: cfg.motion ? 'pulse 1.2s ease-in-out .4s infinite' : 'none',
+      schemes: { blurple: sw('a'), teal: sw('b'), amber: sw('c'), rose: sw('d') },
+      dens: { compact: opt('density', 'compact'), default: opt('density', 'default'), roomy: opt('density', 'roomy') },
+      fade: tog('fade'), avatarsT: tog('avatars'), motionT: tog('motion'), numbersT: tog('numbers'),
+      lineNo: cfg.numbers ? 'block' : 'none',
+    };
+    const noFade = !cfg.fade;
+
+    /* messages already written into an inbox file, not yet pulled into a context
+       window — they drain at the recipient's next turn boundary */
+    const QUEUED = { lead: 1, security: 0, perf: 2, tests: 1, architect: 0, repro: 0 };
+    const drained = this.state.drained || {};
+
+    const stopped = this.state.stopped || {};
+    const team = TEAM.map((raw, i) => {
+      const a = stopped[raw.name] ? Object.assign({}, raw, { st: 'stopped', rate: 0, crate: 0 }) : raw;
       const live = a.st === 'work';
       const tok = live ? Math.min(197500, a.tok + a.rate * t) : a.tok;
       const p = tok / 200000;
       const off = live ? t : 0;
-      const src = PRELUDE.concat(TWALL[a.name]);
+      const src = PRELUDE.concat(TWALL[a.name],
+        stopped[a.name]
+          ? (i === 0
+            ? [['⊗', 'session ended by you'], ['⎿', 'every teammate stopped with the lead']]
+            : [['⊗', 'stopped by you · context discarded'], ['⎿', 'its claimed task returned to the queue']])
+          : []);
       const n = Math.min(src.length, 30 + Math.floor(off / 6));
       const st = TST[a.st];
       return {
         name: a.name, type: a.type, model: a.model, tool: a.tool, role: a.role,
-        dot: st[0], label: st[1], col: st[2], live, spr: this.sprite(a.name),
+        st: a.st, dot: st[0], label: st[1], col: st[2], live, spr: this.sprite(a.name),
         sel: () => this.setState({ sel: i }),
         colW: ((this.state.widths || {})[a.name] || 366) + 'px',
+        isLead: i === 0,
+        composerShow: i === 0 ? 'flex' : 'none',
+        inflight: (drained[a.name] ? 0 : QUEUED[a.name] || 0) + ' in flight',
+        inflightShow: !drained[a.name] && QUEUED[a.name] ? 'flex' : 'none',
+        sendNow: () => this.setState((s) => ({ drained: Object.assign({}, s.drained, { [a.name]: 1 }) })),
+        stopGlyph: stopped[a.name] ? '↻' : i === 0 ? '⏻' : '✕',
+        stopTitle: stopped[a.name] ? 'respawn this teammate'
+          : i === 0 ? 'end the session — the lead cannot be stopped on its own' : 'stop this teammate',
+        askStop: () => (stopped[a.name]
+          ? this.setState((s) => { const n = Object.assign({}, s.stopped); delete n[a.name]; return { stopped: n, stopping: null }; })
+          : this.setState({ stopping: a.name })),
         colPos: i === 0 ? 'sticky' : 'relative',
         colZ: i === 0 ? 2 : 0,
         colShadow: i === 0 ? '1px 0 0 var(--color-neutral-800),8px 0 18px rgba(0,0,0,.5)' : 'none',
@@ -1863,8 +2269,8 @@ class Component extends DCLogic {
         selBar: (this.state.sel ?? 1) === i ? 'var(--color-accent-500)' : 'var(--color-neutral-800)',
         wall: src.slice(0, n).map((r, j, arr) => {
           const back = arr.length - 1 - j;
-          const base = back === 0 ? 1 : back === 1 ? 0.72 : back < 5 ? 0.5 : 0.38;
-          return { mark: r[0], text: r[1], op: live ? base : base * 0.72 };
+          const base = noFade ? 1 : back === 0 ? 1 : back === 1 ? 0.72 : back < 5 ? 0.5 : 0.38;
+          return { mark: r[0], text: r[1], op: live || noFade ? base : base * 0.72 };
         }),
         tok: (tok / 1000).toFixed(1) + 'k',
         ctx: (tok / 1000).toFixed(1) + 'k / 200k',
@@ -1876,6 +2282,43 @@ class Component extends DCLogic {
       };
     });
 
+    const byName = {};
+    team.forEach((a) => { byName[a.name] = a; });
+
+    /* @-routing: the operator is not a team member, so every message is stamped
+       as one — `console` when it goes to the lead, `team-lead` otherwise */
+    const mention = this.state.mention || 'lead';
+    const mentionOpen = !!this.state.mentionOpen;
+
+    /* the list appears while an @ is being typed, Slack-style: no @ means the
+       message goes to the lead, and no chip or picker is on screen */
+    const typed = this.state.typed === undefined ? '' : this.state.typed;
+    const at = typed.lastIndexOf('@');
+    const frag = at < 0 ? null : typed.slice(at + 1);
+    const typing = frag !== null && !/\s/.test(frag);
+    const chip = at === 0 && !typing ? typed.slice(1).trim().split(' ')[0] : '';
+    const rest = chip ? typed.slice(chip.length + 1).replace(/^\s/, '') : typed;
+    const comp = {
+      typed: rest,
+      chipShow: chip ? 'flex' : 'none',
+      target: '@' + chip,
+      menu: typing ? 'flex' : 'none',
+      filter: typing && frag ? '@' + frag : 'type to filter',
+      hint: typed ? '' : 'message the lead · @ to reach a teammate',
+      note: chip ? 'to ' + chip : '',
+      toggle: () => this.setState({ typed: typed ? '' : '@' }),
+      options: team
+        .filter((a) => a.st !== 'stopped' && (!typing || !frag || a.name.indexOf(frag) === 0))
+        .map((a, k) => ({
+          name: '@' + a.name,
+          state: a.st === 'idle' ? 'idle · a message wakes it' : a.st === 'fail' ? 'failed · still reachable' : a.label,
+          bg: k === 0 ? 'var(--color-accent-900)' : 'transparent',
+          col: k === 0 ? 'var(--color-accent-300)' : 'var(--color-text)',
+          check: k === 0 ? '⏎' : '',
+          pick: () => this.setState({ typed: '@' + a.name + ' ' }),
+        })),
+    };
+
     const teamTok = team.reduce((n, a) => n + parseFloat(a.tok) * 1000, 0);
     const teamCost = TEAM.reduce((n, a) => n + a.cost + (a.st === 'work' ? a.crate * t : 0), 0);
 
@@ -1884,9 +2327,36 @@ class Component extends DCLogic {
       owner: r[3], deps: r[4],
     }));
 
-    const mail = MAIL.map((m, i) => ({
-      from: m[0], to: m[1], text: m[2], ts: this.clock(-((MAIL.length - i) * 47) + t * 3),
-    }));
+    /* group-chat shaping: sender runs collapse, the operator's own lines sit on the right */
+    const mail = MAIL.map((m, i) => {
+      const mine = m[0] === 'you';
+      const prev = MAIL[i - 1];
+      const next = MAIL[i + 1];
+      const runStart = !prev || prev[0] !== m[0];
+      const runEnd = !next || next[0] !== m[0];
+      const r = '15px';
+      const tail = '5px';
+      return {
+        from: m[0], to: m[1], text: m[2],
+        ts: this.clock(-((MAIL.length - i) * 47) + t * 3),
+        mine,
+        spr: mine ? '' : (byName[m[0]] || byName.lead).spr,
+        sprVis: mine || !runEnd ? 'hidden' : 'visible',
+        head: runStart ? (mine ? 'you' : m[0]) : '',
+        headPad: runStart ? '9px' : '0px',
+        toLabel: m[1] === 'all' ? 'to everyone' : '→ ' + m[1],
+        row: mine ? 'row-reverse' : 'row',
+        align: mine ? 'flex-end' : 'flex-start',
+        bg: mine ? 'var(--color-accent-700)' : 'var(--color-neutral-900)',
+        edge: mine ? 'var(--color-accent-600)' : 'var(--color-neutral-800)',
+        fg: mine ? '#e9e9ed' : 'var(--color-neutral-200)',
+        radius: mine
+          ? r + ' ' + (runEnd ? tail : r) + ' ' + r + ' ' + r
+          : (runStart ? r : r) + ' ' + r + ' ' + r + ' ' + (runEnd ? tail : r),
+        gap: runStart ? '10px' : '3px',
+        receipt: runEnd ? (i === MAIL.length - 1 ? 'delivered' : 'read') : '',
+      };
+    });
 
     const si = this.state.sess ?? 0;
     const sessions = SESSIONS.map((s, i) => ({
@@ -1900,8 +2370,28 @@ class Component extends DCLogic {
     }));
     const sessOpen = !!this.state.sessOpen;
 
-    const byName = {};
-    team.forEach((a) => { byName[a.name] = a; });
+    /* one confirmation, in the shared chrome, so every view is served by it */
+    const asking = this.state.stopping;
+    const askLead = !!asking && asking === team[0].name;
+    const confirm = {
+      show: asking ? 'flex' : 'none',
+      q: askLead ? 'end the session?' : 'stop ' + asking + '?',
+      why: askLead
+        ? 'the lead cannot be stopped on its own — every teammate is stopped with it'
+        : 'its context is discarded · its claimed task returns to the queue',
+      verb: askLead ? 'end session' : 'stop ' + asking,
+      go: () => this.setState((s) => ({ stopped: Object.assign({}, s.stopped, { [asking]: 1 }), stopping: null })),
+      cancel: () => this.setState({ stopping: null }),
+    };
+
+    const room = this.state.room === undefined ? 'group' : this.state.room;
+    const inGroup = room === 'group';
+    const groupRow = {
+      pick: () => this.setState({ room: 'group' }),
+      bg: inGroup ? 'var(--color-accent-900)' : 'transparent',
+      bar: inGroup ? 'var(--color-accent-500)' : 'transparent',
+      name: inGroup ? 'var(--color-accent-300)' : 'var(--color-text)',
+    };
 
     const channels = CHANNELS.map((c, i) => ({
       a: c[0], b: c[1], pair: c[0] + ' ⇄ ' + c[1], count: c[2] + ' msgs',
@@ -1911,27 +2401,51 @@ class Component extends DCLogic {
       unreadCol: c[3] ? '#161826' : 'transparent',
       sprA: (byName[c[0]] || team[0]).spr,
       sprB: (byName[c[1]] || team[1]).spr,
-      rowBg: i === 0 ? 'var(--color-accent-900)' : 'transparent',
-      rowBar: i === 0 ? 'var(--color-accent-500)' : 'transparent',
+      pick: () => this.setState({ room: i }),
+      rowBg: room === i ? 'var(--color-accent-900)' : 'transparent',
+      rowBar: room === i ? 'var(--color-accent-500)' : 'transparent',
       dot: c[5] === 'live' ? '●' : c[5] === 'unread' ? '◆' : '·',
       dotCol: c[5] === 'live' ? 'var(--color-accent-400)' : c[5] === 'unread' ? '#d99e5c' : 'var(--color-neutral-700)',
     }));
 
-    const thread = THREAD.map((m) => {
-      const mine = m[0] === 'perf';
+    /* same bubble language as the mailbox: sender runs collapse, tail + avatar on
+       the last bubble of a run, meta line once per run */
+    const pair = inGroup ? null : CHANNELS[room];
+    const src = pair ? (THREADS[pair[0] + '|' + pair[1]] || []) : [];
+    const thread = src.map((m, i) => {
+      const mine = pair && m[0] === pair[0];
+      const prev = src[i - 1];
+      const next = src[i + 1];
+      const runStart = !prev || prev[0] !== m[0];
+      const runEnd = !next || next[0] !== m[0];
+      const r = '15px';
       return {
         from: m[0], text: m[1],
         spr: (byName[m[0]] || team[0]).spr,
+        sprVis: runEnd ? 'visible' : 'hidden',
+        head: runStart ? m[0] : '',
+        headPad: runStart ? '9px' : '0px',
         ts: this.clock(m[2] + t * 3),
         state: m[4],
-        stateCol: m[3] === 'unread' ? '#d99e5c' : 'var(--color-neutral-700)',
+        stateCol: m[3] === 'unread' ? '#d99e5c' : 'var(--color-neutral-600)',
         align: mine ? 'flex-start' : 'flex-end',
         rowDir: mine ? 'row' : 'row-reverse',
-        bg: mine ? 'var(--color-bg)' : 'var(--color-accent-900)',
-        edge: mine ? 'var(--color-neutral-900)' : 'var(--color-accent-700)',
-        textAlign: mine ? 'left' : 'right',
+        bg: mine ? 'var(--color-neutral-900)' : 'var(--color-accent-700)',
+        edge: mine ? 'var(--color-neutral-800)' : 'var(--color-accent-600)',
+        fg: mine ? 'var(--color-neutral-200)' : '#e9e9ed',
+        radius: mine
+          ? r + ' ' + r + ' ' + r + ' ' + (runEnd ? '5px' : r)
+          : r + ' ' + (runEnd ? '5px' : r) + ' ' + r + ' ' + r,
+        gap: runStart ? '12px' : '3px',
       };
     });
+
+    /* only a participant who is actually mid-turn can be composing */
+    const working = (n) => { const a = byName[n]; return !!a && a.st === 'work'; };
+    const composing = inGroup
+      ? (team.filter((a) => a.st === 'work' && a.name !== 'lead')[0] || {}).name || null
+      : (pair ? (working(pair[0]) ? pair[0] : working(pair[1]) ? pair[1] : null) : null);
+
 
     const view = this.state.view || 'wall';
     const views = [
@@ -1972,6 +2486,7 @@ class Component extends DCLogic {
       sessOpen,
       sessName: sessions[si].name,
       sessGoal: sessions[si].goal,
+      sessShort: sessions[si].name.replace('session-', ''),
       sessBranch: sessions[si].branch,
       sessDiff: SESSIONS[si][6],
       sessCaret: sessOpen ? '▴' : '▾',
@@ -1982,6 +2497,18 @@ class Component extends DCLogic {
       isOver: view === 'overview',
       isTasks: view === 'tasks',
       isComms: view === 'comms',
+      conf,
+      comp,
+      confirm,
+      groupRow,
+      inGroup,
+      inPair: !inGroup,
+      pairName: inGroup ? '' : CHANNELS[room][0] + ' ⇄ ' + CHANNELS[room][1],
+      pairTopic: inGroup ? '' : CHANNELS[room][4],
+      composing: !!composing,
+      composingName: composing || '',
+      roomMembers: inGroup ? '6 members' : '2 inboxes',
+      composerHint: inGroup ? 'message every inbox — one write each' : 'join as the operator — both agents see it',
       channels, thread,
       isRail: view === 'rail',
       isGrid: view === 'grid',

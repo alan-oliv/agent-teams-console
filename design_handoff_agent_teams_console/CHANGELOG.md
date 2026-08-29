@@ -2,6 +2,43 @@
 
 Read this if you already built an earlier version of this console — it lists what changed, so you can patch rather than rebuild. Newest first.
 
+## One composer, @-routing, and the ingestion queue
+Reworked against `MESSAGING.md` (now in this bundle — read it before touching messaging).
+
+- **One composer, in the lead's column.** Every other column is read-only. A send is N direct inbox writes with no relay, so a composer per column implied a channel that does not exist.
+- **@-routing, Slack-style.** At rest the composer is just a prompt and a hint: `message the lead · @ to reach a teammate`. No chip, no picker, no target control on screen — with no `@` the message goes to the lead, which is the common case. Typing `@` opens the teammate list above the composer and filters as you type; the header shows the live filter (`@pe`), the first row is the `⏎` default, and each row carries the agent's state (`idle · a message wakes it`, `failed · still reachable`). Picking one resolves the mention into a chip at the left of the input and the picker closes. Departed agents are absent from the list.
+- The **arrives-as** stamping (`console` to the lead, `team-lead` to a teammate) is no longer shown. It is real but it is the engine's business, and putting it on every target made the composer read like documentation.
+- **Enter sends** · ⇧⏎ newline. The hint reads `⏎` — naming the one key that used to do nothing was most of the old trap.
+- **"everyone" → "all messages"** ("every inbox, merged"). There is no group inbox; the room folds the N copies of one send back into a line but still shows each line's real recipient.
+- **Ingestion queue** surfaces as a per-agent badge in the column header — `2 in flight` in the warn colour, meaning written to that inbox but not yet pulled into a context window. Clicking it drains now (forces a turn boundary). Zero-count agents show nothing.
+
+## Whole themes, not just accents
+The config panel's first section swaps the entire theme; the accent swatches then pick among four accents belonging to that theme.
+
+- Six themes, shown as a two-column grid of tiles that preview themselves (ground / accent / text stripes): **Nocturne** (dark blue-grey), **Organic** (light paper and clay), **Ember** (warm carbon), **Frost** (light cool grey), **Slate** (dark, zero hue — good for screenshots), **Phosphor** (near-black CRT glow). Each carries a terminal ground, a surface, text, a full neutral ramp, semantic warn/fail values and four accent ramps of its own.
+- The neutral ramp is ordered **by use, not by lightness**: 900 is the quietest fill/hairline and 200 the strongest text. On a light theme those values run dark-to-light in the opposite direction, so the same markup reads correctly either way — this is what makes a light theme possible without touching a single component.
+- Every colour inside the console now resolves through a variable on the console root: `--term` (terminal ground), `--color-bg`, `--color-text`, the neutral ramp, the accent ramp, plus `--warn`, `--warn-edge`, `--warn-tint`, `--fail` and `--on-accent` (text on an accent fill). No hard-coded hex survives in the console body. If you add a colour, add it as a theme variable or the light theme breaks silently.
+- Theme rows preview themselves with a three-stripe swatch (ground / accent / text) so the choice is visible before it is applied.
+
+## Config panel
+A `⚙` at the far right of the status bar opens a 302px popover (`var(--color-bg)`, 1px `var(--color-neutral-800)`, `var(--radius-md)`, right-aligned under the button) with five live tweaks, all persisted per machine rather than per session:
+
+- **accent scheme** — four 20px swatches (blurple, teal, amber, rose), each a full 7-step ramp at Nocturne's chroma level with the hue rotated. Applied by overriding `--color-accent*` custom properties on the console root, so every consumer follows without touching component code. The ground never changes.
+- **line density** — compact / default / roomy (5 / 10 / 16px transcript line gap).
+- **fade older output** — turns the per-line opacity ladder on or off.
+- **agent portraits** — hides the 8-bit faces.
+- **motion** — kills the cursor blink and the typing dots (accessibility, and a calmer wall).
+- **JSON line numbers** — hides the gutter in expanded payloads.
+
+The button costs ~30px of a status bar that was already full: the session id came out of the collapsed trigger in that frame and the goal's max-width dropped to 146px. Anything added to this bar has to be paid for.
+
+## Messages live in comms only
+The mailbox pane came out of the tasks view (and out of the 3b coordination frame); the task list now fills the frame in both. Comms gained an **everyone** room, pinned above the pair threads and selected by default, that carries the whole team's traffic as one group chat — so the merged feed the tasks pane used to hold has a proper home.
+
+- Group-chat bubble language throughout: sender runs collapse, tail and avatar on the last bubble of a run, name label only when the speaker changes, `max-width: 64%`, operator's own messages right-aligned on the accent.
+- Each pair thread carries its own messages. An earlier pass derived the header from the selected pair while the body stayed hard-coded to one exchange — header and bubbles then disagreed on screen.
+- Member count and composer hint are room-aware (`6 members` / `2 inboxes`, "message the team — everyone sees it" / "join as the operator — both agents see it").
+
 ## Comms view — inter-agent chat
 A sixth view. Agent-to-agent messaging was invisible in the wall: a `SendMessage` scrolled past in one column and its effect surfaced in another. The comms view shows the conversation directly — a thread list of inbox pairs on the left, a two-sided chat on the right.
 

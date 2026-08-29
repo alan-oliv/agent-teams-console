@@ -1,4 +1,4 @@
-Read `design/agent-teams-console/README.md` and open `Octo Session Console.dc.html` (same folder) in a browser — together they are the spec for a web console for Claude Code agent teams. Build the **turn-4 view** (`#4a` in the HTML): one console, five body views behind a switcher. Turns 1–3 are earlier explorations kept for reference; do not build them.
+Read `design/agent-teams-console/README.md` and `MESSAGING.md` (the engine's real delivery rules — messaging cannot be built honestly without it), and open `Octo Session Console.dc.html` (same folder) in a browser — together they are the spec for a web console for Claude Code agent teams. Build the **turn-4 view** (`#4a` in the HTML): one console, five body views behind a switcher. Turns 1–3 are earlier explorations kept for reference; do not build them.
 
 Recreate the design in this codebase's own stack and component patterns. The HTML is a design reference, not code to lift, and its data is fabricated — wire the real sources named in the README (`~/.claude/teams/`, `~/.claude/tasks/`).
 
