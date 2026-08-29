@@ -143,10 +143,25 @@ describe("the plugin's own hooks.json", () => {
     // (absolute path here, ${CLAUDE_PLUGIN_ROOT} there). The observation hooks
     // are command hooks too now, so masking every command would let the two
     // copies POST to different places and still pass.
+    //
+    // The restarter each observation hook falls back to splits the same way and
+    // for the same reason, so its PATH is masked as well — but only the path.
+    // The curl call wrapped around it is still compared in full, so the copies
+    // still cannot drift to different ports, timeouts or routes.
+    const maskRestart = (command: string) =>
+      command.replace(/(['"])[^'"]*\/bin\/console-restart\.sh\1/, '<restart>');
     const normalise = (entries: HookEntry[]) =>
       JSON.stringify(
         entries.map((e) =>
-          e.matcher === 'Agent' ? { ...e, hooks: [{ ...e.hooks[0], command: '<launcher>' }] } : e,
+          e.matcher === 'Agent'
+            ? { ...e, hooks: [{ ...e.hooks[0], command: '<launcher>' }] }
+            : {
+                ...e,
+                hooks: e.hooks.map((h) => ({
+                  ...h,
+                  command: maskRestart((h as { command: string }).command),
+                })),
+              },
         ),
       );
     const block = hookBlock(4823);
@@ -162,6 +177,37 @@ describe("the plugin's own hooks.json", () => {
     expect((entry!.hooks[0] as unknown as { command: string }).command).toBe(
       '"${CLAUDE_PLUGIN_ROOT}/bin/console-launch.sh"',
     );
+  });
+
+  it('resolves the restarter through the plugin root too', () => {
+    for (const event of HOOK_EVENTS) {
+      const observation = shipped.hooks[event].find((e) => e.matcher !== 'Agent');
+      const command = (observation!.hooks[0] as unknown as { command: string }).command;
+      expect(command).toContain('"${CLAUDE_PLUGIN_ROOT}/bin/console-restart.sh"');
+    }
+  });
+});
+
+describe('a POST that finds nothing listening', () => {
+  // Staying silent about a refused connection is only half the fix: every event
+  // that lands while the console is down is an event the wall never shows. The
+  // observation hooks hand a failed POST to the restarter, and still exit 0 so
+  // the refusal never reaches the operator's screen.
+  it('falls back to the restarter on every observed event', () => {
+    const block = hookBlock(4823);
+    for (const event of HOOK_EVENTS) {
+      const command = (block.hooks[event][0].hooks[0] as unknown as { command: string }).command;
+      expect(command).toContain('|| OCTO_PORT=4823 ');
+      expect(command).toContain('console-restart.sh');
+      expect(command.endsWith('; exit 0')).toBe(true);
+    }
+  });
+
+  it('carries a non-default port across to the restarter', () => {
+    const command = (hookBlock(4400).hooks.Stop[0].hooks[0] as unknown as { command: string })
+      .command;
+    expect(command).toContain('http://127.0.0.1:4400/hook');
+    expect(command).toContain('|| OCTO_PORT=4400 ');
   });
 });
 

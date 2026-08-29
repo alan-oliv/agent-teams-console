@@ -30,6 +30,9 @@ export const PLUGIN_DIR = resolvePluginDir();
 /** Absolute path to the PostToolUse(Agent) launcher, used by hookBlock(). */
 export const LAUNCH_SCRIPT = path.join(PLUGIN_DIR, 'bin', 'console-launch.sh');
 
+/** Absolute path to the restarter every observation hook falls back to. */
+export const RESTART_SCRIPT = path.join(PLUGIN_DIR, 'bin', 'console-restart.sh');
+
 /**
  * The CLI derives the team name from the lead session id. Verified rule:
  * teamName = "session-" + sessionId.slice(0, 8).

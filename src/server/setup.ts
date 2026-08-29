@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { LAUNCH_SCRIPT } from './lifecycle';
+import { LAUNCH_SCRIPT, RESTART_SCRIPT } from './lifecycle';
 import { atomicWrite } from './control/mailbox';
 import { DEFAULT_PERMISSION_TIMEOUT_MS } from './ingest/hooks';
 import { readJsonSafe } from './watch/jsonfile';
@@ -88,8 +88,15 @@ function post(port: number, route: string): string {
 // instead of through Claude Code's own http hook client, and `exit 0` forces
 // success regardless of whether the POST landed. curl's stdout still carries
 // the console's JSON response through when it did.
+//
+// Staying quiet only hides the symptom: every event while the console is down
+// is an event the wall never gets. So a failed POST also hands off to the
+// restarter, which decides whether there is anything worth restarting for. It
+// runs on ANY curl failure, not just a refused connection, because the branch
+// has no access to curl's exit code without a second statement — the script
+// re-checks /health itself and exits when the console is merely slow.
 function observe(port: number, timeoutSeconds: number): string {
-  return `curl -sS -m ${timeoutSeconds} -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:${port}/hook 2>/dev/null; exit 0`;
+  return `curl -sS -m ${timeoutSeconds} -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:${port}/hook 2>/dev/null || OCTO_PORT=${port} '${RESTART_SCRIPT}'; exit 0`;
 }
 
 export function hookBlock(port: number): HookBlock {

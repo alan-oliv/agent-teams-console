@@ -1,12 +1,12 @@
 {
-  "description": "Everything the console observes, plus the launcher that starts it. The observation hooks POST each event to the console on its default port through a curl one-liner that always exits 0, so a console that isn't running costs nothing but a discarded connection refusal instead of a hook-error notice on every tool call. The launcher exits immediately unless a real team exists. Timeouts are in seconds.",
+  "description": "Everything the console observes, plus the launcher that starts it. The observation hooks POST each event to the console on its default port through a curl one-liner that always exits 0, so a console that isn't running costs nothing but a discarded connection refusal instead of a hook-error notice on every tool call. A POST that finds nothing listening hands off to console-restart.sh, which brings the console back when a team is still live and stays silent either way. The launcher exits immediately unless a real team exists. Timeouts are in seconds.",
   "hooks": {
     "PreToolUse": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "curl -sS -m 5 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/hook 2>/dev/null; exit 0",
+            "command": "curl -sS -m 5 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/hook 2>/dev/null || OCTO_PORT=4823 \"${CLAUDE_PLUGIN_ROOT}/bin/console-restart.sh\"; exit 0",
             "timeout": 5
           }
         ],
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "curl -sS -m 5 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/hook 2>/dev/null; exit 0",
+            "command": "curl -sS -m 5 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/hook 2>/dev/null || OCTO_PORT=4823 \"${CLAUDE_PLUGIN_ROOT}/bin/console-restart.sh\"; exit 0",
             "timeout": 5
           }
         ],
@@ -50,7 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "curl -sS -m 600 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/hook 2>/dev/null; exit 0",
+            "command": "curl -sS -m 600 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/hook 2>/dev/null || OCTO_PORT=4823 \"${CLAUDE_PLUGIN_ROOT}/bin/console-restart.sh\"; exit 0",
             "timeout": 600
           }
         ],
@@ -62,7 +62,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "curl -sS -m 5 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/hook 2>/dev/null; exit 0",
+            "command": "curl -sS -m 5 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/hook 2>/dev/null || OCTO_PORT=4823 \"${CLAUDE_PLUGIN_ROOT}/bin/console-restart.sh\"; exit 0",
             "timeout": 5
           }
         ]
@@ -73,7 +73,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "curl -sS -m 5 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/hook 2>/dev/null; exit 0",
+            "command": "curl -sS -m 5 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/hook 2>/dev/null || OCTO_PORT=4823 \"${CLAUDE_PLUGIN_ROOT}/bin/console-restart.sh\"; exit 0",
             "timeout": 5
           }
         ]
@@ -84,7 +84,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "curl -sS -m 5 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/hook 2>/dev/null; exit 0",
+            "command": "curl -sS -m 5 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/hook 2>/dev/null || OCTO_PORT=4823 \"${CLAUDE_PLUGIN_ROOT}/bin/console-restart.sh\"; exit 0",
             "timeout": 5
           }
         ]
@@ -95,7 +95,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "curl -sS -m 5 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/hook 2>/dev/null; exit 0",
+            "command": "curl -sS -m 5 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/hook 2>/dev/null || OCTO_PORT=4823 \"${CLAUDE_PLUGIN_ROOT}/bin/console-restart.sh\"; exit 0",
             "timeout": 5
           }
         ]
@@ -106,7 +106,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "curl -sS -m 5 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/hook 2>/dev/null; exit 0",
+            "command": "curl -sS -m 5 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/hook 2>/dev/null || OCTO_PORT=4823 \"${CLAUDE_PLUGIN_ROOT}/bin/console-restart.sh\"; exit 0",
             "timeout": 5
           }
         ]
@@ -117,7 +117,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "curl -sS -m 5 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/hook 2>/dev/null; exit 0",
+            "command": "curl -sS -m 5 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/hook 2>/dev/null || OCTO_PORT=4823 \"${CLAUDE_PLUGIN_ROOT}/bin/console-restart.sh\"; exit 0",
             "timeout": 5
           }
         ]
@@ -128,7 +128,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "curl -sS -m 5 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/hook 2>/dev/null; exit 0",
+            "command": "curl -sS -m 5 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/hook 2>/dev/null || OCTO_PORT=4823 \"${CLAUDE_PLUGIN_ROOT}/bin/console-restart.sh\"; exit 0",
             "timeout": 5
           }
         ]
