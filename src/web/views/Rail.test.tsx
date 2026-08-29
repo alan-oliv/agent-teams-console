@@ -77,7 +77,7 @@ describe('Rail — left list', () => {
     expect(alpha.getByTestId('rail-elapsed').textContent).toBe('0m 42s');
     // 34_469 / 1_000_000 * 16 cells rounds to 1 filled cell, plus the forced compactAt tick at
     // floor(967_000 / 1_000_000 * 16) = index 15.
-    expect(alpha.getByTestId('rail-bar').textContent).toBe('█░░░░░░░░░░░░░░█');
+    expect(alpha.getByTestId('rail-bar').textContent).toBe('█░░░░░░░░░░░░░░░');
     expect(alpha.getByTestId('rail-pct').textContent).toBe('3%');
     expect(alpha.getByTestId('rail-cost').textContent).toBe('≈$0.46');
   });
@@ -143,7 +143,7 @@ describe('Rail — attached pane', () => {
     expect(within(header).getByTestId('rail-detail-role').textContent).toBe('Spike probe charlie');
     // 23_639 / 200_000 * 16 cells rounds to 2 filled, plus the forced compactAt tick at
     // floor(167_000 / 200_000 * 16) = index 13.
-    expect(within(header).getByTestId('rail-detail-bar').textContent).toBe('██░░░░░░░░░░░█░░');
+    expect(within(header).getByTestId('rail-detail-bar').textContent).toBe('██░░░░░░░░░░░░░░');
     expect(within(header).getByTestId('rail-detail-ctx').textContent).toBe('23.6k / 200k');
     expect(within(header).getByTestId('rail-detail-cost').textContent).toBe('≈$0.04');
   });

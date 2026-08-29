@@ -21,7 +21,7 @@ export function ContextMeter({
         data-testid="context-bar"
         style={{ letterSpacing: '-.5px', color: 'var(--color-accent-600)', fontSize: barSize }}
       >
-        {contextBar(contextTokens, contextLimit, compactAt)}
+        {contextBar(contextTokens, contextLimit)}
       </span>
       <span style={{ color: 'var(--color-neutral-500)', fontSize: textSize }}>
         {formatPct(contextTokens / contextLimit)}

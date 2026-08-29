@@ -11,7 +11,7 @@ it('renders the bar, percent and "53.1k / 1M" for an opus agent', () => {
   render(<ContextMeter contextTokens={53_100} contextLimit={1_000_000} compactAt={967_000} />);
   // 53_100 / 1_000_000 * 16 = 0.8496 cells, which rounds up to 1 filled cell
   // (matches the prototype's bar(): Math.round, not Math.floor).
-  expect(screen.getByTestId('context-bar').textContent).toBe('█░░░░░░░░░░░░░░█');
+  expect(screen.getByTestId('context-bar').textContent).toBe('█░░░░░░░░░░░░░░░');
   expect(screen.getByTestId('context-bar').style.fontSize).toBe('11.5px');
   expect(screen.getByTestId('context-bar').style.letterSpacing).toBe('-.5px');
   expect(screen.getByTestId('context-bar').style.color).toBe('var(--color-accent-600)');
@@ -47,7 +47,7 @@ it('takes explicit bar and text sizes for the grid pane', () => {
       textSize={10}
     />,
   );
-  expect(screen.getByTestId('context-bar').textContent).toBe('████████████░█░░');
+  expect(screen.getByTestId('context-bar').textContent).toBe('████████████░░░░');
   expect(screen.getByTestId('context-bar').style.fontSize).toBe('10.5px');
   expect(screen.getByText('78%').style.fontSize).toBe('10px');
 });

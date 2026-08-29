@@ -531,3 +531,55 @@ describe('an opened row fetches its full text', () => {
     expect(screen.getByTestId('transcript-text').textContent).toBe(CUT);
   });
 });
+
+describe('markdown in an expanded row', () => {
+  const RICH: TranscriptLine[] = [
+    {
+      id: 'm',
+      marker: '\u23fa',
+      text: 'summary\n## What changed\nplain **bold** and `code`\n- one bullet',
+      ts: 1,
+    },
+  ];
+
+  it('renders headings, bold, inline code and bullets rather than their source', () => {
+    render(<TranscriptFeed lines={RICH} size="wall" />);
+    fireEvent.click(screen.getByTestId('transcript-more'));
+
+    expect(screen.getByTestId('md-heading').textContent).toBe('What changed');
+    expect(screen.getByTestId('md-code').textContent).toBe('code');
+    expect(screen.getByTestId('md-item').textContent).toContain('one bullet');
+
+    const body = screen.getByTestId('transcript-drawer-body').textContent!;
+    for (const marker of ['##', '**', '`']) expect(body).not.toContain(marker);
+  });
+});
+
+describe('code in an expanded row', () => {
+  // 42% of a lead's messages carry markdown structure, and tidy() keeps their
+  // newlines precisely so a drawer can show it. A fence rendered as prose loses
+  // it twice: literal backticks, and code the colour of the sentence around it.
+  const FENCED: TranscriptLine[] = [
+    {
+      id: 'f',
+      marker: '\u23fa',
+      text: 'see this:\n```js\nconst a = 1; // why\n```\nthat is all',
+      ts: 1,
+    },
+  ];
+
+  it('renders a fenced block as a highlighted block, not as prose', () => {
+    render(<TranscriptFeed lines={FENCED} size="wall" />);
+    fireEvent.click(screen.getByTestId('transcript-more'));
+
+    const block = screen.getByTestId('code-block');
+    expect(within(block).getByTestId('code-lang').textContent).toBe('js');
+    expect(block.textContent).toContain('const a = 1;');
+    // Markdown is rendered, not shown as source.
+    expect(screen.getByTestId('transcript-drawer-body').textContent).not.toContain('**');
+    // The fence markers are structure, not content.
+    expect(screen.getByTestId('transcript-drawer-body').textContent).not.toContain('```');
+    // And the prose around it survives.
+    expect(screen.getByTestId('transcript-drawer-body').textContent).toContain('that is all');
+  });
+});

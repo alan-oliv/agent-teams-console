@@ -72,7 +72,7 @@ const Row = memo(function Row({
             data-testid="rail-bar"
             style={{ letterSpacing: '-.5px', color: 'var(--color-accent-600)', fontSize: '11px' }}
           >
-            {contextBar(agent.contextTokens, agent.contextLimit, agent.compactAt)}
+            {contextBar(agent.contextTokens, agent.contextLimit)}
           </span>
           <span
             data-testid="rail-pct"
@@ -157,7 +157,7 @@ const Attached = memo(function Attached(
           data-testid="rail-detail-bar"
           style={{ letterSpacing: '-.5px', color: 'var(--color-accent-600)', fontSize: '11.5px' }}
         >
-          {contextBar(agent.contextTokens, agent.contextLimit, agent.compactAt)}
+          {contextBar(agent.contextTokens, agent.contextLimit)}
         </span>
         <span
           data-testid="rail-detail-ctx"

@@ -12,6 +12,8 @@ import type { TranscriptLine } from '../../shared/domain';
 import { TRANSCRIPT_TEXT_CAP } from '../../shared/transcript';
 import { useAppearance } from '../state/useSettings';
 import { DENSITY } from '../themes';
+import { codeTokens, segments, toolCodeLang, type CodeTokenKind } from '../../shared/code';
+import { blocks as mdBlocks, type Inline } from '../../shared/markdown';
 import {
   jsonRows,
   jsonSummary,
@@ -91,6 +93,140 @@ const NEUTRAL_ACTION: CSSProperties = {
   border: '1px solid var(--color-neutral-800)',
   color: 'var(--color-neutral-500)',
 };
+
+function Spans({ spans }: { spans: Inline[] }) {
+  return (
+    <>
+      {spans.map((s, i) =>
+        s.kind === 'strong' ? (
+          <strong key={i} style={{ color: 'var(--color-text)', fontWeight: 700 }}>
+            {s.text}
+          </strong>
+        ) : s.kind === 'code' ? (
+          <span
+            key={i}
+            data-testid="md-code"
+            style={{
+              background: 'var(--term)',
+              border: '1px solid var(--color-neutral-900)',
+              borderRadius: '3px',
+              padding: '0 3px',
+              color: 'var(--json-string)',
+            }}
+          >
+            {s.text}
+          </span>
+        ) : (
+          <span key={i}>{s.text}</span>
+        ),
+      )}
+    </>
+  );
+}
+
+/**
+ * The markdown a message carries, rendered rather than shown as source. Only
+ * the constructs that actually appear — see shared/markdown.ts for why the
+ * subset is deliberate.
+ */
+function Prose({ text }: { text: string }) {
+  return (
+    <>
+      {mdBlocks(text).map((b, i) =>
+        b.kind === 'heading' ? (
+          <div
+            key={i}
+            data-testid="md-heading"
+            style={{
+              color: 'var(--color-text)',
+              fontWeight: 700,
+              fontSize: b.level <= 2 ? '12.5px' : '11.5px',
+              marginTop: i === 0 ? 0 : '3px',
+            }}
+          >
+            <Spans spans={b.spans} />
+          </div>
+        ) : b.kind === 'item' ? (
+          <div key={i} data-testid="md-item" style={{ display: 'flex', gap: '7px', lineHeight: 1.65 }}>
+            <span style={{ color: 'var(--color-neutral-600)', flex: 'none' }}>
+              {b.ordered ? '·' : '–'}
+            </span>
+            <span style={{ color: 'var(--color-neutral-300)', minWidth: 0 }}>
+              <Spans spans={b.spans} />
+            </span>
+          </div>
+        ) : b.kind === 'table' ? (
+          <div
+            key={i}
+            data-testid="md-table"
+            style={{
+              whiteSpace: 'pre',
+              overflowX: 'auto',
+              color: 'var(--color-neutral-400)',
+              lineHeight: 1.5,
+            }}
+          >
+            {b.lines.join('\n')}
+          </div>
+        ) : (
+          <span
+            key={i}
+            style={{ color: 'var(--color-neutral-300)', textWrap: 'pretty', lineHeight: 1.65 }}
+          >
+            <Spans spans={b.spans} />
+          </span>
+        ),
+      )}
+    </>
+  );
+}
+
+const CODE_COLOR: Record<CodeTokenKind, string> = {
+  comment: 'var(--color-neutral-700)',
+  string: 'var(--json-string)',
+  number: 'var(--warn)',
+  keyword: 'var(--color-accent-400)',
+  plain: 'var(--color-neutral-300)',
+};
+
+/**
+ * A fenced block, on the terminal ground so it reads as inset rather than as
+ * more prose. No line-number gutter: unlike a JSON payload this is usually a
+ * short excerpt, and the numbers would be counting the excerpt rather than
+ * anything the reader can refer to.
+ */
+function CodeBlock({ lang, lines }: { lang: string; lines: string[] }) {
+  return (
+    <div
+      data-testid="code-block"
+      style={{
+        background: 'var(--term)',
+        border: '1px solid var(--color-neutral-900)',
+        borderRadius: 'var(--radius-sm)',
+        padding: '8px 10px',
+        overflowX: 'auto',
+      }}
+    >
+      {lang && (
+        <div
+          data-testid="code-lang"
+          style={{ color: 'var(--color-neutral-700)', fontSize: '9.5px', marginBottom: '4px' }}
+        >
+          {lang}
+        </div>
+      )}
+      {lines.map((line, i) => (
+        <div key={i} style={{ whiteSpace: 'pre', fontSize: '11px', lineHeight: 1.5 }}>
+          {codeTokens(line).map((tok, t) => (
+            <span key={t} style={{ color: CODE_COLOR[tok.kind] }}>
+              {tok.text}
+            </span>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 const JSON_COLOR: Record<JsonTokenKind, string> = {
   key: 'var(--color-accent-400)',
@@ -546,18 +682,21 @@ export function TranscriptFeed({
                 data-testid="transcript-drawer-body"
                 style={{ display: 'flex', flexDirection: 'column', gap: '11px', paddingLeft: '16px' }}
               >
-                {blocksOf(text).map((block, b) => (
-                  <span
-                    key={b}
-                    style={{
-                      color: 'var(--color-neutral-300)',
-                      whiteSpace: 'pre-wrap',
-                      textWrap: 'pretty',
-                      lineHeight: 1.65,
-                    }}
-                  >
-                    {block}
-                  </span>
+                {/* The first line is the row's own header; the body is the rest. */}
+                {toolCodeLang(text.split('\n')[0]) !== undefined ? (
+                  // A tool row carries no prose to fence code off from — the
+                  // whole body is the command or the file.
+                  <CodeBlock
+                    lang={toolCodeLang(text.split('\n')[0])!}
+                    lines={text.slice(text.indexOf('\n') + 1).replace(/\s+$/, '').split('\n')}
+                  />
+                ) : (
+                segments(text.slice(text.indexOf('\n') + 1)).map((seg, b) =>
+                  seg.kind === 'code' ? (
+                    <CodeBlock key={b} lang={seg.lang} lines={seg.lines} />
+                  ) : (
+                    <Prose key={b} text={seg.text} />
+                  ),
                 ))}
               </div>
 

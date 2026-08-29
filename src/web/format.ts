@@ -6,11 +6,17 @@ export function meterCells(ratio: number): string {
   return '█'.repeat(filled) + '░'.repeat(CELLS - filled);
 }
 
-export function contextBar(tokens: number, limit: number, compactAt: number): string {
+/**
+ * The bar shows occupancy and nothing else. It used to overwrite one cell with
+ * a filled block to mark the compaction threshold, but the marker was drawn in
+ * the same glyph and colour as the fill: below the threshold it read as a stray
+ * block at the end of the bar, and above it it disappeared into the fill
+ * entirely. `warnMark` is what tells the operator the threshold is near, and it
+ * says so in the attention colour where it cannot be mistaken for occupancy.
+ */
+export function contextBar(tokens: number, limit: number): string {
   if (limit <= 0) return meterCells(0);
-  const cells = [...meterCells(tokens / limit)];
-  cells[Math.min(CELLS - 1, Math.floor((compactAt / limit) * CELLS))] = '█';
-  return cells.join('');
+  return meterCells(tokens / limit);
 }
 
 export function formatTokens(n: number): string {

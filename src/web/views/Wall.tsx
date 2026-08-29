@@ -201,7 +201,7 @@ const Column = memo(function Column({
               data-testid="wall-bar"
               style={{ letterSpacing: '-.5px', color: 'var(--color-accent-600)', fontSize: '11.5px' }}
             >
-              {contextBar(agent.contextTokens, agent.contextLimit, agent.compactAt)}
+              {contextBar(agent.contextTokens, agent.contextLimit)}
             </span>
             <span
               data-testid="wall-pct"

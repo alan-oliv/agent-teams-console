@@ -28,13 +28,21 @@ it('clamps the bar outside 0..1', () => {
   expect(meterCells(2)).toBe('████████████████');
 });
 
-it('marks the auto-compact tick inside the bar', () => {
-  // opus-5: compact at 967k of 1M -> floor(0.967 * 16) = cell 15
-  expect(contextBar(0, 1_000_000, 967_000)).toBe('░░░░░░░░░░░░░░░█');
-  expect(contextBar(500_000, 1_000_000, 967_000)).toBe('████████░░░░░░░█');
-  expect(contextBar(1_000_000, 1_000_000, 967_000)).toBe('████████████████');
-  // haiku-4-5: compact at 167k of 200k -> floor(0.835 * 16) = cell 13
-  expect(contextBar(156_000, 200_000, 167_000)).toBe('████████████░█░░');
+// The bar is occupancy and nothing else. It used to overwrite a cell with a
+// filled block at the compaction threshold, in the fill's own glyph and colour
+// — which read as a stray block at the end of an empty bar, and vanished into
+// the fill once usage passed it. warnMark carries the threshold instead.
+it('shows occupancy, with no marker mixed into the fill', () => {
+  expect(contextBar(0, 1_000_000)).toBe('░░░░░░░░░░░░░░░░');
+  expect(contextBar(500_000, 1_000_000)).toBe('████████░░░░░░░░');
+  expect(contextBar(1_000_000, 1_000_000)).toBe('████████████████');
+  // Previously '████████████░█░░' — a gap and a block, for a 78% bar.
+  expect(contextBar(156_000, 200_000)).toBe('████████████░░░░');
+});
+
+it('still warns as the compaction threshold approaches', () => {
+  expect(warnMark(156_000, 167_000)).toBe('!');
+  expect(warnMark(50_000, 167_000)).toBe('');
 });
 
 it('formats token counts the way the design writes them', () => {
