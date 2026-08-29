@@ -1648,6 +1648,7 @@ function resolvePluginDir() {
 }
 var PLUGIN_DIR = resolvePluginDir();
 var LAUNCH_SCRIPT = path.join(PLUGIN_DIR, "bin", "console-launch.sh");
+var RESTART_SCRIPT = path.join(PLUGIN_DIR, "bin", "console-restart.sh");
 function isPidAlive(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
@@ -2454,10 +2455,10 @@ function resultText(content) {
   }
   return tidy(JSON.stringify(content ?? ""));
 }
-function toTranscriptLines(rec) {
-  if (!rec.uuid || !rec.timestamp) return [];
+function draftsOf(rec) {
+  if (!rec.uuid || !rec.timestamp) return null;
   const ts = Date.parse(rec.timestamp);
-  if (Number.isNaN(ts)) return [];
+  if (Number.isNaN(ts)) return null;
   const drafts = [];
   const content = rec.message?.content;
   if (rec.type === "user") {
@@ -2490,12 +2491,20 @@ function toTranscriptLines(rec) {
       }
     }
   }
-  return drafts.map((draft, i) => ({
+  return { ts, drafts };
+}
+function toTranscriptLines(rec) {
+  const built = draftsOf(rec);
+  if (!built) return [];
+  return built.drafts.map((draft, i) => ({
     id: `${rec.uuid}#${i}`,
     marker: draft.marker,
     text: capText(draft.text),
-    ts
+    ts: built.ts
   }));
+}
+function fullLineText(rec, index) {
+  return draftsOf(rec)?.drafts[index]?.text;
 }
 function currentToolOf(rec) {
   const content = rec.message?.content;
@@ -2563,6 +2572,7 @@ function parseInboxEntry(e, to) {
     summary: e.summary,
     ts,
     tsIsDelivery: false,
+    read: e.read === true,
     color: e.color,
     protocol: detectProtocol(e.text)
   };
@@ -2587,6 +2597,9 @@ function parseTeammateFrames(text, deliveredAt, to) {
       summary: attrs.summary,
       ts: deliveredAt,
       tsIsDelivery: true,
+      // A frame in the recipient's own transcript is the message inside its
+      // context window: it was drained at that turn boundary by definition.
+      read: true,
       color: attrs.color,
       protocol: detectProtocol(body)
     });
@@ -2610,7 +2623,9 @@ function mergeMail(existing, incoming) {
       kept.set(id, { ...message, msgId: id });
       continue;
     }
-    if (previous.tsIsDelivery && !message.tsIsDelivery) kept.set(id, { ...message, msgId: id });
+    const read = previous.read || message.read;
+    if (previous.tsIsDelivery && !message.tsIsDelivery) kept.set(id, { ...message, msgId: id, read });
+    else if (read !== previous.read) kept.set(id, { ...previous, read });
   }
   return [...kept.values()].sort((a, b) => a.ts - b.ts);
 }
@@ -2679,6 +2694,25 @@ function transcriptHistory(events, agent) {
   const lines = [];
   for (const rec of records) lines.push(...linesOf(rec));
   return lines;
+}
+function transcriptLineText(events, agent, id) {
+  const hash = id.lastIndexOf("#");
+  if (hash <= 0) return void 0;
+  const uuid = id.slice(0, hash);
+  const suffix = id.slice(hash + 1);
+  if (!/^\d+$/.test(suffix)) return void 0;
+  const index = Number(suffix);
+  for (let i = events.length - 1; i >= 0; i--) {
+    const ev = events[i];
+    if (ev.kind !== "transcript") continue;
+    const p = ev.payload;
+    if (p.agent !== agent) continue;
+    for (const rec of p.records) {
+      if (rec.uuid !== uuid) continue;
+      return fullLineText(rec, index);
+    }
+  }
+  return void 0;
 }
 function project(events, readOnly) {
   let config = null;
@@ -3802,7 +3836,11 @@ function createStream(snapshot, coalesceMs = COALESCE_MS) {
 import http from "node:http";
 import { promises as fs6 } from "node:fs";
 import path7 from "node:path";
+
+// src/shared/domain.ts
 var CONSOLE_SENDER = "console";
+
+// src/server/http.ts
 var READ_ONLY_BODY = {
   error: "read-only",
   message: "the console was started with --read-only; control routes are disabled"
@@ -3957,6 +3995,21 @@ function createHttpServer(deps) {
             return;
           }
           json(res, 200, { agent, lines: deps.history(agent) });
+          return;
+        }
+        if (method === "GET" && route === "/api/line" && deps.lineText) {
+          const agent = url.searchParams.get("agent") ?? "";
+          const id = url.searchParams.get("id") ?? "";
+          if (!agent || !id) {
+            json(res, 400, { error: "bad request", message: "agent and id are required" });
+            return;
+          }
+          const text = deps.lineText(agent, id);
+          if (text === void 0) {
+            json(res, 404, { error: "not found", message: "no stored record for that line" });
+            return;
+          }
+          json(res, 200, { id, text });
           return;
         }
         if (method === "POST" && (route === "/hook" || route === "/statusline" || route === "/substatus")) {
@@ -4148,7 +4201,7 @@ function post(port, route) {
   return `curl -sS -m 2 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:${port}/${route} >/dev/null 2>&1; printf ''`;
 }
 function observe(port, timeoutSeconds) {
-  return `curl -sS -m ${timeoutSeconds} -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:${port}/hook 2>/dev/null; exit 0`;
+  return `curl -sS -m ${timeoutSeconds} -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:${port}/hook 2>/dev/null || OCTO_PORT=${port} '${RESTART_SCRIPT}'; exit 0`;
 }
 function hookBlock(port) {
   const hooks = {};
@@ -4720,6 +4773,7 @@ async function main(argv) {
     readOnly: cli.readOnly,
     listTeams: () => listTeamSummaries(teamsRoot2, sessionsRoot, currentTeam, projectsRoot),
     history: (agent) => transcriptHistory(store.replay(), agent),
+    lineText: (agent, id) => transcriptLineText(store.replay(), agent, id),
     selectTeam,
     onShutdown: stop
   });
