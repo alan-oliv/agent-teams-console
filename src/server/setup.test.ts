@@ -18,8 +18,8 @@ import {
   type CommandHook,
 } from './setup';
 
-interface HttpHook { type: string; url: string; timeout: number }
-interface HookEntry { matcher?: string; hooks: HttpHook[] }
+interface ObserveHook { type: string; command: string; timeout: number }
+interface HookEntry { matcher?: string; hooks: ObserveHook[] }
 
 let dir: string;
 
@@ -37,7 +37,7 @@ describe('hookBlock', () => {
     expect(JSON.parse(JSON.stringify(block))).toEqual(block);
   });
 
-  it('registers every event as an http hook at the right port', () => {
+  it('registers every event as a command hook posting to the right port', () => {
     expect(Object.keys(block.hooks)).toEqual([...HOOK_EVENTS]);
     for (const event of HOOK_EVENTS) {
       const entries = block.hooks[event] as HookEntry[];
@@ -46,8 +46,12 @@ describe('hookBlock', () => {
       expect(entries).toHaveLength(carriesLauncher ? 2 : 1);
       expect(entries.filter((e) => e.matcher === 'Agent')).toHaveLength(carriesLauncher ? 1 : 0);
       expect(entries[0].hooks).toHaveLength(1);
-      expect(entries[0].hooks[0].type).toBe('http');
-      expect(entries[0].hooks[0].url).toBe('http://127.0.0.1:4823/hook');
+      // A command hook, not an http one: Claude Code renders an http hook's
+      // connection refusal as a "<event> hook error" on EVERY tool call while
+      // the console is down. This posts through curl and exits 0 instead.
+      expect(entries[0].hooks[0].type).toBe('command');
+      expect(entries[0].hooks[0].command).toContain('http://127.0.0.1:4823/hook');
+      expect(entries[0].hooks[0].command).toContain('exit 0');
     }
   });
 
@@ -87,7 +91,9 @@ describe('hookBlock', () => {
 
   it('honours a non-default port', () => {
     const other = hookBlock(4400);
-    expect(((other.hooks.Stop as HookEntry[])[0].hooks[0]).url).toBe('http://127.0.0.1:4400/hook');
+    expect(((other.hooks.Stop as HookEntry[])[0].hooks[0]).command).toContain(
+      'http://127.0.0.1:4400/hook',
+    );
     expect(other.statusLine.command).toContain(':4400/statusline');
   });
 
@@ -133,8 +139,16 @@ describe("the plugin's own hooks.json", () => {
 
   it('registers every event the settings installer would, on the default port', () => {
     expect(Object.keys(shipped.hooks)).toEqual([...HOOK_EVENTS]);
+    // Only the LAUNCHER's command legitimately differs between the two copies
+    // (absolute path here, ${CLAUDE_PLUGIN_ROOT} there). The observation hooks
+    // are command hooks too now, so masking every command would let the two
+    // copies POST to different places and still pass.
     const normalise = (entries: HookEntry[]) =>
-      JSON.stringify(entries).replaceAll(/"command":"(?:[^"\\]|\\.)*"/g, '"command":"<launcher>"');
+      JSON.stringify(
+        entries.map((e) =>
+          e.matcher === 'Agent' ? { ...e, hooks: [{ ...e.hooks[0], command: '<launcher>' }] } : e,
+        ),
+      );
     const block = hookBlock(4823);
     for (const event of HOOK_EVENTS) {
       expect(normalise(shipped.hooks[event])).toBe(
@@ -158,7 +172,7 @@ describe('mergeHookBlock / removeHookBlock', () => {
     const stop = (merged.hooks as Record<string, HookEntry[]>).Stop;
     expect(stop).toHaveLength(2);
     expect((stop[0].hooks[0] as unknown as { command: string }).command).toBe('say done');
-    expect(stop[1].hooks[0].url).toBe('http://127.0.0.1:4823/hook');
+    expect(stop[1].hooks[0].command).toContain('http://127.0.0.1:4823/hook');
   });
 
   it('claims the status line only when nobody else has it', () => {
@@ -232,7 +246,7 @@ describe('runSetup', () => {
   it('prints the block and writes nothing without confirmation', async () => {
     const settingsPath = path.join(dir, 'settings.json');
     const output = await runSetup({ settingsPath, port: 4823, confirm: false });
-    expect(output).toContain('"type": "http"');
+    expect(output).toContain('"type": "command"');
     expect(output).toContain('http://127.0.0.1:4823/hook');
     expect(output).toContain('nothing was written');
     await expect(fs.stat(settingsPath)).rejects.toThrow();
@@ -334,6 +348,6 @@ describe('runSetup', () => {
     const settingsPath = path.join(dir, 'nested', 'settings.json');
     await runSetup({ settingsPath, port: 4400, confirm: true });
     const written = JSON.parse(await fs.readFile(settingsPath, 'utf8')) as { hooks: Record<string, HookEntry[]> };
-    expect(written.hooks.PreToolUse[0].hooks[0].url).toBe('http://127.0.0.1:4400/hook');
+    expect(written.hooks.PreToolUse[0].hooks[0].command).toContain('http://127.0.0.1:4400/hook');
   });
 });

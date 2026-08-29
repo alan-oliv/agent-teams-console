@@ -1,12 +1,12 @@
 {
-  "description": "Everything the console observes, plus the launcher that starts it. The http hooks POST each event to the console on its default port and cost one refused connection each while it is not running; the launcher exits immediately unless a real team exists. Timeouts are in seconds.",
+  "description": "Everything the console observes, plus the launcher that starts it. The observation hooks POST each event to the console on its default port through a curl one-liner that always exits 0, so a console that isn't running costs nothing but a discarded connection refusal instead of a hook-error notice on every tool call. The launcher exits immediately unless a real team exists. Timeouts are in seconds.",
   "hooks": {
     "PreToolUse": [
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:4823/hook",
+            "type": "command",
+            "command": "curl -sS -m 5 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/hook 2>/dev/null; exit 0",
             "timeout": 5
           }
         ],
@@ -27,8 +27,8 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:4823/hook",
+            "type": "command",
+            "command": "curl -sS -m 5 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/hook 2>/dev/null; exit 0",
             "timeout": 5
           }
         ],
@@ -49,8 +49,8 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:4823/hook",
+            "type": "command",
+            "command": "curl -sS -m 600 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/hook 2>/dev/null; exit 0",
             "timeout": 600
           }
         ],
@@ -61,8 +61,8 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:4823/hook",
+            "type": "command",
+            "command": "curl -sS -m 5 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/hook 2>/dev/null; exit 0",
             "timeout": 5
           }
         ]
@@ -72,8 +72,8 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:4823/hook",
+            "type": "command",
+            "command": "curl -sS -m 5 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/hook 2>/dev/null; exit 0",
             "timeout": 5
           }
         ]
@@ -83,8 +83,8 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:4823/hook",
+            "type": "command",
+            "command": "curl -sS -m 5 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/hook 2>/dev/null; exit 0",
             "timeout": 5
           }
         ]
@@ -94,8 +94,8 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:4823/hook",
+            "type": "command",
+            "command": "curl -sS -m 5 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/hook 2>/dev/null; exit 0",
             "timeout": 5
           }
         ]
@@ -105,8 +105,8 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:4823/hook",
+            "type": "command",
+            "command": "curl -sS -m 5 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/hook 2>/dev/null; exit 0",
             "timeout": 5
           }
         ]
@@ -116,8 +116,8 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:4823/hook",
+            "type": "command",
+            "command": "curl -sS -m 5 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/hook 2>/dev/null; exit 0",
             "timeout": 5
           }
         ]
@@ -127,8 +127,8 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:4823/hook",
+            "type": "command",
+            "command": "curl -sS -m 5 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:4823/hook 2>/dev/null; exit 0",
             "timeout": 5
           }
         ]

@@ -44,7 +44,11 @@ export const HOOK_EVENTS = [
 ] as const;
 
 const MATCHER_EVENTS = new Set(['PreToolUse', 'PostToolUse', 'PermissionRequest']);
+// Anchored form for the old `http`-type entries this version no longer
+// writes but still has to recognise and strip on upgrade; loose form for the
+// curl one-liner `observe()` now embeds inside a `command` entry.
 const CONSOLE_HOOK_URL = /^http:\/\/127\.0\.0\.1:\d+\/hook$/;
+const CONSOLE_HOOK_COMMAND_URL = /http:\/\/127\.0\.0\.1:\d+\/hook\b/;
 
 export interface HttpHook {
   type: 'http';
@@ -76,20 +80,27 @@ function post(port: number, route: string): string {
   return `curl -sS -m 2 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:${port}/${route} >/dev/null 2>&1; printf ''`;
 }
 
+// An `http` hook has no setting to stay quiet when nothing answers: Claude
+// Code always renders a connection refusal as a "<hook name> hook error"
+// notice, once per hook, on every single tool call while the console is
+// down. A `command` hook that exits 0 doesn't — stderr from an exit-0 hook
+// goes to the debug log only — so observation events POST through curl
+// instead of through Claude Code's own http hook client, and `exit 0` forces
+// success regardless of whether the POST landed. curl's stdout still carries
+// the console's JSON response through when it did.
+function observe(port: number, timeoutSeconds: number): string {
+  return `curl -sS -m ${timeoutSeconds} -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:${port}/hook 2>/dev/null; exit 0`;
+}
+
 export function hookBlock(port: number): HookBlock {
   const hooks: Record<string, HookEntry[]> = {};
   for (const event of HOOK_EVENTS) {
+    // PermissionRequest is deliberately held for the operator; every other
+    // event must not be able to stall the agent's turn.
+    const timeout =
+      event === 'PermissionRequest' ? PERMISSION_HOOK_TIMEOUT_SECONDS : HOOK_TIMEOUT_SECONDS;
     const entry: HookEntry = {
-      hooks: [
-        {
-          type: 'http',
-          url: `http://127.0.0.1:${port}/hook`,
-          // PermissionRequest is deliberately held for the operator; every other
-          // event must not be able to stall the agent's turn.
-          timeout:
-            event === 'PermissionRequest' ? PERMISSION_HOOK_TIMEOUT_SECONDS : HOOK_TIMEOUT_SECONDS,
-        },
-      ],
+      hooks: [{ type: 'command', command: observe(port, timeout), timeout }],
     };
     if (MATCHER_EVENTS.has(event)) entry.matcher = '*';
     hooks[event] = [entry];
@@ -137,7 +148,9 @@ function isConsoleEntry(entry: unknown): boolean {
   return hooks.some(
     (h) =>
       (h?.type === 'http' && typeof h.url === 'string' && CONSOLE_HOOK_URL.test(h.url)) ||
-      (h?.type === 'command' && typeof h.command === 'string' && h.command.includes('console-launch.sh')),
+      (h?.type === 'command' &&
+        typeof h.command === 'string' &&
+        (h.command.includes('console-launch.sh') || CONSOLE_HOOK_COMMAND_URL.test(h.command))),
   );
 }
 
