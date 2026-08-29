@@ -95,9 +95,30 @@ describe('Tasks — left pane', () => {
     renderTasks();
     const rows = screen.getAllByTestId('task-row');
     expect(rows).toHaveLength(2);
-    expect(rows[0].style.padding).toBe('7px 16px');
+    expect(rows[0].style.padding).toBe('12px 16px');
     expect(rows[0].style.fontSize).toBe('11.5px');
     expect(rows[0].style.borderBottom).toBe('1px solid var(--row-hairline)');
+  });
+
+  // Top-aligned, unlike a stream: `tail` here pushed the first task 90-170px
+  // down the pane and the last ones below the fold.
+  it('scrolls on its own, reading top-down', () => {
+    renderTasks();
+    const list = screen.getAllByTestId('task-row')[0].parentElement!;
+    expect(list.className).toBe('tscroll');
+    expect(list.style.overflow).toBe('');
+  });
+
+  // The symptom this prevents: a lead that spawned teammates with the Agent
+  // tool and never called TaskCreate leaves a genuinely empty list, and bare
+  // column headers over a blank pane read as a console that failed to load.
+  it('says so when the team never used the shared list', () => {
+    render(<Tasks tasks={[]} mail={[]} teamName="session-98b0b4a7" />);
+    expect(screen.getByTestId('tasks-empty').textContent).toBe(
+      "no tasks \u2014 this team hasn't used the shared list",
+    );
+    expect(screen.getByTestId('mailbox-empty').textContent).toBe('no messages yet');
+    expect(screen.queryAllByTestId('task-row')).toHaveLength(0);
   });
 
   it('shows the owner, or "unassigned" when nobody has claimed it', () => {
@@ -130,6 +151,15 @@ describe('Tasks — mailbox pane', () => {
     renderTasks();
     expect(screen.getByTestId('mailbox').style.width).toBe('404px');
     expect(screen.getByText('MAILBOX TRAFFIC')).toBeTruthy();
+  });
+
+  it('is a stream: bottom-anchored, scrollable, 18px between entries', () => {
+    renderTasks();
+    const list = screen.getAllByTestId('mail-entry')[0].parentElement!;
+    expect(list.className).toBe('tscroll tail');
+    // `justify-content: flex-end` looks the same and cannot be scrolled upward.
+    expect(list.style.justifyContent).toBe('');
+    expect(list.style.gap).toBe('18px');
   });
 
   it('shows the SENT time of a message recovered from the inbox', () => {

@@ -110,6 +110,10 @@ const Attached = memo(function Attached(
           display: 'flex',
           gap: '11px',
           alignItems: 'center',
+          // One line, always — the status bar's rule. Once the role has
+          // ellipsised there is nothing left to give, so the metrics clip at
+          // the right edge rather than widening the page behind them.
+          overflow: 'hidden',
         }}
       >
         <Portrait agent={agent} />
@@ -167,7 +171,12 @@ const Attached = memo(function Attached(
         </span>
       </div>
 
-      <TranscriptFeed lines={agent.transcript} size="rail" agent={agent.name} />
+      <TranscriptFeed
+        lines={agent.transcript}
+        size="rail"
+        agent={agent.name}
+        working={agent.status === 'working'}
+      />
 
       <Composer agent={agent} variant="rail" readOnly={readOnly} teamLive={teamLive} />
     </div>
@@ -233,13 +242,14 @@ export function Rail({
         </div>
 
         <div
+          className="tscroll"
           role="listbox"
           tabIndex={0}
           aria-activedescendant={`rail-option-${cursorAgent.name}`}
           onKeyDown={onListKeyDown}
           style={{
             flex: 1,
-            overflow: 'hidden',
+            minHeight: 0,
             display: 'flex',
             flexDirection: 'column',
             gap: '2px',

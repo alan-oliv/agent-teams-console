@@ -188,7 +188,12 @@ const Column = memo(function Column({
         </div>
       </div>
 
-      <TranscriptFeed lines={agent.transcript} size="wall" agent={agent.name} />
+      <TranscriptFeed
+        lines={agent.transcript}
+        size="wall"
+        agent={agent.name}
+        working={agent.status === 'working'}
+      />
 
       <div
         data-testid="wall-current-tool"
@@ -323,12 +328,11 @@ export function Wall({
   return (
     <div
       ref={scroller}
+      className="hscroll"
       data-testid="wall"
       style={{
         flex: 1,
         display: 'flex',
-        overflowX: 'auto',
-        overflowY: 'hidden',
         minHeight: 0,
         gap: '1px',
         background: 'var(--color-neutral-900)',

@@ -96,7 +96,11 @@ const Pane = memo(function Pane({
         </div>
       </div>
 
-      <TranscriptFeed lines={agent.transcript} size="grid" />
+      <TranscriptFeed
+        lines={agent.transcript}
+        size="grid"
+        working={agent.status === 'working'}
+      />
 
       <div
         data-testid="grid-tool"

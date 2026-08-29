@@ -118,7 +118,11 @@ const Tile = memo(function Tile({
         </div>
       </div>
 
-      <TranscriptFeed lines={agent.transcript} size="overview" />
+      <TranscriptFeed
+        lines={agent.transcript}
+        size="overview"
+        working={agent.status === 'working'}
+      />
 
       <div
         data-testid="overview-footer"

@@ -13,6 +13,15 @@ const COLUMN_HEAD: CSSProperties = {
   borderBottom: '1px solid var(--color-neutral-900)',
 };
 
+// Headers over a blank pane read as broken, not as empty — a team that never
+// touched the shared list looks exactly like a console that failed to read it.
+// Same register as the rest of the chrome: `nothing waiting`, `no live teams`.
+const EMPTY: CSSProperties = {
+  padding: '14px 16px',
+  color: 'var(--color-neutral-700)',
+  fontSize: '11px',
+};
+
 const FOOTER: CSSProperties = {
   borderTop: '1px solid var(--color-neutral-900)',
   padding: '9px 16px',
@@ -50,7 +59,10 @@ export function Tasks({
           <span style={{ width: '88px' }}>DEPENDS ON</span>
         </div>
 
-        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <div
+          className="tscroll"
+          style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
+        >
           {tasks.map((task) => {
             const state = TASK_STATUS[task.state];
             return (
@@ -61,7 +73,7 @@ export function Tasks({
                   display: 'flex',
                   gap: '10px',
                   alignItems: 'baseline',
-                  padding: '7px 16px',
+                  padding: '12px 16px',
                   borderBottom: '1px solid var(--row-hairline)',
                   fontSize: '11.5px',
                   background: hovered === task.id ? 'var(--color-bg)' : 'transparent',
@@ -104,6 +116,12 @@ export function Tasks({
               </div>
             );
           })}
+
+          {tasks.length === 0 && (
+            <div data-testid="tasks-empty" style={EMPTY}>
+              no tasks — this team hasn&apos;t used the shared list
+            </div>
+          )}
         </div>
 
         <div data-testid="tasks-footer" style={FOOTER}>
@@ -130,14 +148,14 @@ export function Tasks({
         </div>
 
         <div
+          className="tscroll tail"
           style={{
             flex: 1,
-            overflow: 'hidden',
-            padding: '10px 14px',
+            minHeight: 0,
+            padding: '14px',
             display: 'flex',
             flexDirection: 'column',
-            gap: '9px',
-            justifyContent: 'flex-end',
+            gap: '18px',
           }}
         >
           {mail.map((m) => (
@@ -171,6 +189,12 @@ export function Tasks({
               </div>
             </div>
           ))}
+
+          {mail.length === 0 && (
+            <div data-testid="mailbox-empty" style={{ ...EMPTY, padding: 0 }}>
+              no messages yet
+            </div>
+          )}
         </div>
 
         <div

@@ -50,6 +50,14 @@ describe('Rail — left list', () => {
     expect(screen.getByRole('listbox')).toBeTruthy();
   });
 
+  // A roster reads top-down; only the streams bottom-anchor.
+  it('scrolls the roster on its own, top-aligned', () => {
+    renderRail();
+    const list = screen.getByRole('listbox');
+    expect(list.className).toBe('tscroll');
+    expect(list.style.overflow).toBe('');
+  });
+
   it('marks the attached agent with a left selection bar', () => {
     renderRail();
     const rows = screen.getAllByRole('option');

@@ -13,17 +13,41 @@ const LINES: TranscriptLine[] = [
 ];
 
 describe('TranscriptFeed', () => {
-  it('is a bottom-anchored one-pixel-gap column that scrolls on its own', () => {
+  it('is a bottom-anchored column that scrolls on its own', () => {
     render(<TranscriptFeed lines={LINES} size="wall" />);
     const feed = screen.getByTestId('transcript-feed');
     expect(feed.style.display).toBe('flex');
     expect(feed.style.flexDirection).toBe('column');
-    // Anchoring is `margin-top: auto` on the first row, carried by .tscroll.
+    // Anchoring is `margin-top: auto` on the first row, carried by .tscroll.tail.
     // `justify-content: flex-end` looks the same and overflows past the top
     // edge, where no scrollbar can reach it.
     expect(feed.style.justifyContent).toBe('');
     expect(feed.style.overflow).toBe('');
-    expect(feed.className).toBe('tscroll');
+    expect(feed.className).toBe('tscroll tail');
+  });
+
+  it('gives the lines room to read: 10px apart in a wall column, 11 in the rail', () => {
+    const { rerender } = render(<TranscriptFeed lines={LINES} size="wall" />);
+    expect(screen.getByTestId('transcript-feed').style.gap).toBe('10px');
+    rerender(<TranscriptFeed lines={LINES} size="rail" />);
+    expect(screen.getByTestId('transcript-feed').style.gap).toBe('11px');
+    rerender(<TranscriptFeed lines={LINES} size="overview" />);
+    expect(screen.getByTestId('transcript-feed').style.gap).toBe('8px');
+  });
+
+  it('fades each line by its age so the newest reads as current', () => {
+    render(<TranscriptFeed lines={LINES} size="wall" />);
+    const rows = screen.getAllByTestId('transcript-row');
+    expect(rows[2].style.opacity).toBe('1');
+    expect(rows[1].style.opacity).toBe('0.72');
+    expect(rows[0].style.opacity).toBe('0.5');
+  });
+
+  it('drops the whole ladder a step on an agent that is not working', () => {
+    render(<TranscriptFeed lines={LINES} size="wall" working={false} />);
+    const rows = screen.getAllByTestId('transcript-row');
+    expect(rows[2].style.opacity).toBe('0.72');
+    expect(Number(rows[1].style.opacity)).toBeCloseTo(0.72 * 0.72, 5);
   });
 
   it('ellipsises every line: nowrap row, hidden overflow, ellipsis text', () => {
@@ -76,9 +100,10 @@ describe('TranscriptFeed', () => {
 describe('expanding a row that has more to show', () => {
   const MULTI: TranscriptLine[] = [
     { id: 'one', marker: '⏺', text: 'single line', ts: 1 },
-    { id: 'two', marker: '⏺', text: '## Result\n| what | n |\n| tests | 607 |', ts: 2 },
+    { id: 'two', marker: '⏺', text: '## Result\n| what | n |\n| tests | 607 |\n\nall green', ts: 2 },
   ];
   const rows = () => screen.getAllByTestId('transcript-row');
+  const open = () => fireEvent.click(screen.getByTestId('transcript-more'));
 
   it('marks only the multi-line row as expandable', () => {
     render(<TranscriptFeed lines={MULTI} size="wall" />);
@@ -86,23 +111,62 @@ describe('expanding a row that has more to show', () => {
     expect(rows()[1].getAttribute('aria-expanded')).toBe('false');
   });
 
-  it('collapsed, a multi-line row is still one ellipsised line', () => {
+  it('collapsed, a multi-line row is one ellipsised line ending in a caret', () => {
     render(<TranscriptFeed lines={MULTI} size="wall" />);
     expect(rows()[1].style.whiteSpace).toBe('nowrap');
+    expect(within(rows()[1]).getByTestId('transcript-text').textContent).toBe('## Result');
+    expect(within(rows()[1]).getByTestId('transcript-more').textContent).toBe('▸');
   });
 
-  it('expands on click, showing the structure the author wrote', () => {
+  it('opens as a drawer on the lighter ground, with its own edge', () => {
     render(<TranscriptFeed lines={MULTI} size="wall" />);
-    fireEvent.click(rows()[1]);
-    expect(rows()[1].getAttribute('aria-expanded')).toBe('true');
-    expect(rows()[1].style.whiteSpace).toBe('pre-wrap');
-    expect(within(rows()[1]).getByTestId('transcript-text').textContent).toBe(MULTI[1].text);
+    open();
+    const drawer = rows()[1];
+    expect(drawer.getAttribute('aria-expanded')).toBe('true');
+    expect(drawer.style.background).toBe('var(--color-bg)');
+    expect(drawer.style.border).toBe('1px solid var(--color-neutral-900)');
+    expect(within(drawer).getByTestId('transcript-more').textContent).toBe('▾');
   });
 
-  it('collapses again on a second click', () => {
+  it('keeps the header on one line and puts the rest in the body', () => {
     render(<TranscriptFeed lines={MULTI} size="wall" />);
-    fireEvent.click(rows()[1]);
-    fireEvent.click(rows()[1]);
+    open();
+    const drawer = rows()[1];
+    expect(within(drawer).getByTestId('transcript-text').textContent).toBe('## Result');
+    const body = within(drawer).getByTestId('transcript-drawer-body');
+    // Split on the blank line; the table's own breaks survive inside its block.
+    expect([...body.children].map((c) => c.textContent)).toEqual([
+      '| what | n |\n| tests | 607 |',
+      'all green',
+    ]);
+  });
+
+  it('exempts the drawer from the age fade — an open row is being read', () => {
+    render(<TranscriptFeed lines={MULTI} size="wall" working={false} />);
+    open();
+    expect(rows()[1].style.opacity).toBe('');
+  });
+
+  it('counts the lines it is holding', () => {
+    render(<TranscriptFeed lines={MULTI} size="wall" />);
+    open();
+    expect(screen.getByTestId('transcript-drawer-count').textContent).toBe('5 lines');
+  });
+
+  it('copies the whole output, not the one line the row showed', async () => {
+    const writeText = vi.fn(async () => undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    render(<TranscriptFeed lines={MULTI} size="wall" />);
+    open();
+    fireEvent.click(screen.getByTestId('transcript-copy'));
+    expect(writeText).toHaveBeenCalledWith(MULTI[1].text);
+    vi.unstubAllGlobals();
+  });
+
+  it('collapses again from the drawer action', () => {
+    render(<TranscriptFeed lines={MULTI} size="wall" />);
+    open();
+    fireEvent.click(screen.getByTestId('transcript-collapse'));
     expect(rows()[1].getAttribute('aria-expanded')).toBe('false');
     expect(rows()[1].style.whiteSpace).toBe('nowrap');
   });
@@ -115,6 +179,9 @@ describe('expanding a row that has more to show', () => {
       </div>,
     );
     fireEvent.click(rows()[1]);
+    expect(onParent).not.toHaveBeenCalled();
+    // Nor may selecting text inside the open drawer re-target the column.
+    fireEvent.click(screen.getByTestId('transcript-drawer-body'));
     expect(onParent).not.toHaveBeenCalled();
   });
 

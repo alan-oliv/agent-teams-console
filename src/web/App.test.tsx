@@ -58,6 +58,27 @@ it('gives the five non-token colours explicit custom-property homes', async () =
   expect(css).toContain('outline-offset: 2px;');
 });
 
+it('holds every view to the width of the body slot', async () => {
+  const here = import.meta.url;
+  const css = await import('node:fs/promises').then((fs) =>
+    fs.readFile(new URL('./theme.css', here), 'utf8'),
+  );
+  // At the default `min-width: auto` a view root cannot shrink below its
+  // widest unwrapped line, and the page — not the pane — scrolls sideways.
+  expect(css).toMatch(/\.console-body > \*\s*\{\s*min-width: 0;\s*\}/);
+  // Bottom-anchoring is scoped to streams; a roster or task list anchored this
+  // way opens with dead space above its first row.
+  expect(css).toContain('.tscroll.tail > *:first-child {');
+  // Y only. Containing both axes swallowed the sideways wheel over a transcript
+  // pane, and the panes cover nearly the whole wall — the columns off-screen
+  // were then reachable only by the scrollbar itself.
+  expect(css).toContain('overscroll-behavior-y: contain;');
+  expect(css).not.toMatch(/^\s*overscroll-behavior: contain;/m);
+  // The wall's horizontal bar is themed like every pane, not left to the OS.
+  expect(css).toMatch(/\.tscroll::-webkit-scrollbar,\s*\n\s*\.hscroll::-webkit-scrollbar\s*\{/);
+  expect(css).toContain('height: 9px;');
+});
+
 it('mounts status bar, body, needs-you strip and panel once the snapshot lands', () => {
   render(<App />);
   act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));

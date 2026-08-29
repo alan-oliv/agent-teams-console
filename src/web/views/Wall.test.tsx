@@ -57,11 +57,14 @@ describe('Wall', () => {
     expect(columns[0].style.zIndex).toBe('2');
   });
 
-  it('scrolls horizontally only', () => {
+  // The axis and the themed scrollbar both come from .hscroll: an unstyled OS
+  // bar on the one scroller the operator uses most read as a bug.
+  it('scrolls horizontally only, on a themed bar', () => {
     renderWall();
     const wall = screen.getByTestId('wall');
-    expect(wall.style.overflowX).toBe('auto');
-    expect(wall.style.overflowY).toBe('hidden');
+    expect(wall.className).toBe('hscroll');
+    expect(wall.style.overflowX).toBe('');
+    expect(wall.style.overflowY).toBe('');
   });
 
   it('renders the three header lines for probe-alpha', () => {

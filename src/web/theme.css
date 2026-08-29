@@ -134,6 +134,16 @@ button {
   display: flex;
 }
 
+/* A view fills the body slot and never widens it. Without this a view root is
+   a flex item at `min-width: auto`, so it cannot shrink below the widest
+   unwrapped line inside it: the rail and the overview both grew past 7000px on
+   a real transcript, scrolling the whole PAGE sideways and dragging the
+   needs-you strip and the panel off screen. The panes clip and ellipsise
+   correctly once the slot holds them to its width. */
+.console-body > * {
+  min-width: 0;
+}
+
 .tab:hover {
   background: var(--color-neutral-900);
 }
@@ -161,34 +171,61 @@ button {
 .tscroll {
   overflow-y: auto;
   overflow-x: hidden;
-  overscroll-behavior: contain;
+  /* Y only. A pane hitting its end must not scroll the page — that is what this
+     is for — but containing BOTH axes also swallowed horizontal wheel events,
+     and the panes cover nearly all of the wall. A sideways swipe anywhere over
+     a transcript did nothing, leaving the scrollbar as the only way to reach
+     the columns off-screen. The panes have no X scroll of their own, so
+     chaining sideways to the wall is the only sensible thing they can do. */
+  overscroll-behavior-y: contain;
+}
+
+/* The wall's own axis. Same treatment as a pane, or the one scroller the
+   operator uses most is the one wearing an unstyled OS scrollbar. */
+.hscroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+}
+
+.tscroll,
+.hscroll {
   scrollbar-width: thin;
   scrollbar-color: var(--color-neutral-800) transparent;
 }
 
 /* Bottom-anchors the lines. `justify-content: flex-end` looks identical and
    makes the column unscrollable upward — the content overflows past the top
-   edge where no scrollbar can reach it. */
-.tscroll > *:first-child {
+   edge where no scrollbar can reach it.
+
+   Streams only — transcripts and the mailbox. The task list and the rail's
+   roster read top-down: anchoring those put 90-170px of dead space above the
+   first row and pushed the later ones below the fold. */
+.tscroll.tail > *:first-child {
   margin-top: auto;
 }
 
-.tscroll::-webkit-scrollbar {
+.tscroll::-webkit-scrollbar,
+.hscroll::-webkit-scrollbar {
   width: 9px;
+  height: 9px;
 }
 
-.tscroll::-webkit-scrollbar-track {
+.tscroll::-webkit-scrollbar-track,
+.hscroll::-webkit-scrollbar-track {
   background: rgba(233, 233, 237, 0.035);
 }
 
-.tscroll::-webkit-scrollbar-thumb {
+.tscroll::-webkit-scrollbar-thumb,
+.hscroll::-webkit-scrollbar-thumb {
   background: var(--color-neutral-800);
   border-radius: 5px;
   border: 2px solid transparent;
   background-clip: content-box;
 }
 
-.tscroll:hover::-webkit-scrollbar-thumb {
+.tscroll:hover::-webkit-scrollbar-thumb,
+.hscroll:hover::-webkit-scrollbar-thumb {
   background: var(--color-accent-700);
   background-clip: content-box;
 }
