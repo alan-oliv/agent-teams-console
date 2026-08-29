@@ -2718,6 +2718,7 @@ function project(events, readOnly) {
   let config = null;
   let sidecars = [];
   let branch;
+  let sessionName;
   let rateLimits;
   const records = /* @__PURE__ */ new Map();
   const seenRecords = /* @__PURE__ */ new Map();
@@ -2800,6 +2801,7 @@ function project(events, readOnly) {
       case "statusline": {
         const p = ev.payload;
         if (p.branch) branch = p.branch;
+        if (p.sessionName) sessionName = p.sessionName;
         if (p.fiveHourPct !== void 0 || p.sevenDayPct !== void 0) {
           rateLimits = {
             fiveHourPct: p.fiveHourPct ?? 0,
@@ -2901,6 +2903,7 @@ function project(events, readOnly) {
   }
   return {
     teamName: config?.name ?? "",
+    sessionName,
     leadSessionId: config?.leadSessionId ?? "",
     branch,
     startedAt: config?.createdAt ?? 0,
@@ -3386,11 +3389,14 @@ function startFileIngest(store, config) {
     store.append("task", task, task.owner);
   };
   const handleSessionJson = async (file) => {
-    if (chain.size > 0 && !chain.has(path5.basename(file, ".json"))) return;
     const doc = await readJsonSafe(file);
+    const sid = typeof doc?.sessionId === "string" ? doc.sessionId : path5.basename(file, ".json");
+    if (chain.size > 0 && !chain.has(sid)) return;
+    const ours = chain.has(sid);
     const branch = doc?.gitBranch ?? doc?.branch;
-    if (!branch) return;
-    store.append("statusline", { branch }, leadName);
+    const sessionName = typeof doc?.name === "string" && doc.name ? doc.name : void 0;
+    if (!branch && !(ours && sessionName)) return;
+    store.append("statusline", { branch, sessionName: ours ? sessionName : void 0 }, leadName);
   };
   const dispatchJson = async (file, root) => {
     if (root === paths.teams) await handleTeamsJson(file);
