@@ -103,7 +103,9 @@ export function sampleTeamState(): TeamState {
       costUsd: t.costUsd,
       startedAt: m.joinedAt,
       transcript: [],
-      unread: 0,
+      // An inbox drains oldest first, so this is how many of the agent's
+      // newest messages have not reached a turn boundary yet.
+      unread: m.name === 'probe-alpha' ? 1 : 0,
     };
   });
 

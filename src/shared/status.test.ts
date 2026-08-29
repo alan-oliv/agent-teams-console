@@ -35,8 +35,8 @@ describe('AGENT_STATUS', () => {
   it('carries the exact glyphs, labels and colours from the design', () => {
     expect(AGENT_STATUS.working).toEqual({ glyph: '●', label: 'working', color: 'var(--color-accent-400)' });
     expect(AGENT_STATUS.idle).toEqual({ glyph: '○', label: 'idle', color: 'var(--color-neutral-600)' });
-    expect(AGENT_STATUS.plan_pending).toEqual({ glyph: '▲', label: 'plan approval', color: '#d99e5c' });
-    expect(AGENT_STATUS.failed).toEqual({ glyph: '✗', label: 'failed', color: '#c98d8d' });
+    expect(AGENT_STATUS.plan_pending).toEqual({ glyph: '▲', label: 'plan approval', color: 'var(--warn)' });
+    expect(AGENT_STATUS.failed).toEqual({ glyph: '✗', label: 'failed', color: 'var(--fail)' });
     expect(AGENT_STATUS.blocked).toEqual({ glyph: '⊘', label: 'blocked', color: 'var(--color-neutral-600)' });
     expect(AGENT_STATUS.departed).toEqual({ glyph: '◌', label: 'departed', color: 'var(--color-neutral-800)' });
     expect(Object.keys(AGENT_STATUS)).toHaveLength(6);
@@ -48,15 +48,15 @@ describe('TASK_STATUS', () => {
     expect(TASK_STATUS.pending).toEqual({ glyph: '○', label: 'pending', color: 'var(--color-neutral-500)' });
     expect(TASK_STATUS.in_progress).toEqual({ glyph: '●', label: 'in progress', color: 'var(--color-accent-400)' });
     expect(TASK_STATUS.completed).toEqual({ glyph: '✓', label: 'completed', color: 'var(--color-accent-500)' });
-    expect(TASK_STATUS.plan_pending).toEqual({ glyph: '▲', label: 'plan approval', color: '#d99e5c' });
-    expect(TASK_STATUS.failed).toEqual({ glyph: '✗', label: 'failed', color: '#c98d8d' });
+    expect(TASK_STATUS.plan_pending).toEqual({ glyph: '▲', label: 'plan approval', color: 'var(--warn)' });
+    expect(TASK_STATUS.failed).toEqual({ glyph: '✗', label: 'failed', color: 'var(--fail)' });
     expect(TASK_STATUS.blocked).toEqual({ glyph: '⊘', label: 'blocked', color: 'var(--color-neutral-600)' });
     expect(Object.keys(TASK_STATUS)).toHaveLength(6);
   });
 
   it('uses the attention amber for plan approval and the failure rose for failed', () => {
-    expect(TASK_STATUS.plan_pending.color).toBe('#d99e5c');
-    expect(TASK_STATUS.failed.color).toBe('#c98d8d');
+    expect(TASK_STATUS.plan_pending.color).toBe('var(--warn)');
+    expect(TASK_STATUS.failed.color).toBe('var(--fail)');
   });
 });
 

@@ -5,8 +5,8 @@ export interface StatusStyle { glyph: string; label: string; color: string }
 export const AGENT_STATUS: Record<AgentStatus, StatusStyle> = {
   working: { glyph: '●', label: 'working', color: 'var(--color-accent-400)' },
   idle: { glyph: '○', label: 'idle', color: 'var(--color-neutral-600)' },
-  plan_pending: { glyph: '▲', label: 'plan approval', color: '#d99e5c' },
-  failed: { glyph: '✗', label: 'failed', color: '#c98d8d' },
+  plan_pending: { glyph: '▲', label: 'plan approval', color: 'var(--warn)' },
+  failed: { glyph: '✗', label: 'failed', color: 'var(--fail)' },
   blocked: { glyph: '⊘', label: 'blocked', color: 'var(--color-neutral-600)' },
   departed: { glyph: '◌', label: 'departed', color: 'var(--color-neutral-800)' },
 };
@@ -27,8 +27,8 @@ export const TASK_STATUS: Record<TaskState, StatusStyle> = {
   pending: { glyph: '○', label: 'pending', color: 'var(--color-neutral-500)' },
   in_progress: { glyph: '●', label: 'in progress', color: 'var(--color-accent-400)' },
   completed: { glyph: '✓', label: 'completed', color: 'var(--color-accent-500)' },
-  plan_pending: { glyph: '▲', label: 'plan approval', color: '#d99e5c' },
-  failed: { glyph: '✗', label: 'failed', color: '#c98d8d' },
+  plan_pending: { glyph: '▲', label: 'plan approval', color: 'var(--warn)' },
+  failed: { glyph: '✗', label: 'failed', color: 'var(--fail)' },
   blocked: { glyph: '⊘', label: 'blocked', color: 'var(--color-neutral-600)' },
 };
 

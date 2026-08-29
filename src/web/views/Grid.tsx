@@ -35,7 +35,7 @@ const Pane = memo(function Pane({
       onClick={() => onFocus(agent.name)}
       onKeyDown={onKeyDown}
       style={{
-        background: '#12141f',
+        background: 'var(--term)',
         display: 'flex',
         flexDirection: 'column',
         minHeight: 0,

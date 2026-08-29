@@ -1,5 +1,6 @@
-import { useState, type KeyboardEvent } from 'react';
+import { createContext, useContext, useState, type KeyboardEvent } from 'react';
 import type { Agent } from '../../shared/domain';
+import { AGENT_STATUS } from '../../shared/status';
 import { postJson } from '../api';
 
 interface Variant {
@@ -38,9 +39,24 @@ const VARIANT: Record<'wall' | 'rail' | 'thread' | 'everyone', Variant> = {
   },
 };
 
+/**
+ * The roster the routed composer can address. A context rather than a prop for
+ * the same reason NowContext is one: the roster changes on every frame, and
+ * threading it through the memoised Column would re-render that whole column —
+ * transcript included — every time any agent anywhere changed.
+ */
+export const RosterContext = createContext<Agent[]>([]);
+
+function routeState(a: Agent): string {
+  if (a.status === 'idle') return 'idle · a message wakes it';
+  if (a.status === 'failed') return 'failed · still reachable';
+  return AGENT_STATUS[a.status].label;
+}
+
 export function Composer({
   agent,
   alsoTo,
+  routed = false,
   variant,
   readOnly = false,
   teamLive = true,
@@ -52,6 +68,13 @@ export function Composer({
    * addressed to the room is a direct message to every member.
    */
   alsoTo?: Agent[];
+  /**
+   * Turns this into the console's ONE composer: it addresses any agent in
+   * RosterContext rather than the column it sits in. A composer per column
+   * implied a channel this model does not have — every send is a direct inbox
+   * write, so the target belongs to the message, not to where you typed it.
+   */
+  routed?: boolean;
   variant: 'wall' | 'rail' | 'thread' | 'everyone';
   readOnly?: boolean;
   /**
@@ -69,15 +92,49 @@ export function Composer({
   // mailbox, so a delivered message and one queued against a stopped reader
   // looked identical — an empty box either way.
   const [ack, setAck] = useState<'sent' | 'queued' | 'not sent' | null>(null);
+  const [highlight, setHighlight] = useState(0);
   const v = VARIANT[variant];
+
+  const roster = useContext(RosterContext);
+  // A departed agent has no reader left, so it is not offered.
+  const routable = routed ? roster.filter((a) => a.status !== 'departed') : [];
+
+  /**
+   * @-routing, Slack-style. At rest there is no chip and no picker: with no `@`
+   * the message goes to the lead, which is the common case, and the composer
+   * stays a prompt. An `@` still being typed opens the list and filters it; an
+   * `@name ` followed by a space is resolved and becomes a chip.
+   */
+  const at = text.lastIndexOf('@');
+  const frag = at < 0 ? null : text.slice(at + 1);
+  const typing = routed && frag !== null && !/\s/.test(frag);
+  const chipName = routed && at === 0 && !typing ? text.slice(1).trim().split(' ')[0] : '';
+  const chip = routable.find((a) => a.name === chipName);
+  const body = chip ? text.slice(chip.name.length + 1).replace(/^\s/, '') : text;
+  const lead = routable.find((a) => a.isLead);
+  // Prefix match, and the first row is what Enter takes.
+  const options = typing
+    ? routable.filter((a) => !frag || a.name.startsWith(frag))
+    : [];
+  // Clamped rather than reset in an effect: narrowing the filter can drop the
+  // row under the cursor, and an out-of-range index would send to nobody.
+  const active = options.length > 0 ? Math.min(highlight, options.length - 1) : 0;
+
+  const target = chip ?? lead;
+
   // Read-only 409s every control route, so an enabled composer would look live
   // and swallow the rejection. Departed teammates have no inbox reader left —
   // in a thread only one of the two has to still be there.
-  const recipients = [agent, ...(alsoTo ?? [])].filter((a) => a.status !== 'departed');
+  const recipients = routed
+    ? target
+      ? [target]
+      : []
+    : [agent, ...(alsoTo ?? [])].filter((a) => a.status !== 'departed');
+  const outgoing = routed ? body : text;
   const disabled = readOnly || recipients.length === 0;
 
   async function send() {
-    const body = text.trim();
+    const body = outgoing.trim();
     if (!body || busy || disabled) return;
     setBusy(true);
     try {
@@ -98,11 +155,50 @@ export function Composer({
     }
   }
 
+  /**
+   * Enter sends; Shift+Enter is the newline.
+   *
+   * Enter used to fall through to the textarea's own handling, which put a
+   * newline in a `rows={1}` box — the typed message scrolled out of sight, the
+   * send never happened, and no ack appeared. Typing a message and pressing the
+   * key every chat client sends with was indistinguishable from a console that
+   * had stopped working, which is exactly how it was reported.
+   */
+  const named = routed ? (target?.name ?? agent.name) : agent.name;
+
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === 'Enter' && e.metaKey) {
+    const picking = typing && options.length > 0;
+
+    if (picking && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+      // Wraps: the list is short enough that running off either end and
+      // reappearing is quicker than stopping dead.
       e.preventDefault();
-      void send();
+      const step = e.key === 'ArrowDown' ? 1 : options.length - 1;
+      // Functional, and re-clamped inside: two presses inside one render batch
+      // would otherwise both start from the same render-time index and land one
+      // step apart instead of two.
+      setHighlight((h) => (Math.min(h, options.length - 1) + step) % options.length);
+      return;
     }
+
+    // Backspace against an empty box takes the chip off, the way it removes any
+    // other token — otherwise the mention is only clearable by clearing the
+    // whole message, which is the text you actually wanted to keep.
+    if (e.key === 'Backspace' && chip && body === '') {
+      e.preventDefault();
+      setText('');
+      return;
+    }
+
+    if (e.key !== 'Enter' || e.shiftKey) return;
+    e.preventDefault();
+    // The highlighted row of an open picker is the ⏎ default, so Enter resolves
+    // the mention rather than sending a message still addressed to nobody.
+    if (picking) {
+      setText(`@${options[active].name} `);
+      return;
+    }
+    void send();
   }
 
   return (
@@ -114,23 +210,124 @@ export function Composer({
         display: 'flex',
         alignItems: 'center',
         gap: v.gap,
+        position: 'relative',
       }}
     >
       <span style={{ color: v.promptColor, fontSize: v.promptSize }}>❯</span>
+      {chip && (
+        <span
+          data-testid="route-chip"
+          style={{
+            flex: 'none',
+            padding: '1px 6px',
+            borderRadius: 'var(--radius-sm)',
+            border: '1px solid var(--color-accent-700)',
+            background: 'var(--color-accent-900)',
+            color: 'var(--color-accent-300)',
+            fontSize: '10.5px',
+          }}
+        >
+          {`@${chip.name}`}
+        </span>
+      )}
+
+      {typing && options.length > 0 && (
+        <div
+          data-testid="route-menu"
+          style={{
+            position: 'absolute',
+            bottom: 'calc(100% + 8px)',
+            left: '10px',
+            zIndex: 25,
+            display: 'flex',
+            flexDirection: 'column',
+            width: '262px',
+            background: 'var(--color-bg)',
+            border: '1px solid var(--color-neutral-800)',
+            borderRadius: 'var(--radius-md)',
+            boxShadow: '0 -14px 34px rgba(0,0,0,.6)',
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            data-testid="route-filter"
+            style={{
+              padding: '7px 11px',
+              borderBottom: '1px solid var(--color-neutral-900)',
+              color: 'var(--color-neutral-600)',
+              fontSize: '9.5px',
+              letterSpacing: '.12em',
+            }}
+          >
+            {frag ? `@${frag}` : 'type to filter'}
+          </div>
+          {options.map((a, i) => (
+            <div
+              key={a.name}
+              data-testid="route-option"
+              onMouseDown={(e) => {
+                // mousedown, not click: a click would blur the textarea first
+                // and the picker would close before the pick landed.
+                e.preventDefault();
+                setText(`@${a.name} `);
+              }}
+              style={{
+                padding: '7px 11px',
+                cursor: 'pointer',
+                display: 'flex',
+                gap: '7px',
+                alignItems: 'baseline',
+                background: i === active ? 'var(--color-accent-900)' : 'transparent',
+                borderBottom: '1px solid var(--color-neutral-900)',
+              }}
+            >
+              <span
+                style={{
+                  color: i === active ? 'var(--color-accent-300)' : 'var(--color-text)',
+                  fontSize: '11px',
+                }}
+              >
+                {`@${a.name}`}
+              </span>
+              <span
+                style={{
+                  color: 'var(--color-neutral-600)',
+                  fontSize: '9.5px',
+                  minWidth: 0,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {routeState(a)}
+              </span>
+              <span style={{ flex: 1 }} />
+              {/* The highlighted row is what Enter takes. */}
+              <span style={{ color: 'var(--color-accent-400)', fontSize: '9.5px' }}>
+                {i === active ? '⏎' : ''}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
       <textarea
         data-testid="composer-input"
         rows={1}
-        value={text}
+        value={routed ? body : text}
         placeholder={
           readOnly
             ? 'read-only — control routes are disabled'
             : recipients.some((to) => to.isLead) && !teamLive
-              ? `${v.placeholder(agent.name)} · queued until a teammate is live`
-              : v.placeholder(agent.name)
+              ? `${v.placeholder(named)} · queued until a teammate is live`
+              : routed && !chip
+                ? 'message the lead · @ to reach a teammate'
+                : v.placeholder(named)
         }
         disabled={disabled}
         onChange={(e) => {
-          setText(e.target.value);
+          setText(chip ? `@${chip.name} ${e.target.value}` : e.target.value);
+          setHighlight(0); // a changed filter starts at the top again
           setAck(null); // typing again is the operator moving on from the last result
         }}
         onKeyDown={onKeyDown}
@@ -154,7 +351,7 @@ export function Composer({
           style={{
             flex: 'none',
             fontSize: '10px',
-            color: ack === 'not sent' ? 'var(--failure-rose)' : 'var(--color-neutral-600)',
+            color: ack === 'not sent' ? 'var(--fail)' : 'var(--color-neutral-600)',
           }}
         >
           {ack}
@@ -173,7 +370,8 @@ export function Composer({
         />
       )}
       {variant === 'wall' ? (
-        <span style={{ color: 'var(--color-neutral-800)', fontSize: '10px' }}>⌘⏎</span>
+        // `⌘⏎` still sends, but naming it here taught the one key that did NOT.
+        <span style={{ color: 'var(--color-neutral-800)', fontSize: '10px' }}>⏎</span>
       ) : variant === 'thread' || variant === 'everyone' ? (
         <span
           data-testid="composer-note"

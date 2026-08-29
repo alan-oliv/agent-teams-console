@@ -41,11 +41,22 @@ describe('Composer', () => {
     await waitFor(() => expect(input.value).toBe(''));
   });
 
-  it('does not send on a plain Enter', () => {
+  // Enter used to insert a newline instead. In a one-row box that scrolled the
+  // text out of sight with no ack, so typing a message and pressing Enter looked
+  // exactly like the console doing nothing at all.
+  it('sends on a plain Enter', () => {
     render(<Composer agent={alpha} variant="wall" />);
     const input = screen.getByTestId('composer-input');
     fireEvent.change(input, { target: { value: 'stop after task 1' } });
     fireEvent.keyDown(input, { key: 'Enter' });
+    expect(fetchMock).toHaveBeenCalledWith('/api/agents/probe-alpha/message', expect.anything());
+  });
+
+  it('keeps Shift+Enter for a newline, so a multi-line message is still possible', () => {
+    render(<Composer agent={alpha} variant="wall" />);
+    const input = screen.getByTestId('composer-input');
+    fireEvent.change(input, { target: { value: 'line one' } });
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -55,10 +66,10 @@ describe('Composer', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('shows the ⌘⏎ hint in the wall variant and the placeholder names the teammate', () => {
+  it('shows the ⏎ hint in the wall variant and the placeholder names the teammate', () => {
     render(<Composer agent={alpha} variant="wall" />);
     expect(screen.getByTestId('composer-input')).toHaveProperty('placeholder', 'message probe-alpha');
-    expect(screen.getByText('⌘⏎')).toBeTruthy();
+    expect(screen.getByText('⏎')).toBeTruthy();
     expect(screen.queryByTestId('composer-caret')).toBeNull();
   });
 

@@ -44,7 +44,7 @@ export function stopAffordance(
     return {
       glyph: agent.isLead ? '⏻' : '✕',
       title: 'stop requested — it stops at its next turn boundary',
-      color: '#d99e5c',
+      color: 'var(--warn)',
     };
   }
   return agent.isLead
@@ -88,7 +88,7 @@ export function StopButton({
   const [hover, setHover] = useState(false);
   const { glyph, title, color } = stopAffordance(agent, requested);
   const style: CSSProperties = {
-    color: disabled ? 'var(--color-neutral-800)' : hover ? '#c98d8d' : color,
+    color: disabled ? 'var(--color-neutral-800)' : hover ? 'var(--fail)' : color,
     fontSize: '10.5px',
     cursor: disabled ? 'default' : 'pointer',
     padding: '0 2px',

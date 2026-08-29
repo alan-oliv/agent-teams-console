@@ -46,7 +46,7 @@ describe('stopAffordance', () => {
   it('says a stop is REQUESTED, not done, while the agent is still there', () => {
     const a = stopAffordance(agent(), true);
     expect(a.title).toBe('stop requested — it stops at its next turn boundary');
-    expect(a.color).toBe('#d99e5c');
+    expect(a.color).toBe('var(--warn)');
     expect(a.glyph).not.toBe('⊗');
   });
 

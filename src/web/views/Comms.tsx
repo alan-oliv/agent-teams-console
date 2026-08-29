@@ -4,6 +4,7 @@ import {
   composingIn,
   everyoneThread,
   readTurnOf,
+  resolveDelivery,
   roomLines,
   roomRecipients,
   stateOf,
@@ -150,7 +151,7 @@ function RoomBubble({ line, agents, now }: { line: RoomLine; agents: Agent[]; no
         </span>
         <span
           data-testid="room-receipt"
-          style={{ color: line.read ? 'var(--color-neutral-700)' : 'var(--attention)', fontSize: '10px' }}
+          style={{ color: line.read ? 'var(--color-neutral-700)' : 'var(--warn)', fontSize: '10px' }}
         >
           {line.read
             ? turn === undefined
@@ -237,7 +238,7 @@ function Bubble({
       <span
         data-testid="bubble-delivery"
         style={{
-          color: message.read ? 'var(--color-neutral-700)' : 'var(--attention)',
+          color: message.read ? 'var(--color-neutral-700)' : 'var(--warn)',
           fontSize: '10px',
           padding: '0 32px',
         }}
@@ -264,10 +265,13 @@ export function Comms({
   now: number;
   readOnly?: boolean;
 }) {
-  const threads = useMemo(() => threadsOf(mail), [mail]);
+  // Settle delivery before threading: the read flag on the wire is the one the
+  // inbox was written with and never updated. See resolveDelivery.
+  const settled = useMemo(() => resolveDelivery(mail, agents), [mail, agents]);
+  const threads = useMemo(() => threadsOf(settled), [settled]);
   // The whole team's traffic, pinned above the pairs. Not a seventh inbox — the
   // same messages, read end to end instead of two at a time.
-  const room = useMemo(() => everyoneThread(mail), [mail]);
+  const room = useMemo(() => everyoneThread(settled), [settled]);
   const [picked, setPicked] = useState<string | null>(null);
 
   // The room holds every agent, so a focused agent never pulls the view off it.
@@ -345,7 +349,7 @@ export function Comms({
                 data-testid="room-glyph"
                 style={{ width: '22px', textAlign: 'center', color: 'var(--color-neutral-600)', fontSize: '13px' }}
               >
-                #
+                ⌗
               </span>
               <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '2px' }}>
                 <span style={{ color: 'var(--color-text)', fontSize: '11.5px' }}>{room.pair}</span>

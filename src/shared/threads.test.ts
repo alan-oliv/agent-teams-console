@@ -4,6 +4,7 @@ import {
   composingIn,
   everyoneThread,
   readTurnOf,
+  resolveDelivery,
   roomLines,
   roomRecipients,
   stateOf,
@@ -128,7 +129,7 @@ describe('stateOf', () => {
   it('gives the three states the design glyphs', () => {
     expect(THREAD_STATE.live.glyph).toBe('●');
     expect(THREAD_STATE.unread.glyph).toBe('◆');
-    expect(THREAD_STATE.unread.color).toBe('var(--attention)');
+    expect(THREAD_STATE.unread.color).toBe('var(--warn)');
     expect(THREAD_STATE.settled.glyph).toBe('·');
   });
 });
@@ -291,5 +292,60 @@ describe('roomRecipients', () => {
   it('names the inboxes it actually reached when it did not reach all of them', () => {
     expect(roomRecipients(line(['perf']), agents)).toBe('→ perf');
     expect(roomRecipients(line(['perf', 'security']), agents)).toBe('→ perf, security');
+  });
+});
+
+// A recipient does not flip `read` on an entry — it REMOVES it. Measured on a
+// live team: a two-entry inbox went to `[]` at the recipient's next turn
+// boundary, and nothing in Claude Code or this repo ever writes `read: true`.
+describe('resolveDelivery', () => {
+  const to = 'security';
+  const older = mail({ from: 'perf', to, ts: T0, read: false });
+  const newer = mail({ from: 'perf', to, ts: T0 + 1000, read: false });
+
+  it('marks everything read once the recipient inbox is empty', () => {
+    const out = resolveDelivery([older, newer], [agent(to, { unread: 0 })]);
+    expect(out.map((m) => m.read)).toEqual([true, true]);
+  });
+
+  it('keeps the newest N pending, because an inbox drains oldest first', () => {
+    const out = resolveDelivery([older, newer], [agent(to, { unread: 1 })]);
+    expect(out.map((m) => [m.ts - T0, m.read])).toEqual([[0, true], [1000, false]]);
+  });
+
+  it('holds every message pending while none has been drained', () => {
+    const out = resolveDelivery([older, newer], [agent(to, { unread: 2 })]);
+    expect(out.map((m) => m.read)).toEqual([false, false]);
+  });
+
+  it('counts each recipient inbox separately', () => {
+    const toPerf = mail({ from: 'security', to: 'perf', ts: T0 + 500, read: false });
+    const out = resolveDelivery(
+      [older, toPerf, newer],
+      [agent(to, { unread: 1 }), agent('perf', { unread: 0 })],
+    );
+    expect(out.map((m) => [m.to, m.read])).toEqual([
+      [to, true],
+      ['perf', true],
+      [to, false],
+    ]);
+  });
+
+  it('says nothing about a recipient the roster no longer lists', () => {
+    // No inbox count to reason from, so the parsed flag stands rather than
+    // every message to a departed agent silently reporting delivered.
+    const out = resolveDelivery([older, newer], []);
+    expect(out.map((m) => m.read)).toEqual([false, false]);
+  });
+
+  it('never un-reads a message already known read', () => {
+    const proven = mail({ from: 'perf', to, ts: T0 + 2000, read: true });
+    const out = resolveDelivery([older, newer, proven], [agent(to, { unread: 3 })]);
+    expect(out.map((m) => m.read)).toEqual([false, false, true]);
+  });
+
+  it('leaves a thread unread count that is not just every message ever sent', () => {
+    const threads = threadsOf(resolveDelivery([older, newer], [agent(to, { unread: 1 })]));
+    expect(threads[0].unread).toBe(1);
   });
 });

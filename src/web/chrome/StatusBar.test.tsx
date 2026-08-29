@@ -3,6 +3,16 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, expect, it, vi } from 'vitest';
 import { FIXTURE_NOW, sampleTeamState } from '../test/state-fixture';
 import { StatusBar } from './StatusBar';
+import { DEFAULT_SETTINGS } from '../state/useSettings';
+import { cssVarsFor, DENSITY } from '../themes';
+
+const APPEARANCE = {
+  settings: DEFAULT_SETTINGS,
+  set: vi.fn(),
+  reset: vi.fn(),
+  vars: cssVarsFor(DEFAULT_SETTINGS.theme, DEFAULT_SETTINGS.scheme),
+  gap: DENSITY[DEFAULT_SETTINGS.density],
+};
 
 // This suite renders once per `it`; without explicit cleanup the un-unmounted
 // nodes from one test leak into the next and getByRole/getByText start
@@ -19,6 +29,7 @@ function renderBar(view: Parameters<typeof StatusBar>[0]['view'] = 'wall') {
       now={FIXTURE_NOW}
       teamsOpen={false}
       onTeamsOpenChange={vi.fn()}
+      appearance={APPEARANCE}
     />,
   );
   return onViewChange;
@@ -72,6 +83,7 @@ it('does not pin the meter full when the cumulative token count is large', () =>
       now={FIXTURE_NOW}
       teamsOpen={false}
       onTeamsOpenChange={vi.fn()}
+      appearance={APPEARANCE}
     />,
   );
   expect(screen.getByTestId('aggregate-meter').textContent).toBe('████░░░░░░░░░░░░');
@@ -101,6 +113,7 @@ it('makes the team name the control that opens the team list', () => {
       now={FIXTURE_NOW}
       teamsOpen={false}
       onTeamsOpenChange={onTeamsOpenChange}
+      appearance={APPEARANCE}
     />,
   );
   const trigger = screen.getByRole('button', { name: 'TEAM session-98b0b4a7' });
@@ -123,6 +136,7 @@ it('pins the trigger wide enough that switching teams cannot move the switcher',
       now={FIXTURE_NOW}
       teamsOpen={false}
       onTeamsOpenChange={vi.fn()}
+      appearance={APPEARANCE}
     />,
   );
   expect(screen.getByTestId('team-trigger').style.width).toBe('146px');
@@ -138,6 +152,7 @@ it('pins the trigger wide enough that switching teams cannot move the switcher',
       now={FIXTURE_NOW}
       teamsOpen={false}
       onTeamsOpenChange={vi.fn()}
+      appearance={APPEARANCE}
     />,
   );
   expect(screen.getByTestId('team-trigger').style.width).toBe('146px');

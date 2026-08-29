@@ -175,7 +175,7 @@ it('says so when the listing cannot be read', async () => {
   fetchMock.mockRejectedValue(new Error('offline'));
   renderSelect();
   const line = await screen.findByText('could not read teams');
-  expect(line.style.color).toBe('var(--failure-rose)');
+  expect(line.style.color).toBe('var(--fail)');
 });
 
 it('marks the row when the switch is refused', async () => {
@@ -185,7 +185,7 @@ it('marks the row when the switch is refused', async () => {
   fireEvent.click(rows[1]);
 
   const mark = await within(rows[1]).findByText('switch failed');
-  expect(mark.style.color).toBe('var(--failure-rose)');
+  expect(mark.style.color).toBe('var(--fail)');
   expect(onOpenChange).not.toHaveBeenCalled();
 });
 
@@ -196,7 +196,7 @@ it('marks the row gone when the team vanished before the click', async () => {
   fireEvent.click(rows[1]);
 
   const mark = await within(rows[1]).findByText('gone');
-  expect(mark.style.color).toBe('var(--failure-rose)');
+  expect(mark.style.color).toBe('var(--fail)');
 });
 
 

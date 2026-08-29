@@ -28,7 +28,7 @@ export function ContextMeter({
       </span>
       <span
         data-testid="context-warn"
-        style={{ color: 'var(--attention)', fontSize: textSize, width: 7 }}
+        style={{ color: 'var(--warn)', fontSize: textSize, width: 7 }}
       >
         {warnMark(contextTokens, compactAt)}
       </span>

@@ -38,7 +38,12 @@ function line(marker: TranscriptLine['marker'], ts: number): TranscriptLine {
 
 const AGENTS: Agent[] = [
   agent('team-lead', { status: 'working' }),
-  agent('perf', { status: 'working', transcript: [line('❯', T0 + 30_000), line('❯', T0 + 90_000)] }),
+  agent('perf', {
+    status: 'working',
+    // m3 is still sitting in this inbox; everything older has been drained.
+    unread: 1,
+    transcript: [line('❯', T0 + 30_000), line('❯', T0 + 90_000)],
+  }),
   agent('security'),
 ];
 
@@ -149,11 +154,11 @@ describe('Comms — thread list', () => {
   });
 
   it('glyphs a thread nobody is left to drain as needing attention', () => {
-    renderComms({ agents: [agent('perf'), agent('security')] });
+    renderComms({ agents: [agent('perf', { unread: 1 }), agent('security')] });
     const rows = screen.getAllByTestId('thread-row');
     const glyph = within(rows[0]).getByTestId('thread-glyph');
     expect(glyph.textContent).toBe('◆');
-    expect(glyph.style.color).toBe('var(--attention)');
+    expect(glyph.style.color).toBe('var(--warn)');
   });
 
   it('states the model in the footer', () => {
@@ -254,7 +259,7 @@ describe('Comms — delivery state', () => {
     renderPair();
     const unread = screen.getAllByTestId('bubble-delivery')[2];
     expect(unread.textContent).toBe('delivered · unread 34s');
-    expect(unread.style.color).toBe('var(--attention)');
+    expect(unread.style.color).toBe('var(--warn)');
   });
 
   it('ticks the unread age with the clock', () => {
@@ -353,9 +358,9 @@ describe('Comms — the everyone room', () => {
   it('pins the room above the pairs, under its own heading', () => {
     renderComms();
     const room = screen.getByTestId('room-row');
-    expect(within(room).getByTestId('room-glyph').textContent).toBe('#');
-    expect(within(room).getByText('everyone')).toBeTruthy();
-    expect(within(room).getByText('every message, one room')).toBeTruthy();
+    expect(within(room).getByTestId('room-glyph').textContent).toBe('⌗');
+    expect(within(room).getByText('all messages')).toBeTruthy();
+    expect(within(room).getByText('every inbox, merged')).toBeTruthy();
     expect(screen.getByTestId('pairs-label').textContent).toBe('PAIRS');
     // Pinned: the room's node precedes every pair row in the list.
     const list = screen.getByTestId('thread-list');
@@ -366,7 +371,7 @@ describe('Comms — the everyone room', () => {
   it('is what opens when no agent is focused', () => {
     renderComms();
     expect(screen.getByTestId('room-row').getAttribute('aria-selected')).toBe('true');
-    expect(within(screen.getByTestId('thread-head')).getByText('everyone')).toBeTruthy();
+    expect(within(screen.getByTestId('thread-head')).getByText('all messages')).toBeTruthy();
     expect(screen.getByTestId('room-members').textContent).toBe('3 members');
   });
 

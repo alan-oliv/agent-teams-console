@@ -1,4 +1,5 @@
 import { portraitFor, portraitSvg } from '../../shared/portrait';
+import { useAppearance } from '../state/useSettings';
 
 export type PortraitSlot = 'wall' | 'rail-row' | 'default';
 
@@ -16,7 +17,10 @@ export interface PortraitProps {
 }
 
 export function Portrait({ agent, slot = 'default', size = 24 }: PortraitProps) {
+  const { avatars } = useAppearance();
   const { portrait, skinIndex } = portraitFor(agent);
+  // Nothing at all, not a blank box: the rows close up around the missing face.
+  if (!avatars) return null;
   return (
     <div
       data-testid="portrait"

@@ -66,7 +66,7 @@ export function Panel({ agents, focusedAgent, onFocusAgent }: PanelProps) {
     <div
       style={{
         borderTop: '1px solid var(--color-neutral-900)',
-        background: 'var(--terminal-ground)',
+        background: 'var(--term)',
         padding: '8px 14px',
         display: 'flex',
         alignItems: 'center',

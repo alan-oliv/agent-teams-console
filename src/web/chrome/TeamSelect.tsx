@@ -26,8 +26,8 @@ type Mark =
 const MARK_TEXT = { switching: 'switching…', failed: 'switch failed', gone: 'gone' };
 const MARK_COLOR = {
   switching: 'var(--color-accent-300)',
-  failed: 'var(--failure-rose)',
-  gone: 'var(--failure-rose)',
+  failed: 'var(--fail)',
+  gone: 'var(--fail)',
 };
 
 // The age only earns its place on a finished team: on a live one it would tick
@@ -220,7 +220,7 @@ export function TeamSelect({ current, open, onOpenChange, now }: TeamSelectProps
             left: 0,
             zIndex: 10,
             width: PANEL_WIDTH,
-            background: 'var(--color-surface)',
+            background: 'var(--color-bg)',
             borderRadius: 'var(--radius-md)',
             boxShadow: 'var(--shadow-md)',
             outline: 'none',
@@ -356,7 +356,7 @@ export function TeamSelect({ current, open, onOpenChange, now }: TeamSelectProps
                 style={{
                   padding: '6px 10px 4px',
                   fontSize: '11px',
-                  color: unreadable && !loading ? 'var(--failure-rose)' : 'var(--color-neutral-700)',
+                  color: unreadable && !loading ? 'var(--fail)' : 'var(--color-neutral-700)',
                 }}
               >
                 {loading

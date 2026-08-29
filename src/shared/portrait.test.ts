@@ -16,9 +16,12 @@ describe('sprite data', () => {
   });
 
   it('carries the prototype palette verbatim', () => {
+    // Accent and semantic entries resolve through the theme; the structural
+    // greys stay literal so a hat keeps its contrast on a light ground.
     expect(SPRITE_COLORS).toEqual({
-      a: '#b5abfc', b: '#5d5294', h: '#3f424d', k: '#292b31',
-      w: '#e9e9ed', d: '#d99e5c', e: '#c98d8d',
+      a: 'var(--color-accent-400)', b: 'var(--color-accent-700)',
+      h: '#3f424d', k: '#292b31',
+      w: '#e9e9ed', d: 'var(--warn)', e: 'var(--fail)',
     });
   });
 
@@ -149,7 +152,7 @@ describe('portraitSvg', () => {
   });
 
   it('paints the repro shirt with the failure rose and the security badge with white', () => {
-    expect(portraitSvg('repro', 0)).toContain('#c98d8d');
+    expect(portraitSvg('repro', 0)).toContain('var(--fail)');
     expect(portraitSvg('security', 0)).toContain('#e9e9ed');
   });
 

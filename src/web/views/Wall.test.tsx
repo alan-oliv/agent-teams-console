@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { FIXTURE_NOW, fixtureAgents } from '../agents.fixture';
 import { Wall } from './Wall';
 
@@ -94,12 +94,180 @@ describe('Wall', () => {
     expect(within(columns[3]).getByTestId('wall-current-tool').textContent).toBe('');
   });
 
-  it('gives every column a composer aimed at that teammate', () => {
+  // One composer, in the lead's column. A composer per column implied a channel
+  // this model does not have: every send is a direct inbox write, so the target
+  // belongs to the message — the mention — not to where you typed it.
+  it('gives the wall exactly one composer, in the lead column', () => {
     renderWall();
     const inputs = screen.getAllByTestId('composer-input') as HTMLTextAreaElement[];
-    expect(inputs).toHaveLength(4);
-    expect(inputs[1].placeholder).toBe('message probe-alpha');
-    expect(inputs[3].placeholder).toBe('message probe-charlie');
+    expect(inputs).toHaveLength(1);
+    const lead = screen.getAllByTestId('wall-column')[0];
+    expect(within(lead).getByTestId('composer-input')).toBeTruthy();
+  });
+
+  // At rest it is a prompt and a hint. No @ means the lead, which is the common
+  // case, so there is nothing to pick and nothing on screen to pick it with.
+  it('shows no chip and no picker until an @ is typed', () => {
+    renderWall();
+    expect((screen.getByTestId('composer-input') as HTMLTextAreaElement).placeholder)
+      .toBe('message the lead · @ to reach a teammate');
+    expect(screen.queryByTestId('route-chip')).toBeNull();
+    expect(screen.queryByTestId('route-menu')).toBeNull();
+  });
+
+  it('opens the teammate list on @ and filters it as you type', () => {
+    renderWall();
+    const input = screen.getByTestId('composer-input');
+    fireEvent.change(input, { target: { value: '@' } });
+    expect(screen.getByTestId('route-menu')).toBeTruthy();
+    expect(screen.getByTestId('route-filter').textContent).toBe('type to filter');
+    expect(screen.getAllByTestId('route-option').length).toBeGreaterThan(1);
+
+    fireEvent.change(input, { target: { value: '@probe-b' } });
+    expect(screen.getByTestId('route-filter').textContent).toBe('@probe-b');
+    const names = screen.getAllByTestId('route-option').map((o) => o.textContent);
+    expect(names).toHaveLength(1);
+    expect(names[0]).toContain('@probe-bravo');
+  });
+
+  it('resolves a pick into a chip and closes the picker', () => {
+    renderWall();
+    const input = screen.getByTestId('composer-input');
+    fireEvent.change(input, { target: { value: '@probe-b' } });
+    fireEvent.mouseDown(screen.getAllByTestId('route-option')[0]);
+
+    expect(screen.getByTestId('route-chip').textContent).toBe('@probe-bravo');
+    expect(screen.queryByTestId('route-menu')).toBeNull();
+    // The box carries the message, not the routing prefix.
+    expect((input as HTMLTextAreaElement).value).toBe('');
+  });
+
+  it('sends only the message body, to the mentioned teammate', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(new Response('{}', { status: 200 })));
+    vi.stubGlobal('fetch', fetchMock);
+    renderWall();
+    const input = screen.getByTestId('composer-input');
+    fireEvent.change(input, { target: { value: '@probe-bravo ' } });
+    fireEvent.change(input, { target: { value: 'ship it' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/agents/probe-bravo/message',
+      expect.objectContaining({ body: JSON.stringify({ text: 'ship it' }) }),
+    );
+  });
+
+  // The first row is the ⏎ default, so Enter has to resolve the mention rather
+  // than send a message still addressed to nobody.
+  it('takes the highlighted row on Enter while the picker is open', () => {
+    const fetchMock = vi.fn(() => Promise.resolve(new Response('{}', { status: 200 })));
+    vi.stubGlobal('fetch', fetchMock);
+    renderWall();
+    const input = screen.getByTestId('composer-input');
+    fireEvent.change(input, { target: { value: '@probe-b' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(screen.getByTestId('route-chip').textContent).toBe('@probe-bravo');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // The name span, not textContent: the row concatenates the name and its state
+  // with no separator, so `@probe-alpha` + `working` reads as one token.
+  const nameOf = (row: HTMLElement) => row.querySelector('span')!.textContent!;
+  const optionNames = () => screen.getAllByTestId('route-option').map(nameOf);
+  const highlighted = () =>
+    nameOf(screen.getAllByTestId('route-option').find((o) => o.textContent!.includes('⏎'))!);
+
+  it('walks the picker with the arrow keys', () => {
+    renderWall();
+    const input = screen.getByTestId('composer-input');
+    fireEvent.change(input, { target: { value: '@' } });
+    const names = optionNames();
+    expect(names.length).toBeGreaterThan(2);
+    expect(highlighted()).toBe(names[0]);
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    expect(highlighted()).toBe(names[1]);
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    expect(highlighted()).toBe(names[2]);
+    fireEvent.keyDown(input, { key: 'ArrowUp' });
+    expect(highlighted()).toBe(names[1]);
+  });
+
+  it('wraps at both ends rather than stopping dead', () => {
+    renderWall();
+    const input = screen.getByTestId('composer-input');
+    fireEvent.change(input, { target: { value: '@' } });
+    const names = optionNames();
+
+    fireEvent.keyDown(input, { key: 'ArrowUp' });
+    expect(highlighted()).toBe(names[names.length - 1]);
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    expect(highlighted()).toBe(names[0]);
+  });
+
+  // Caught live, not by fireEvent: fireEvent flushes between presses, so a
+  // render-time index looked correct in tests while a fast double-press in the
+  // browser advanced only one row.
+  it('advances two rows for two presses inside one render batch', () => {
+    renderWall();
+    const input = screen.getByTestId('composer-input');
+    fireEvent.change(input, { target: { value: '@' } });
+    const names = optionNames();
+    act(() => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    });
+    expect(highlighted()).toBe(names[2]);
+  });
+
+  it('takes the arrowed-to row on Enter, not the first one', () => {
+    renderWall();
+    const input = screen.getByTestId('composer-input');
+    fireEvent.change(input, { target: { value: '@' } });
+    const second = optionNames()[1];
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(screen.getByTestId('route-chip').textContent).toBe(second);
+  });
+
+  // Narrowing the filter can drop the row the cursor was on; an unclamped
+  // index would then resolve to nobody.
+  it('keeps the highlight in range when the filter narrows under it', () => {
+    renderWall();
+    const input = screen.getByTestId('composer-input');
+    fireEvent.change(input, { target: { value: '@' } });
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    fireEvent.change(input, { target: { value: '@probe-b' } });
+    expect(screen.getAllByTestId('route-option')).toHaveLength(1);
+    expect(highlighted()).toBe('@probe-bravo');
+  });
+
+  it('backspace on an empty box takes the chip off', () => {
+    renderWall();
+    const input = screen.getByTestId('composer-input');
+    fireEvent.change(input, { target: { value: '@probe-b' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(screen.getByTestId('route-chip')).toBeTruthy();
+
+    fireEvent.keyDown(input, { key: 'Backspace' });
+    expect(screen.queryByTestId('route-chip')).toBeNull();
+    expect((input as HTMLTextAreaElement).placeholder)
+      .toBe('message the lead · @ to reach a teammate');
+  });
+
+  // Only when the box is empty — otherwise backspace is editing the message.
+  it('leaves the chip alone while there is still a message to delete', () => {
+    renderWall();
+    const input = screen.getByTestId('composer-input');
+    fireEvent.change(input, { target: { value: '@probe-b' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.change(input, { target: { value: 'hi' } });
+
+    fireEvent.keyDown(input, { key: 'Backspace' });
+    expect(screen.getByTestId('route-chip').textContent).toBe('@probe-bravo');
   });
 
   it('focuses a column on click', () => {
@@ -111,11 +279,11 @@ describe('Wall', () => {
   it('tints a column on hover and clears the tint on leave', () => {
     renderWall();
     const charlie = screen.getAllByTestId('wall-column')[3];
-    expect(charlie.style.background).toBe('rgb(18, 20, 31)');
+    expect(charlie.style.background).toBe('var(--term)');
     fireEvent.mouseEnter(charlie);
     expect(charlie.style.background).toBe('var(--color-bg)');
     fireEvent.mouseLeave(charlie);
-    expect(charlie.style.background).toBe('rgb(18, 20, 31)');
+    expect(charlie.style.background).toBe('var(--term)');
   });
 
   it('dims a departed agent column to opacity .55', () => {
@@ -326,5 +494,23 @@ describe('Wall column resizing', () => {
     expect(line('probe-alpha').style.background).toBe('var(--color-accent-500)');
     expect(line('probe-bravo').style.background).toBe('transparent');
     fireEvent.mouseUp(window);
+  });
+});
+
+describe('in-flight badge', () => {
+  const now = FIXTURE_NOW;
+  // Written to the inbox, not yet pulled into a context window. A busy agent
+  // legitimately sits non-zero; it is a readout, not an alert.
+  it('counts messages queued for an agent that has not taken its next turn', () => {
+    const queued = agents.map((a) => (a.name === 'probe-alpha' ? { ...a, unread: 2 } : a));
+    render(<Wall agents={queued} focused={null} onFocus={vi.fn()} now={now} />);
+    const badges = screen.getAllByTestId('in-flight');
+    expect(badges).toHaveLength(1);
+    expect(badges[0].textContent).toBe('2 in flight');
+  });
+
+  it('shows nothing at all for an agent with an empty inbox', () => {
+    render(<Wall agents={agents} focused={null} onFocus={vi.fn()} now={now} />);
+    expect(screen.queryAllByTestId('in-flight')).toHaveLength(0);
   });
 });

@@ -1,15 +1,19 @@
 :root {
-  /* Nocturne — _ds/nocturne-4bc22666-5c49-4c20-81d3-6a17ba2f206d/styles.css */
+  /* Nocturne, as the stylesheet's own fallback. The live values are written on
+     the console root by useSettings/cssVarsFor — see src/web/themes.ts — so a
+     theme switch reaches every consumer without a component knowing. These
+     defaults exist so the sheet stands alone before React mounts and so
+     anything outside the console root still resolves. */
+  --term: #12141f;
   --color-bg: #161826;
-  --color-surface: #232532;
   --color-text: #e9e9ed;
-  --color-accent: #9184d9;
-  --color-accent-2: #a7a1db;
-  --color-divider: color-mix(in srgb, #e9e9ed 16%, transparent);
+  --on-accent: #161826;
 
-  --color-neutral-100: #f3f5fe;
-  --color-neutral-200: #e4e7f5;
-  --color-neutral-300: #cfd3e5;
+  /* Ordered BY USE, not by lightness: 900 is the quietest fill or hairline and
+     200 the strongest text. A light theme runs these dark-to-light instead,
+     which is what lets the same markup read correctly either way. */
+  --color-neutral-200: #e2e3ea;
+  --color-neutral-300: #c8cad6;
   --color-neutral-400: #b2b6ca;
   --color-neutral-500: #9397ab;
   --color-neutral-600: #75798c;
@@ -17,25 +21,27 @@
   --color-neutral-800: #3f424d;
   --color-neutral-900: #292b31;
 
-  --color-accent-100: #f5f4ff;
-  --color-accent-200: #e7e5fe;
+  --color-accent: #9184d9;
   --color-accent-300: #d2cefd;
   --color-accent-400: #b5abfc;
   --color-accent-500: #968ae0;
   --color-accent-600: #796cbf;
   --color-accent-700: #5d5294;
-  --color-accent-800: #423a6a;
   --color-accent-900: #2b2741;
 
-  --color-accent-2-100: #f5f4ff;
-  --color-accent-2-200: #e7e5fe;
-  --color-accent-2-300: #d2cefd;
-  --color-accent-2-400: #b5afe8;
-  --color-accent-2-500: #9690c9;
-  --color-accent-2-600: #7972a9;
-  --color-accent-2-700: #5c5783;
-  --color-accent-2-800: #423e5d;
-  --color-accent-2-900: #2b293a;
+  /* Semantic — a deliberate extension, since the palette has no warn/fail role.
+     Status only: plan approval pending, a failed teammate, context past the
+     threshold. Never decorative. */
+  --warn: #d99e5c;
+  --warn-edge: #6b4f2c;
+  --warn-tint: #2b2028;
+  --fail: #c98d8d;
+
+  /* Syntax colouring inside an expanded JSON payload and nowhere else. The
+     other four roles already have homes: keys accent-400, numbers --warn,
+     null --fail, punctuation neutral-600. */
+  --json-string: #9ec9a8;
+  --json-boolean: #7fb4d9;
 
   --font-heading: "Inter", system-ui, sans-serif;
   --font-heading-weight: 500;
@@ -52,26 +58,11 @@
   --radius-md: 8px;
   --radius-lg: 14px;
 
-  --shadow-sm: 0 0 0 1px #3f424d;
-  --shadow-md: 0 0 0 1px #595d6c, 0 6px 18px rgba(0, 0, 0, 0.55);
-  --shadow-lg: 0 0 0 1px #9397ab, 0 16px 40px rgba(0, 0, 0, 0.65);
+  --shadow-sm: 0 0 0 1px var(--color-neutral-800);
+  --shadow-md: 0 0 0 1px var(--color-neutral-700), 0 6px 18px rgba(0, 0, 0, 0.55);
+  --shadow-lg: 0 0 0 1px var(--color-neutral-500), 0 16px 40px rgba(0, 0, 0, 0.65);
 
-  /* the five colours the design uses outside the token set — spec §6 */
-  --terminal-ground: #12141f;
-  --row-hairline: #1b1d2b;
-  --attention: #d99e5c;
-  --attention-border: #6b4f2c;
-  --failure-rose: #c98d8d;
-
-  /* Syntax colouring inside an expanded JSON payload, and nowhere else —
-     Nocturne is a mono palette, so these two are held at the accent's chroma so
-     they read as part of it. The other four roles already have homes: keys are
-     accent-400, numbers --attention, null --failure-rose, punctuation
-     neutral-600. */
-  --json-string: #9ec9a8;
-  --json-boolean: #7fb4d9;
-
-  background-color: #12141f;
+  background-color: var(--term);
   color: var(--color-text);
   font-family: "JetBrains Mono", ui-monospace, monospace;
   font-size: 12px;
@@ -92,7 +83,7 @@ body,
 
 body {
   margin: 0;
-  background-color: var(--terminal-ground);
+  background-color: var(--term);
   color: inherit;
   font: inherit;
 }
@@ -129,7 +120,7 @@ button {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--terminal-ground);
+  background: var(--term);
   color: var(--color-text);
   font-family: "JetBrains Mono", ui-monospace, monospace;
   font-size: 12px;
@@ -237,7 +228,7 @@ button {
 
 .tscroll::-webkit-scrollbar-track,
 .hscroll::-webkit-scrollbar-track {
-  background: rgba(233, 233, 237, 0.035);
+  background: color-mix(in srgb, var(--color-text) 3.5%, transparent);
 }
 
 .tscroll::-webkit-scrollbar-thumb,
@@ -252,4 +243,27 @@ button {
 .hscroll:hover::-webkit-scrollbar-thumb {
   background: var(--color-accent-700);
   background-clip: content-box;
+}
+
+/* Motion off kills the cursor blink and the typing dots wherever they live.
+   Done from the root rather than per component so it reaches the ones this
+   pass does not own, and so a new animation is covered by construction. */
+.console[data-motion="off"] *,
+.console[data-motion="off"] *::before,
+.console[data-motion="off"] *::after {
+  animation: none !important;
+}
+
+.cfg-trigger:hover {
+  color: var(--color-accent-300);
+  background: var(--color-accent-900);
+}
+
+.cfg-tile:hover,
+.cfg-seg:hover {
+  background: var(--color-neutral-900);
+}
+
+.cfg-reset:hover {
+  color: var(--color-accent-300);
 }

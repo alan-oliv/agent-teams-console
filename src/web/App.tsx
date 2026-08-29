@@ -8,6 +8,7 @@ import { StatusBar } from './chrome/StatusBar';
 import { StopConfirm } from './chrome/StopConfirm';
 import { StopContext } from './components/StopButton';
 import { useKeyboard } from './state/useKeyboard';
+import { SettingsContext, useSettings } from './state/useSettings';
 import { useTeamState } from './state/useTeamState';
 import { Comms } from './views/Comms';
 import { Grid } from './views/Grid';
@@ -18,8 +19,15 @@ import { Wall } from './views/Wall';
 
 export function App() {
   const store = useTeamState();
+  const appearance = useSettings();
   const [now, setNow] = useState(() => Date.now());
   const [teamsOpen, setTeamsOpen] = useState(false);
+
+  // The theme lives on the console root, but the page behind it is the body's,
+  // and an overscroll on a light theme would otherwise flash the dark default.
+  useEffect(() => {
+    document.documentElement.style.backgroundColor = appearance.vars['--term'];
+  }, [appearance.vars]);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -117,7 +125,7 @@ export function App() {
 
   if (!state) {
     return (
-      <div className="console">
+      <div className="console" style={appearance.vars} data-motion={appearance.settings.motion ? 'on' : 'off'}>
         <main className="console-body" />
       </div>
     );
@@ -125,7 +133,12 @@ export function App() {
 
   return (
     <StopContext.Provider value={stopControl}>
-    <div className="console">
+    <SettingsContext.Provider value={appearance.settings}>
+    <div
+      className="console"
+      style={appearance.vars}
+      data-motion={appearance.settings.motion ? 'on' : 'off'}
+    >
       <StatusBar
         state={state}
         view={store.view}
@@ -133,6 +146,7 @@ export function App() {
         now={now}
         teamsOpen={teamsOpen}
         onTeamsOpenChange={setTeamsOpen}
+        appearance={appearance}
       />
       <main className="console-body">
         {store.view === 'wall' && (
@@ -182,6 +196,7 @@ export function App() {
       <NeedsYou items={state.needsYou} readOnly={state.readOnly} now={now} />
       <Panel agents={state.agents} focusedAgent={store.agent} onFocusAgent={store.setAgent} />
     </div>
+    </SettingsContext.Provider>
     </StopContext.Provider>
   );
 }

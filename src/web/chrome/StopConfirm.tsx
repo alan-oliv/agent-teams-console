@@ -62,7 +62,7 @@ export function StopConfirm({
   const { q, why, verb } = stopPrompt(target);
   return (
     <div data-testid="stop-confirm" style={BAR} role="alertdialog" aria-label={q}>
-      <span style={{ color: '#c98d8d', fontSize: '11px', whiteSpace: 'nowrap', flex: 'none' }}>{q}</span>
+      <span style={{ color: 'var(--fail)', fontSize: '11px', whiteSpace: 'nowrap', flex: 'none' }}>{q}</span>
       <span
         data-testid="stop-confirm-why"
         style={{
@@ -80,7 +80,7 @@ export function StopConfirm({
       <button
         data-testid="stop-confirm-go"
         onClick={onConfirm}
-        style={{ ...BUTTON, border: '1px solid #6b4f2c', color: '#d99e5c' }}
+        style={{ ...BUTTON, border: '1px solid var(--warn-edge)', color: 'var(--warn)' }}
       >
         {verb}
       </button>

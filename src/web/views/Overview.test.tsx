@@ -79,7 +79,7 @@ describe('Overview', () => {
   it('tints a tile on hover', () => {
     render(<Overview agents={four} focused={null} onFocus={vi.fn()} now={FIXTURE_NOW} />);
     const tile = screen.getAllByTestId('overview-tile')[0];
-    expect(tile.style.background).toBe('rgb(18, 20, 31)');
+    expect(tile.style.background).toBe('var(--term)');
     fireEvent.mouseEnter(tile);
     expect(tile.style.background).toBe('var(--color-bg)');
   });

@@ -58,7 +58,7 @@ function Card({ item, readOnly, now }: { item: NeedsYouItem; readOnly: boolean; 
         data-testid="card-failure"
         style={{ ...CARD_BASE, flex: 'none', border: '1px solid var(--color-neutral-800)' }}
       >
-        <span style={{ color: 'var(--failure-rose)', fontSize: 11, whiteSpace: 'nowrap' }}>
+        <span style={{ color: 'var(--fail)', fontSize: 11, whiteSpace: 'nowrap' }}>
           {`${item.agent} · ${item.reason}`}
         </span>
         <span style={{ ...DETAIL, color: 'var(--color-neutral-600)' }}>{item.detail}</span>
@@ -76,9 +76,9 @@ function Card({ item, readOnly, now }: { item: NeedsYouItem; readOnly: boolean; 
   return (
     <div
       data-testid={permission ? 'card-permission' : 'card-plan'}
-      style={{ ...CARD_BASE, flex: 1, minWidth: 0, border: '1px solid var(--attention-border)' }}
+      style={{ ...CARD_BASE, flex: 1, minWidth: 0, border: '1px solid var(--warn-edge)' }}
     >
-      <span style={{ color: 'var(--attention)', fontSize: 11, whiteSpace: 'nowrap' }}>
+      <span style={{ color: 'var(--warn)', fontSize: 11, whiteSpace: 'nowrap' }}>
         {`${item.agent} · ${item.reason}`}
       </span>
       <span style={{ ...DETAIL, color: 'var(--color-neutral-500)' }}>{item.detail}</span>
@@ -148,7 +148,7 @@ export function NeedsYou({ items, readOnly, now }: NeedsYouProps) {
     >
       <span
         style={{
-          color: 'var(--attention)',
+          color: 'var(--warn)',
           fontSize: 10.5,
           letterSpacing: '.12em',
           alignSelf: 'center',

@@ -10,7 +10,7 @@ import { costLabel, pctLabel } from '../format';
 
 // Matches the --terminal-ground token (theme.css); kept literal so the tint
 // toggle below reads back as a resolved rgb() in jsdom, not a var() string.
-const GROUND = '#12141f';
+const GROUND = 'var(--term)';
 
 // Memoised so an SSE frame only re-renders the tiles whose agent actually moved.
 // Every prop must be stable across frames for that to hold: `isTinted` is passed

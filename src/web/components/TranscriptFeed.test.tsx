@@ -347,7 +347,7 @@ describe('a row carrying a JSON payload opens formatted', () => {
     render(<TranscriptFeed lines={JSON_LINES} size="wall" />);
     open();
     const body = screen.getByTestId('json-body');
-    expect(body.style.background).toBe('var(--terminal-ground)');
+    expect(body.style.background).toBe('var(--term)');
     expect(body.style.border).toBe('1px solid var(--color-neutral-900)');
     expect(screen.getAllByTestId('json-line')).toHaveLength(
       JSON.stringify(PAYLOAD, null, 2).split('\n').length,
@@ -383,9 +383,9 @@ describe('a row carrying a JSON payload opens formatted', () => {
       tokens.find((t) => t.dataset.jsonToken === kind)!.style.color;
     expect(colorOf('key')).toBe('var(--color-accent-400)');
     expect(colorOf('string')).toBe('var(--json-string)');
-    expect(colorOf('number')).toBe('var(--attention)');
+    expect(colorOf('number')).toBe('var(--warn)');
     expect(colorOf('boolean')).toBe('var(--json-boolean)');
-    expect(colorOf('null')).toBe('var(--failure-rose)');
+    expect(colorOf('null')).toBe('var(--fail)');
     expect(colorOf('punct')).toBe('var(--color-neutral-600)');
   });
 

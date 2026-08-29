@@ -10,7 +10,7 @@ import {
 } from 'react';
 import type { Agent } from '../../shared/domain';
 import { AGENT_STATUS } from '../../shared/status';
-import { Composer } from '../components/Composer';
+import { Composer, RosterContext } from '../components/Composer';
 import { Elapsed, NowContext } from '../components/Elapsed';
 import { Portrait } from '../components/Portrait';
 import { StatusGlyph } from '../components/StatusGlyph';
@@ -21,7 +21,7 @@ import { COLUMN_WIDTH } from '../state/useTeamState';
 
 // Matches the --terminal-ground token (theme.css); kept literal so the tint
 // toggle below reads back as a resolved rgb() in jsdom, not a var() string.
-const GROUND = '#12141f';
+const GROUND = 'var(--term)';
 
 const HEADER: CSSProperties = {
   padding: '9px 12px 8px',
@@ -37,8 +37,42 @@ const LINE: CSSProperties = { display: 'flex', alignItems: 'baseline', gap: '7px
 // Memoised so an SSE frame only re-renders the columns whose agent actually moved.
 // Every prop must be stable across frames for that to hold: `isTinted` is passed
 // precomputed rather than the hovered name, and the handlers are hoisted callbacks.
+/**
+ * Messages written into this agent's inbox that it has not pulled into its
+ * context window yet. Not a notification count: the agent takes them at its
+ * next turn boundary, so a non-zero badge on a busy agent is normal and only
+ * means "sent, not yet seen".
+ *
+ * There is no external way to force that boundary, so this is a readout rather
+ * than a button — a "drain now" control would be a lie about what the runtime
+ * exposes.
+ */
+function InFlight({ agent }: { agent: Agent }) {
+  if (agent.unread === 0) return null;
+  return (
+    <span
+      data-testid="in-flight"
+      title="written to this inbox · read at its next turn boundary"
+      style={{
+        display: 'flex',
+        alignItems: 'baseline',
+        gap: '4px',
+        padding: '0 5px',
+        borderRadius: '8px',
+        border: '1px solid var(--warn-edge)',
+        color: 'var(--warn)',
+        fontSize: '9.5px',
+        whiteSpace: 'nowrap',
+        flex: 'none',
+      }}
+    >
+      {`${agent.unread} in flight`}
+    </span>
+  );
+}
+
 const Column = memo(function Column({
-  agent, isFocused, isTinted, isDragging, width, readOnly, teamLive,
+  agent, isFocused, isTinted, isDragging, width, readOnly, teamLive, routed,
   onFocus, onHoverEnter, onHoverLeave, onGrip, onGripReset,
 }: {
   agent: Agent;
@@ -48,6 +82,13 @@ const Column = memo(function Column({
   width: number;
   readOnly: boolean;
   teamLive: boolean;
+  /**
+   * Present on the LEAD's column only, which is the one that carries the
+   * console's single composer. Every other column is read-only: a composer per
+   * column implied a channel this model does not have, since every send is a
+   * direct inbox write addressed by the chip rather than by where you typed.
+   */
+  routed: boolean;
   onFocus: (name: string) => void;
   onHoverEnter: (name: string) => void;
   onHoverLeave: (name: string) => void;
@@ -128,6 +169,7 @@ const Column = memo(function Column({
             >
               {agent.model}
             </span>
+            <InFlight agent={agent} />
             <StopControlButton agent={agent} />
           </div>
 
@@ -169,7 +211,7 @@ const Column = memo(function Column({
             </span>
             <span
               data-testid="wall-warn"
-              style={{ color: 'var(--attention)', fontSize: '10.5px', width: '7px' }}
+              style={{ color: 'var(--warn)', fontSize: '10.5px', width: '7px' }}
             >
               {warnMark(agent.contextTokens, agent.compactAt)}
             </span>
@@ -212,7 +254,15 @@ const Column = memo(function Column({
         {agent.currentTool ?? ''}
       </div>
 
-      <Composer agent={agent} variant="wall" readOnly={readOnly} teamLive={teamLive} />
+      {routed && (
+        <Composer
+          agent={agent}
+          routed
+          variant="wall"
+          readOnly={readOnly}
+          teamLive={teamLive}
+        />
+      )}
 
       <div
         data-testid="wall-grip"
@@ -340,6 +390,7 @@ export function Wall({
         background: 'var(--color-neutral-900)',
       }}
     >
+      <RosterContext value={agents}>
       <NowContext value={now}>
         {ordered.map((agent) => (
           <Column
@@ -351,6 +402,7 @@ export function Wall({
             width={widths[agent.name] ?? COLUMN_WIDTH}
             readOnly={readOnly}
             teamLive={teamLive}
+            routed={agent.isLead}
             onFocus={onFocus}
             onHoverEnter={onHoverEnter}
             onHoverLeave={onHoverLeave}
@@ -359,6 +411,7 @@ export function Wall({
           />
         ))}
       </NowContext>
+      </RosterContext>
     </div>
   );
 }

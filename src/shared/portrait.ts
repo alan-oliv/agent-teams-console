@@ -88,9 +88,20 @@ export const SPRITES: Record<PortraitId, string[]> = {
   ],
 };
 
+/**
+ * Shirts and hats follow the theme's accent ramp, and a failed teammate's shirt
+ * the failure rose, so a face does not stay Nocturne purple on a clay or cool
+ * grey ground. SVG `fill` resolves a custom property against the element's own
+ * cascade, so the sprite themes with everything else.
+ *
+ * The structural greys (`h` hats and hair, `k` outlines) stay literal on
+ * purpose: they are the artwork's internal contrast, and running them through
+ * the ramp would put a pale hat on a pale ground on the light themes.
+ */
 export const SPRITE_COLORS: Record<string, string> = {
-  a: '#b5abfc', b: '#5d5294', h: '#3f424d', k: '#292b31',
-  w: '#e9e9ed', d: '#d99e5c', e: '#c98d8d',
+  a: 'var(--color-accent-400)', b: 'var(--color-accent-700)',
+  h: '#3f424d', k: '#292b31',
+  w: '#e9e9ed', d: 'var(--warn)', e: 'var(--fail)',
 };
 
 export const SKIN_PAIRS: Record<PortraitId, [string, string]> = {

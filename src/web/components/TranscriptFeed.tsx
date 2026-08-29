@@ -10,6 +10,8 @@ import {
 } from 'react';
 import type { TranscriptLine } from '../../shared/domain';
 import { TRANSCRIPT_TEXT_CAP } from '../../shared/transcript';
+import { useAppearance } from '../state/useSettings';
+import { DENSITY } from '../themes';
 import {
   jsonRows,
   jsonSummary,
@@ -93,9 +95,9 @@ const NEUTRAL_ACTION: CSSProperties = {
 const JSON_COLOR: Record<JsonTokenKind, string> = {
   key: 'var(--color-accent-400)',
   string: 'var(--json-string)',
-  number: 'var(--attention)',
+  number: 'var(--warn)',
   boolean: 'var(--json-boolean)',
-  null: 'var(--failure-rose)',
+  null: 'var(--fail)',
   punct: 'var(--color-neutral-600)',
 };
 
@@ -104,7 +106,7 @@ const JSON_COLOR: Record<JsonTokenKind, string> = {
  * NOT `.tail`: bottom-anchoring belongs to streams, and JSON reads top-down —
  * anchored, a payload opens showing its closing brace.
  */
-function JsonBody({ value }: { value: unknown }) {
+function JsonBody({ value, numbers }: { value: unknown; numbers: boolean }) {
   const rows = jsonRows(value);
   return (
     <div
@@ -112,7 +114,7 @@ function JsonBody({ value }: { value: unknown }) {
       data-testid="json-body"
       style={{
         maxHeight: '210px',
-        background: 'var(--terminal-ground)',
+        background: 'var(--term)',
         border: '1px solid var(--color-neutral-900)',
         borderRadius: 'var(--radius-sm)',
         padding: '9px 0',
@@ -130,23 +132,25 @@ function JsonBody({ value }: { value: unknown }) {
             gap: '10px',
             alignItems: 'baseline',
             whiteSpace: 'pre',
-            padding: '0 11px 0 0',
+            padding: numbers ? '0 11px 0 0' : '0 11px',
             fontSize: '11px',
             lineHeight: 1.5,
           }}
         >
-          <span
-            data-testid="json-gutter"
-            style={{
-              color: 'var(--color-neutral-800)',
-              flex: 'none',
-              width: '34px',
-              textAlign: 'right',
-              fontSize: '10px',
-            }}
-          >
-            {i + 1}
-          </span>
+          {numbers && (
+            <span
+              data-testid="json-gutter"
+              style={{
+                color: 'var(--color-neutral-800)',
+                flex: 'none',
+                width: '34px',
+                textAlign: 'right',
+                fontSize: '10px',
+              }}
+            >
+              {i + 1}
+            </span>
+          )}
           <span style={{ minWidth: 0 }}>
             {'  '.repeat(row.indent)}
             {row.tokens.map((token, t) => (
@@ -175,6 +179,7 @@ export function TranscriptFeed({
   working?: boolean;
 }) {
   const s = FEED[size];
+  const appearance = useAppearance();
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
   // Which open payloads are showing the wire text instead of the formatted one.
   const [raw, setRaw] = useState<ReadonlySet<string>>(() => new Set());
@@ -230,13 +235,20 @@ export function TranscriptFeed({
     },
     [open, loadFull],
   );
+  // `default` means each view keeps its OWN tuning — the rail reads at 11px and
+  // a wall column at 10, and flattening both to one number is a regression the
+  // control is not meant to cause. Only a deliberate compact/roomy overrides,
+  // and only in the views that show a transcript rather than a digest.
+  const density = appearance.density === 'default' || (size !== 'wall' && size !== 'rail')
+    ? s.rowGap
+    : DENSITY[appearance.density];
   const container: CSSProperties = {
     flex: 1,
     minHeight: 0,
     padding: s.padding,
     display: 'flex',
     flexDirection: 'column',
-    gap: `${s.rowGap}px`,
+    gap: `${density}px`,
   };
 
   // Older lines, fetched once on the first scroll to the top. The live frame
@@ -331,7 +343,9 @@ export function TranscriptFeed({
           payload !== undefined ||
           (line.text.length === TRANSCRIPT_TEXT_CAP && line.text.endsWith('…'));
         const isOpen = more && open.has(line.id);
-        const opacity = (working ? 1 : RESTING) * fade(shown.length - 1 - i);
+        const opacity = appearance.fade
+          ? (working ? 1 : RESTING) * fade(shown.length - 1 - i)
+          : 1;
 
         if (isOpen && payload !== undefined) {
           // Derived from the string on screen, and re-derived after the swap:
@@ -420,7 +434,7 @@ export function TranscriptFeed({
                   data-testid="json-raw"
                   style={{
                     maxHeight: '210px',
-                    background: 'var(--terminal-ground)',
+                    background: 'var(--term)',
                     border: '1px solid var(--color-neutral-900)',
                     borderRadius: 'var(--radius-sm)',
                     padding: '9px 11px',
@@ -434,7 +448,7 @@ export function TranscriptFeed({
                   {text}
                 </div>
               ) : (
-                <JsonBody value={payload} />
+                <JsonBody value={payload} numbers={appearance.numbers} />
               )}
 
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>

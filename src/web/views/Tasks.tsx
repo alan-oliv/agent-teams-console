@@ -71,7 +71,7 @@ export function Tasks({
                   gap: '10px',
                   alignItems: 'baseline',
                   padding: '12px 16px',
-                  borderBottom: '1px solid var(--row-hairline)',
+                  borderBottom: '1px solid var(--color-neutral-900)',
                   fontSize: '11.5px',
                   background: hovered === task.id ? 'var(--color-bg)' : 'transparent',
                 }}

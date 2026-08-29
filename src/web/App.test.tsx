@@ -37,9 +37,11 @@ it('renders the console shell with a body slot', () => {
   expect(screen.getByRole('main')).toBeTruthy();
 });
 
-it('paints the root on the terminal ground #12141f', () => {
+it('paints the page behind the console on the theme ground, not just the console', () => {
   render(<App />);
-  expect(getComputedStyle(document.documentElement).backgroundColor).toBe('rgb(18, 20, 31)');
+  // Nocturne's --term. An overscroll on a light theme would otherwise flash the
+  // stylesheet's dark default from behind the console.
+  expect(document.documentElement.style.backgroundColor).toBe('rgb(18, 20, 31)');
 });
 
 it('gives every non-token colour an explicit custom-property home', async () => {
@@ -49,14 +51,22 @@ it('gives every non-token colour an explicit custom-property home', async () => 
   const css = await import('node:fs/promises').then((fs) =>
     fs.readFile(new URL('./theme.css', here), 'utf8'),
   );
-  expect(css).toContain('--terminal-ground: #12141f;');
-  expect(css).toContain('--row-hairline: #1b1d2b;');
-  expect(css).toContain('--attention: #d99e5c;');
-  expect(css).toContain('--attention-border: #6b4f2c;');
-  expect(css).toContain('--failure-rose: #c98d8d;');
+  // Renamed deliberately in the theming pass: the old names (--terminal-ground,
+  // --attention, --attention-border, --failure-rose, --row-hairline) were
+  // Nocturne literals asserted as fixed hex, which is exactly what six themes
+  // break. --row-hairline folded into the ramp, where 900 IS the hairline.
+  expect(css).toContain('--term: #12141f;');
+  expect(css).toContain('--warn: #d99e5c;');
+  expect(css).toContain('--warn-edge: #6b4f2c;');
+  expect(css).toContain('--warn-tint: #2b2028;');
+  expect(css).toContain('--fail: #c98d8d;');
+  expect(css).toContain('--on-accent: #161826;');
   // The JSON palette's two new hues; its other four roles reuse tokens above.
   expect(css).toContain('--json-string: #9ec9a8;');
   expect(css).toContain('--json-boolean: #7fb4d9;');
+  // No component may paint from a literal, or a light theme breaks around it.
+  expect(css).not.toContain('--terminal-ground');
+  expect(css).not.toContain('--attention');
   expect(css).toContain('outline: 2px solid var(--color-accent);');
   expect(css).toContain('outline-offset: 2px;');
 });

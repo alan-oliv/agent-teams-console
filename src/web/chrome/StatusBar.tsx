@@ -7,8 +7,10 @@ import {
   type RefObject,
 } from 'react';
 import type { TeamState, ViewId } from '../../shared/domain';
+import type { SettingsStore } from '../state/useSettings';
 import { formatCost, formatElapsed, formatTokens, meterCells } from '../format';
 import { VIEW_IDS } from '../state/useTeamState';
+import { ConfigMenu } from './ConfigMenu';
 import { TeamSelect } from './TeamSelect';
 
 // The bar is one 40px line. A child that can shrink or wrap doubles its height,
@@ -79,11 +81,13 @@ export interface StatusBarProps {
   now: number;
   teamsOpen: boolean;
   onTeamsOpenChange(open: boolean): void;
+  appearance: SettingsStore;
 }
 
 export function StatusBar({
-  state, view, onViewChange, now, teamsOpen, onTeamsOpenChange,
+  state, view, onViewChange, now, teamsOpen, onTeamsOpenChange, appearance,
 }: StatusBarProps) {
+  const [configOpen, setConfigOpen] = useState(false);
   const done = state.tasks.filter((t) => t.state === 'completed').length;
   // Team context occupancy — what the meter has always looked like it meant.
   // It used to divide the CUMULATIVE token total by a capacity, which pins it
@@ -211,6 +215,10 @@ export function StatusBar({
       <span style={{ flex: 1, minWidth: 8 }} />
 
       {metrics.filter((m) => kept.has(m.key))}
+
+      {/* Chrome, not a metric: it is never shed, so the operator can always
+          reach the theme even on a bar too narrow for a single figure. */}
+      <ConfigMenu appearance={appearance} open={configOpen} onOpenChange={setConfigOpen} />
     </div>
   );
 }

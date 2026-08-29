@@ -100,7 +100,7 @@ describe('Tasks — left pane', () => {
     expect(rows).toHaveLength(2);
     expect(rows[0].style.padding).toBe('12px 16px');
     expect(rows[0].style.fontSize).toBe('11.5px');
-    expect(rows[0].style.borderBottom).toBe('1px solid var(--row-hairline)');
+    expect(rows[0].style.borderBottom).toBe('1px solid var(--color-neutral-900)');
   });
 
   // Top-aligned, unlike a stream: `tail` here pushed the first task 90-170px

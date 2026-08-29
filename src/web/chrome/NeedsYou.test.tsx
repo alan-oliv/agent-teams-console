@@ -48,7 +48,7 @@ afterEach(() => {
 it('labels the strip with the pending count in the attention colour', () => {
   render(<NeedsYou items={[PLAN, FAILURE, PERMISSION]} readOnly={false} now={FIXTURE_NOW} />);
   const label = screen.getByText('NEEDS YOU · 3');
-  expect(label.style.color).toBe('var(--attention)');
+  expect(label.style.color).toBe('var(--warn)');
   expect(label.style.fontSize).toBe('10.5px');
   expect(label.style.letterSpacing).toBe('.12em');
 });
@@ -57,9 +57,9 @@ it('renders the three card kinds', () => {
   render(<NeedsYou items={[PLAN, FAILURE, PERMISSION]} readOnly={false} now={FIXTURE_NOW} />);
   expect(screen.getByText('probe-bravo · plan approval')).toBeTruthy();
   expect(screen.getByText('4 steps · step 4 drops migrations/legacy/')).toBeTruthy();
-  expect(screen.getByText('probe-charlie · failed').style.color).toBe('var(--failure-rose)');
+  expect(screen.getByText('probe-charlie · failed').style.color).toBe('var(--fail)');
   expect(screen.getByText('529 overloaded_error')).toBeTruthy();
-  expect(screen.getByTestId('card-plan').style.border).toBe('1px solid var(--attention-border)');
+  expect(screen.getByTestId('card-plan').style.border).toBe('1px solid var(--warn-edge)');
 });
 
 it('counts the permission hold down to expiresAt', () => {
