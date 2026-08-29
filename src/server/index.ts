@@ -329,6 +329,8 @@ export async function listTeamSummaries(
     : new Map<string, string>();
   const now = Date.now();
   const teams: TeamSummary[] = [];
+  // Team directory -> the cwd its lead sits in, kept for the cwd pass below.
+  const leadCwds = new Map<string, string>();
   for (const name of entries) {
     const teamDir = path.join(teamsRoot, name);
     let configMtimeMs: number;
@@ -353,6 +355,7 @@ export async function listTeamSummaries(
     const lastActivityAt = await lastActivityOf(teamDir, configMtimeMs);
     const recent = now - lastActivityAt < IDLE_GRACE_MS;
     const lead = config.members.find((m) => m.agentId === config.leadAgentId) ?? config.members[0];
+    leadCwds.set(name, lead?.cwd ?? '');
     teams.push({
       // The DIRECTORY name, not config.name: the ingest gates its own team's
       // config.json on the directory, so a mismatch would make the team
@@ -376,6 +379,8 @@ export async function listTeamSummaries(
     });
   }
 
+  adoptByCwd(teams, leadCwds, sessions);
+
   teams.sort(
     (a, b) =>
       Number(b.current) - Number(a.current) ||
@@ -384,6 +389,51 @@ export async function listTeamSummaries(
       (a.name < b.name ? -1 : a.name > b.name ? 1 : 0),
   );
   return { current, teams };
+}
+
+/**
+ * Links a team to the live session driving it by the directory they share.
+ *
+ * The sidecar route can only answer once a TEAMMATE has spawned, because a
+ * sidecar is a teammate's own file. A session that has just started — the lead
+ * alone, no teammates yet — therefore had no name and no proof of life: the
+ * picker offered `session-e9044edd · 1 agent · idle` for a session that was
+ * running at that moment, and the row said nothing a person could recognise.
+ *
+ * Evidence, not derivation: members[] records each member's cwd, and the
+ * session records its own. Two guards keep it honest — a cwd running more than
+ * one live session is ambiguous and is skipped rather than guessed at, and only
+ * the most recently active team in a directory is claimed, so yesterday's
+ * leftover team in the same repo is not resurrected as live.
+ */
+function adoptByCwd(
+  teams: TeamSummary[],
+  leadCwds: Map<string, string>,
+  sessions: SessionFacts,
+): void {
+  const byCwd = new Map<string, string>();
+  const ambiguous = new Set<string>();
+  for (const sessionId of sessions.live) {
+    const cwd = sessions.cwds.get(sessionId);
+    if (!cwd) continue;
+    if (byCwd.has(cwd)) ambiguous.add(cwd);
+    else byCwd.set(cwd, sessionId);
+  }
+  for (const cwd of ambiguous) byCwd.delete(cwd);
+  if (byCwd.size === 0) return;
+
+  const claimed = new Set(teams.filter((t) => t.leadAlive).map((t) => t.name));
+  for (const [cwd, sessionId] of byCwd) {
+    const best = teams
+      .filter((t) => !claimed.has(t.name) && leadCwds.get(t.name) === cwd)
+      .sort((a, b) => b.lastActivityAt - a.lastActivityAt)[0];
+    if (!best) continue;
+    claimed.add(best.name);
+    best.leadAlive = true;
+    best.live = true;
+    best.state = 'live';
+    best.goal ??= sessions.names.get(sessionId);
+  }
 }
 
 /**

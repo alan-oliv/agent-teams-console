@@ -265,7 +265,11 @@ describe('listTeamSummaries', () => {
       createdAt: opts.createdAt,
       leadAgentId: `team-lead@${name}`,
       leadSessionId: opts.leadSessionId,
-      members: Array.from({ length: opts.members }, (_, i) => ({ agentId: `a${i}`, name: `a${i}` })),
+      members: Array.from({ length: opts.members }, (_, i) => ({
+        agentId: `a${i}`,
+        name: `a${i}`,
+        cwd: undefined as string | undefined,
+      })),
     };
   }
 
@@ -311,6 +315,66 @@ describe('listTeamSummaries', () => {
     // Without the sidecar join it is the old, wrong answer.
     const without = await listTeamSummaries(teams(), sessions(), '');
     expect(without.teams[0].leadAlive).toBe(false);
+  });
+
+  // A sidecar is a TEAMMATE's file, so a session that has only just started —
+  // the lead alone — could not be joined to its team at all: the picker offered
+  // it nameless and called it `idle` while it was running.
+  it('finds the lead through the directory they share when no teammate has spawned', async () => {
+    const cwd = '/Users/someone/code/proj';
+    const config = team('session-fresh', { createdAt: 10, leadSessionId: 'no-such-session', members: 1 });
+    config.members[0] = { ...config.members[0], cwd };
+    await writeConfig('session-fresh', config);
+    await fs.mkdir(sessions(), { recursive: true });
+    await fs.writeFile(
+      path.join(sessions(), `${process.pid}.json`),
+      JSON.stringify({ pid: process.pid, sessionId: 'fresh-1', cwd, name: 'agents-team-ui' }),
+    );
+
+    const [row] = (await listTeamSummaries(teams(), sessions(), '')).teams;
+    expect(row.leadAlive).toBe(true);
+    expect(row.state).toBe('live');
+    expect(row.goal).toBe('agents-team-ui');
+  });
+
+  it('claims only the newest team in a directory, so yesterday\'s is not revived', async () => {
+    const cwd = '/Users/someone/code/proj';
+    for (const [name, createdAt] of [['session-old', 10], ['session-new', 20]] as const) {
+      const config = team(name, { createdAt, leadSessionId: 'no-such-session', members: 1 });
+      config.members[0] = { ...config.members[0], cwd };
+      await writeConfig(name, config);
+      await fs.utimes(path.join(teams(), name, 'config.json'), createdAt, createdAt);
+    }
+    await fs.mkdir(sessions(), { recursive: true });
+    await fs.writeFile(
+      path.join(sessions(), `${process.pid}.json`),
+      JSON.stringify({ pid: process.pid, sessionId: 'fresh-1', cwd, name: 'agents-team-ui' }),
+    );
+
+    const listed = await listTeamSummaries(teams(), sessions(), '');
+    const byName = new Map(listed.teams.map((t) => [t.name, t]));
+    expect(byName.get('session-new')?.leadAlive).toBe(true);
+    expect(byName.get('session-old')?.leadAlive).toBe(false);
+  });
+
+  // A wrong name is worse than none: two sessions in one directory cannot be
+  // told apart this way, so neither is claimed.
+  it('declines the directory join when two live sessions share the cwd', async () => {
+    const cwd = '/Users/someone/code/proj';
+    const config = team('session-fresh', { createdAt: 10, leadSessionId: 'no-such-session', members: 1 });
+    config.members[0] = { ...config.members[0], cwd };
+    await writeConfig('session-fresh', config);
+    await fs.mkdir(sessions(), { recursive: true });
+    for (const [pid, sessionId] of [[process.pid, 'fresh-1'], [process.ppid, 'fresh-2']] as const) {
+      await fs.writeFile(
+        path.join(sessions(), `${pid}.json`),
+        JSON.stringify({ pid, sessionId, cwd, name: 'agents-team-ui' }),
+      );
+    }
+
+    const [row] = (await listTeamSummaries(teams(), sessions(), '')).teams;
+    expect(row.leadAlive).toBe(false);
+    expect(row.goal).toBeUndefined();
   });
 
   it('counts members and marks the current team', async () => {
