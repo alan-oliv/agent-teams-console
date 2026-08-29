@@ -9,7 +9,68 @@ export interface TranscriptLine {
   marker: Marker;
   text: string;        // single line, flattened, capped at TRANSCRIPT_TEXT_CAP
   ts: number;          // epoch ms
+  diff?: Diff;         // present only on a line that reports an edit
 }
+
+export type DiffSign = ' ' | '-' | '+';
+
+export interface DiffLine {
+  sign: DiffSign;
+  oldLineNo: number | null;  // null on an added line
+  newLineNo: number | null;  // null on a removed line
+  text: string;              // the source line WITHOUT its sign, capped at DIFF_LINE_TEXT_CAP
+}
+
+export interface DiffHunk {
+  header: string;            // the `@@ … @@` line verbatim, trailing context and all
+  lines: DiffLine[];
+}
+
+/**
+ * A structured patch hanging off a transcript line, so a row reporting an edit
+ * can open as the patch rather than as the sentence describing it.
+ *
+ * `agent` and `ts` restate what the containing line and the agent holding it
+ * already know. They are here so a renderer takes one prop, and they are in
+ * this file's OWN units: `ts` is epoch ms like every other `ts` in the domain,
+ * not the display string the design prototype carried.
+ *
+ * `added` and `removed` count the WHOLE patch, including whatever `truncated`
+ * cut, because that is the summary a collapsed row shows.
+ */
+export interface Diff {
+  path: string;
+  added: number;
+  removed: number;
+  agent: string;             // bare agent name — the join key, as everywhere else
+  ts: number;                // epoch ms
+  // A patch is not always committed at the moment it is observed, and an
+  // uncommitted edit has no sha. Optional beats a fabricated value the row
+  // would then render as fact.
+  commit?: string;
+  hunks: DiffHunk[];
+  // Set when the caps below dropped content. Without it a cut patch reads as a
+  // whole one; the text cap has no such flag and has to be recovered by
+  // sniffing for a trailing ellipsis at exactly the cap length.
+  truncated?: boolean;
+}
+
+/**
+ * Bounds on one `Diff`, which rides the same SSE frame as the line carrying it.
+ * TRANSCRIPT_TEXT_CAP bounds that line's text in one dimension; a patch has
+ * two, and their product is what the wire pays for — 60KB worst case.
+ *
+ * The line cap is TOTAL across every hunk rather than per hunk. Per hunk leaves
+ * the hunk COUNT unbounded, which is the shape the diffs that actually threaten
+ * a frame take: a lockfile or generated file arrives as hundreds of small
+ * hunks, not as one enormous one.
+ *
+ * 200 characters truncates a real source line only where it is already
+ * generated or minified. As with the text cap, the store keeps the raw record,
+ * so raising either constant brings the content back.
+ */
+export const DIFF_LINES_CAP = 300;
+export const DIFF_LINE_TEXT_CAP = 200;
 
 export interface Agent {
   name: string;              // bare name — the join key across every source

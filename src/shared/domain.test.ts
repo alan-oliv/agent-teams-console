@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { Agent, MailMessage, Marker, Task, TranscriptLine } from './domain';
+import { DIFF_LINES_CAP, DIFF_LINE_TEXT_CAP } from './domain';
+import type { Agent, Diff, MailMessage, Marker, Task, TranscriptLine } from './domain';
 
 describe('domain contract', () => {
   it('types a transcript line with a marker from the pinned union', () => {
@@ -66,5 +67,79 @@ describe('domain contract', () => {
   it('pins the nine transcript markers', () => {
     const markers: Marker[] = ['❯', '⏺', '⎿', '✓', '✗', '+', '!', '▲', '○'];
     expect(markers).toHaveLength(9);
+  });
+
+  it('types a transcript line carrying the prototype diff', () => {
+    const line: TranscriptLine = {
+      id: 'd2908088-b2ed-4344-bb3c-ee08e9366306#4',
+      marker: '⎿',
+      text: 'Updated src/web/state/useTeamState.ts with 14 additions and 2 removals',
+      ts: 1787843382986,
+      diff: {
+        path: 'src/web/state/useTeamState.ts',
+        added: 14,
+        removed: 2,
+        agent: 'lead',
+        ts: 1787843382986,
+        commit: '9be5ee0',
+        hunks: [
+          {
+            header: '@@ -146,10 +146,24 @@ export function useTeamState(',
+            lines: [
+              { sign: ' ', oldLineNo: 146, newLineNo: 146, text: '  const [selected, setAgent] = useState<string | null>(initial.agent);' },
+              { sign: '-', oldLineNo: 149, newLineNo: null, text: '  const [widths, setWidths] = useState<Record<string, number>>({});' },
+              { sign: '+', oldLineNo: null, newLineNo: 149, text: '  const [widths, setWidths] = useState<Record<string, number>>(readWidths);' },
+            ],
+          },
+        ],
+      },
+    };
+    const [context, removed, added] = line.diff!.hunks[0].lines;
+    expect(context.sign).toBe(' ');
+    expect(removed.newLineNo).toBeNull();
+    expect(added.oldLineNo).toBeNull();
+    expect(line.diff!.hunks[0].header).toMatch(/^@@ /);
+  });
+
+  it('types a diff whose commit is not knowable yet', () => {
+    const uncommitted: Diff = {
+      path: 'src/shared/domain.ts',
+      added: 1,
+      removed: 0,
+      agent: 'domain',
+      ts: 1787843382986,
+      hunks: [
+        {
+          header: '@@ -7,4 +7,5 @@',
+          lines: [{ sign: '+', oldLineNo: null, newLineNo: 11, text: '  diff?: Diff;' }],
+        },
+      ],
+    };
+    expect(uncommitted.commit).toBeUndefined();
+    expect(uncommitted.truncated).toBeUndefined();
+  });
+
+  it('keeps the full counts on a diff whose hunks were cut by the cap', () => {
+    const big: Diff = {
+      path: 'package-lock.json',
+      added: 4200,
+      removed: 3100,
+      agent: 'lead',
+      ts: 1787843382986,
+      truncated: true,
+      hunks: [
+        {
+          header: '@@ -1,4 +1,4 @@',
+          lines: [{ sign: '+', oldLineNo: null, newLineNo: 1, text: '{' }],
+        },
+      ],
+    };
+    const shipped = big.hunks.reduce((n, h) => n + h.lines.length, 0);
+    expect(shipped).toBeLessThan(big.added + big.removed);
+    expect(big.truncated).toBe(true);
+  });
+
+  it('bounds one diff payload well under the worst transcript line the feed already ships', () => {
+    expect(DIFF_LINES_CAP * DIFF_LINE_TEXT_CAP).toBeLessThanOrEqual(64_000);
   });
 });
