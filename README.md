@@ -202,6 +202,18 @@ uninstall.
 
 </details>
 
+## The design, and everything that isn't source
+
+The design bundle, the original plan and spec, and the manual acceptance script
+live in a sibling repository, `agents-team-ui-docs`, which is not
+version-controlled. None of it is the product: the design folder in particular
+is a re-pulled mirror of a Claude Design project, so versioning it here recorded
+someone else's edit history alongside this one.
+
+If you are implementing against the design, read
+`../agents-team-ui-docs/design/CHANGELOG.md` first — it is newest-first and says
+what changed and why, which is what you want when the console already exists.
+
 ## Developing
 
 ```bash
