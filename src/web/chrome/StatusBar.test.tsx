@@ -58,7 +58,7 @@ it('fires the view change when a tab is clicked', () => {
   expect(onViewChange).toHaveBeenLastCalledWith('tasks');
 });
 
-it('renders the wordmark, team name and experimental pill', () => {
+it('renders the wordmark and the team name', () => {
   renderBar();
   const wordmark = screen.getByText('TEAM');
   expect(wordmark.style.color).toBe('var(--color-accent)');
@@ -66,7 +66,9 @@ it('renders the wordmark, team name and experimental pill', () => {
   expect(wordmark.style.fontWeight).toBe('700');
   expect(wordmark.style.fontSize).toBe('11px');
   expect(screen.getByText('session-98b0b4a7')).toBeTruthy();
-  expect(screen.getByText('experimental')).toBeTruthy();
+  // The pill is gone: agent teams are not experimental any more, and this bar
+  // is the one place where every pixel has to be paid for.
+  expect(screen.queryByText('experimental')).toBeNull();
 });
 
 it('does not pin the meter full when the cumulative token count is large', () => {

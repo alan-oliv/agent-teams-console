@@ -61,19 +61,46 @@ it('does not read the team list until it is opened', async () => {
   expect(fetchMock).toHaveBeenCalledWith('/api/teams');
 });
 
+// The trigger names the SESSION, not the directory it lives in. It comes off
+// the live frame rather than the listing, so it is right before the dropdown
+// has ever been opened — and costs no fetch.
+it('names the session on the trigger', () => {
+  renderSelect({ open: false, sessionName: 'agents-team-console-design' });
+  expect(screen.getByTestId('team-trigger-name').textContent).toBe('agents-team-console-design');
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
+it('falls back to the directory id when the session was never named', () => {
+  renderSelect({ open: false });
+  expect(screen.getByTestId('team-trigger-name').textContent).toBe('session-98b0b4a7');
+});
+
 it('heads the list with the session count', async () => {
   renderSelect();
   expect(await screen.findByText('SESSIONS ON THIS MACHINE · 2')).toBeTruthy();
   expect(screen.getByText('↑↓ select · ⏎ switch · esc close')).toBeTruthy();
 });
 
-it('carries the goal, agent count and state on the second line', async () => {
+// The row leads with the name the operator gave the session; the directory id
+// is a secondary handle, beside the branch. A session never named falls back to
+// the id up top, so the row is never blank.
+it('leads with the session name and demotes the id to the second line', async () => {
   renderSelect();
   const rows = await screen.findAllByRole('option');
-  expect(rows.map((r) => within(r).getByTestId('team-meta').textContent)).toEqual([
-    'agents-team-console-design4 agentslive',
-    '1 agentidle',
+  expect(rows.map((r) => within(r).getByTestId('team-title').textContent)).toEqual([
+    'agents-team-console-design',
+    'session-b5129c7b',
   ]);
+  expect(within(rows[0]).getByTestId('team-id').textContent).toBe('session-98b0b4a7');
+  // Unnamed: the id is already the title, so it is not repeated below it.
+  expect(within(rows[1]).queryByTestId('team-id')).toBeNull();
+});
+
+it('carries the agent count and state on the second line', async () => {
+  renderSelect();
+  const rows = await screen.findAllByRole('option');
+  expect(within(rows[0]).getByTestId('team-meta').textContent).toContain('4 agents');
+  expect(within(rows[0]).getByTestId('team-meta').textContent).toContain('live');
 });
 
 it('shows each session branch beside its name', async () => {

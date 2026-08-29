@@ -167,22 +167,11 @@ export function StatusBar({
       </span>
       <TeamSelect
         current={state.teamName}
+        sessionName={state.sessionName}
         open={teamsOpen}
         onOpenChange={onTeamsOpenChange}
         now={now}
       />
-      <span
-        style={{
-          border: '1px solid var(--color-accent-700)',
-          color: 'var(--color-accent-300)',
-          borderRadius: 'var(--radius-sm)',
-          padding: '1px 6px',
-          fontSize: 10,
-          ...METRIC,
-        }}
-      >
-        experimental
-      </span>
 
       <div
         role="tablist"

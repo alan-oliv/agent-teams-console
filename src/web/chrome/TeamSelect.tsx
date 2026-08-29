@@ -46,12 +46,14 @@ function agentCount(team: TeamSummary): string {
 export interface TeamSelectProps {
   /** The team the snapshot says is on screen — the only honest `current`. */
   current: string;
+  /** What the operator called this session. Falls back to `current` when unnamed. */
+  sessionName?: string;
   open: boolean;
   onOpenChange(open: boolean): void;
   now: number;
 }
 
-export function TeamSelect({ current, open, onOpenChange, now }: TeamSelectProps) {
+export function TeamSelect({ current, sessionName, open, onOpenChange, now }: TeamSelectProps) {
   const [teams, setTeams] = useState<TeamSummary[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [unreadable, setUnreadable] = useState(false);
@@ -188,6 +190,7 @@ export function TeamSelect({ current, open, onOpenChange, now }: TeamSelectProps
       >
         <span
           id="team-trigger-name"
+          data-testid="team-trigger-name"
           style={{
             color: 'var(--color-text)',
             overflow: 'hidden',
@@ -195,7 +198,7 @@ export function TeamSelect({ current, open, onOpenChange, now }: TeamSelectProps
             whiteSpace: 'nowrap',
           }}
         >
-          {current}
+          {sessionName ?? current}
         </span>
         <span aria-hidden="true" style={{ color: 'var(--color-accent-400)', fontSize: 10 }}>
           ▾
@@ -278,21 +281,22 @@ export function TeamSelect({ current, open, onOpenChange, now }: TeamSelectProps
                     >
                       {STATE_GLYPH[state]}
                     </span>
-                    <span style={{ color: 'var(--color-text)', flex: 'none' }}>{team.name}</span>
-                    {team.branch && (
-                      <span
-                        data-testid="team-branch"
-                        style={{
-                          color: 'var(--color-neutral-700)',
-                          fontSize: '10.5px',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {team.branch}
-                      </span>
-                    )}
+                    {/* The name the operator gave the session, not the id the
+                        directory happens to carry. Falls back to the id when a
+                        session was never named, so the row is never blank. */}
+                    <span
+                      data-testid="team-title"
+                      style={{
+                        color: 'var(--color-text)',
+                        fontSize: '12px',
+                        minWidth: 0,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {team.goal ?? team.name}
+                    </span>
                     <span style={{ flex: 1 }} />
                     {rowMark && (
                       <span
@@ -314,17 +318,34 @@ export function TeamSelect({ current, open, onOpenChange, now }: TeamSelectProps
                     data-testid="team-meta"
                     style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}
                   >
-                    <span
-                      style={{
-                        color: 'var(--color-neutral-500)',
-                        fontSize: '10.5px',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {team.goal ?? ''}
-                    </span>
+                    {team.goal && (
+                      <span
+                        data-testid="team-id"
+                        style={{
+                          color: 'var(--color-neutral-600)',
+                          fontSize: '10.5px',
+                          whiteSpace: 'nowrap',
+                          flex: 'none',
+                        }}
+                      >
+                        {team.name}
+                      </span>
+                    )}
+                    {team.branch && (
+                      <span
+                        data-testid="team-branch"
+                        style={{
+                          color: 'var(--color-neutral-600)',
+                          fontSize: '10.5px',
+                          minWidth: 0,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {team.branch}
+                      </span>
+                    )}
                     <span style={{ flex: 1 }} />
                     <span
                       style={{
