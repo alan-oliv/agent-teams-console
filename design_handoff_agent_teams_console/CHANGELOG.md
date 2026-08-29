@@ -2,6 +2,22 @@
 
 Read this if you already built an earlier version of this console — it lists what changed, so you can patch rather than rebuild. Newest first.
 
+## Comms view — inter-agent chat
+A sixth view. Agent-to-agent messaging was invisible in the wall: a `SendMessage` scrolled past in one column and its effect surfaced in another. The comms view shows the conversation directly — a thread list of inbox pairs on the left, a two-sided chat on the right.
+
+- Each thread is **two inboxes**, not a channel; teammates message each other directly and the lead does not relay.
+- Every bubble carries a **delivery state** (`read at turn 9` / `delivered · unread 34s`). A message sits in the recipient's inbox until its next turn boundary; a chat without this reads as instant delivery, which is wrong.
+- Composing indicator, operator composer that joins the thread, and a `show in wall` jump to both agents' columns.
+- **Regression this caused:** the sixth switcher pill (~65px) pushed the status bar past 1180px, bleeding the spend figure off-frame. The diffstat came out of that bar (it is in the session dropdown rows anyway) and elapsed + spend merged into one chip. Re-measure the bar whenever you add a pill.
+
+## JSON payloads open formatted
+A row carrying a JSON response (`{"success":true,…}`) collapses to one line like any other long row, but its drawer renders the payload pretty-printed and syntax-coloured rather than as prose.
+
+- Two-space indent, right-aligned line-number gutter, one span per token from the JSON palette (keys accent-400, strings `#9ec9a8`, numbers `#d99e5c`, booleans `#7fb4d9`, `null` `#c98d8d`, punctuation neutral). Defer to the codebase's own syntax theme if it has one.
+- Body sits on the terminal ground inside the lighter drawer, capped at 210px with **its own scroll that does not bottom-anchor** — JSON reads top-down.
+- Header badge (`N keys · N lines · N B`) is derived from the payload. A hard-coded count sitting beside a live line-number gutter visibly contradicts it.
+- `copy json` / `raw` actions in the footer.
+
 ## Expandable output rows
 A stream row whose output runs long collapses to one ellipsised line with a `▸` caret at its right edge. Clicking it opens the output as an **inset drawer** inside the stream (turn 5, `#5b` in the HTML):
 

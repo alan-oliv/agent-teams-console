@@ -43,7 +43,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <div class="dv-opts">
 
 <div class="dv-opt" id="5b">
-<div class="dv-olabel"><a class="dv-oid" href="#5b">5b</a>Click a row and its output opens as a drawer on the lighter ground, with its own edge, a divider under the header and copy/collapse actions. Collapsed rows keep the stream's fade; the body is exempt from it.</div>
+<div class="dv-olabel"><a class="dv-oid" href="#5b">5b</a>A JSON payload row opens pretty-printed and syntax-coloured with line numbers, capped and scrollable; prose output opens as the same drawer. Click a row and its output opens as a drawer on the lighter ground, with its own edge, a divider under the header and copy/collapse actions. Collapsed rows keep the stream's fade; the body is exempt from it.</div>
 <div class="dv-card" style="width:640px">
 <div style="height:600px;display:flex;flex-direction:column;background:#12141f;color:var(--color-text);font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11.5px;line-height:1.55">
 <div style="padding:9px 12px 8px;background:var(--color-bg);border-bottom:1px solid var(--color-neutral-900);display:flex;gap:11px;align-items:center">
@@ -64,6 +64,31 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <span style="color:var(--color-neutral-700);flex:none;font-size:10px">{{ l.caret }}</span>
 </div>
 </sc-for>
+<div style="background:var(--color-bg);border:1px solid var(--color-neutral-900);border-radius:var(--radius-md);padding:10px 12px 11px;margin:4px 0;display:flex;flex-direction:column;gap:10px;box-shadow:var(--shadow-sm)">
+<div style="display:flex;gap:7px;align-items:baseline">
+<span style="color:var(--color-accent-400);width:9px;flex:none">⎿</span>
+<span style="color:var(--color-neutral-500);font-size:10.5px">SendMessage · response</span>
+<span style="border:1px solid var(--color-neutral-800);color:var(--color-neutral-600);border-radius:var(--radius-sm);padding:0 5px;font-size:9.5px">json</span>
+<span style="flex:1"></span>
+<span style="color:var(--color-neutral-700);font-size:10px">{{ jsonMeta }}</span>
+<span style="color:var(--color-accent-400);flex:none;font-size:10px">▾</span>
+</div>
+<div class="tscroll" style="max-height:210px;background:#12141f;border:1px solid var(--color-neutral-900);border-radius:var(--radius-sm);padding:9px 0;display:flex;flex-direction:column;gap:2px">
+<sc-for list="{{ jsonLines }}" as="j" hint-placeholder-count="22">
+<div style="display:flex;gap:10px;align-items:baseline;white-space:pre;padding:0 11px 0 0;font-size:11px;line-height:1.5">
+<span style="color:var(--color-neutral-800);flex:none;width:34px;text-align:right;font-size:10px">{{ j.no }}</span>
+<span style="min-width:0"><span style="color:var(--color-neutral-900)">{{ j.pad }}</span><sc-for list="{{ j.parts }}" as="p" hint-placeholder-count="3"><span style="color:{{ p.c }}">{{ p.t }}</span></sc-for></span>
+</div>
+</sc-for>
+</div>
+<div style="display:flex;gap:10px;align-items:center">
+<span style="color:var(--color-neutral-700);font-size:10px">click the row again to collapse</span>
+<span style="flex:1"></span>
+<span style="border:1px solid var(--color-neutral-800);color:var(--color-neutral-500);border-radius:var(--radius-sm);padding:1px 7px;font-size:10px" style-hover="background:var(--color-neutral-900)">copy json</span>
+<span style="border:1px solid var(--color-neutral-800);color:var(--color-neutral-500);border-radius:var(--radius-sm);padding:1px 7px;font-size:10px" style-hover="background:var(--color-neutral-900)">raw</span>
+</div>
+</div>
+
 <div style="background:var(--color-bg);border:1px solid var(--color-neutral-900);border-radius:var(--radius-md);padding:10px 12px 11px;margin:4px 0;display:flex;flex-direction:column;gap:10px;box-shadow:var(--shadow-sm)">
 <div style="display:flex;gap:7px;align-items:baseline">
 <span style="color:var(--color-accent-400);width:9px;flex:none">{{ studyHead.mark }}</span>
@@ -149,13 +174,11 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 </div>
 <span style="flex:1;min-width:8px"></span>
 <span style="color:var(--color-accent-400);white-space:nowrap;flex:none">{{ sessBranch }}</span>
-<span style="color:var(--color-neutral-600);white-space:nowrap;flex:none">{{ sessDiff }}</span>
 <span style="color:var(--color-neutral-600);white-space:nowrap;flex:none">{{ t.done }}/{{ t.total }} tasks</span>
 <span style="color:var(--color-neutral-600);white-space:nowrap;flex:none">{{ t.windows }} ctx</span>
 <span style="color:var(--color-neutral-500);white-space:nowrap;flex:none">{{ t.tok }}</span>
 <span style="color:var(--color-accent-500);letter-spacing:-.5px;white-space:nowrap;flex:none">{{ t.bar }}</span>
-<span style="color:var(--color-neutral-500);white-space:nowrap;flex:none">{{ t.elapsed }}</span>
-<span style="color:var(--color-neutral-500);white-space:nowrap;flex:none">{{ t.cost }}</span>
+<span style="color:var(--color-neutral-500);white-space:nowrap;flex:none">{{ t.elapsed }} · {{ t.cost }}</span>
 </div>
 
 <sc-if value="{{ isWall }}" hint-placeholder-val="{{ true }}">
@@ -254,6 +277,80 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 </div>
 </sc-if>
 
+<sc-if value="{{ isComms }}">
+<div style="flex:1;display:flex;min-height:0">
+<div style="width:296px;flex:none;display:flex;flex-direction:column;border-right:1px solid var(--color-neutral-900)">
+<div style="padding:10px 14px 8px;color:var(--color-neutral-700);font-size:10.5px;letter-spacing:.12em;border-bottom:1px solid var(--color-neutral-900);display:flex">
+<span>THREADS</span><span style="flex:1"></span><span>2 unread</span>
+</div>
+<div class="tscroll" style="flex:1;display:flex;flex-direction:column;gap:2px;padding:6px 8px">
+<sc-for list="{{ channels }}" as="c" hint-placeholder-count="6">
+<div style="padding:8px 9px;border-radius:var(--radius-sm);cursor:pointer;display:flex;gap:9px;align-items:center;background:{{ c.rowBg }};box-shadow:inset 2px 0 0 {{ c.rowBar }}" style-hover="background:var(--color-neutral-900)">
+<div style="width:34px;height:20px;position:relative;flex:none">
+<div style="position:absolute;top:0;left:0;width:2px;height:2px;background:transparent;box-shadow:{{ c.sprA }};transform:scale(.83);transform-origin:top left"></div>
+<div style="position:absolute;top:0;left:14px;width:2px;height:2px;background:transparent;box-shadow:{{ c.sprB }};transform:scale(.83);transform-origin:top left"></div>
+</div>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+<div style="display:flex;gap:6px;align-items:baseline">
+<span style="font-size:9px;color:{{ c.dotCol }}">{{ c.dot }}</span>
+<span style="color:var(--color-text);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.pair }}</span>
+</div>
+<span style="color:var(--color-neutral-600);font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.topic }}</span>
+</div>
+<span style="flex:none;font-size:9.5px;padding:0 5px;border-radius:8px;background:{{ c.unreadBg }};color:{{ c.unreadCol }}">{{ c.unread }}</span>
+</div>
+</sc-for>
+</div>
+<div style="border-top:1px solid var(--color-neutral-900);padding:9px 14px;color:var(--color-neutral-700);font-size:10px;line-height:1.5">a thread is two inboxes · the lead does not relay</div>
+</div>
+
+<div style="flex:1;min-width:0;display:flex;flex-direction:column">
+<div style="padding:9px 16px;border-bottom:1px solid var(--color-neutral-900);background:var(--color-bg);display:flex;gap:10px;align-items:center">
+<span style="color:var(--color-text);font-size:12.5px">perf ⇄ security</span>
+<span style="color:var(--color-neutral-600);font-size:11px">batching vs rotation</span>
+<span style="flex:1"></span>
+<span style="color:var(--color-neutral-700);font-size:10.5px">T-07 · T-03</span>
+<span style="border:1px solid var(--color-neutral-800);color:var(--color-neutral-500);border-radius:var(--radius-sm);padding:1px 7px;font-size:10px" style-hover="background:var(--color-neutral-900)">show in wall</span>
+</div>
+<div class="tscroll tail" style="flex:1;padding:14px 16px;display:flex;flex-direction:column;gap:14px">
+<sc-for list="{{ thread }}" as="m" hint-placeholder-count="4">
+<div style="display:flex;flex-direction:column;align-items:{{ m.align }};gap:4px">
+<div style="display:flex;flex-direction:{{ m.rowDir }};gap:9px;align-items:flex-end;max-width:78%">
+<div style="width:22px;height:22px;position:relative;flex:none;margin-bottom:2px">
+<div style="position:absolute;top:0;left:0;width:2px;height:2px;background:transparent;box-shadow:{{ m.spr }};transform:scale(.9);transform-origin:top left"></div>
+</div>
+<div style="background:{{ m.bg }};border:1px solid {{ m.edge }};border-radius:var(--radius-md);padding:9px 12px;min-width:0">
+<div style="display:flex;gap:8px;align-items:baseline;margin-bottom:5px">
+<span style="color:var(--color-accent-400);font-size:10.5px">{{ m.from }}</span>
+<span style="color:var(--color-neutral-600);font-size:10px">{{ m.ts }}</span>
+</div>
+<span style="color:var(--color-neutral-300);font-size:11.5px;line-height:1.6;text-wrap:pretty">{{ m.text }}</span>
+</div>
+</div>
+<span style="color:{{ m.stateCol }};font-size:10px;padding:0 32px">{{ m.state }}</span>
+</div>
+</sc-for>
+<div style="display:flex;gap:9px;align-items:center;padding-left:31px;opacity:.6">
+<span style="color:var(--color-accent-400);font-size:10.5px">perf</span>
+<span style="color:var(--color-neutral-600);font-size:10.5px">composing a reply</span>
+<span style="display:flex;gap:3px">
+<span style="width:3px;height:3px;border-radius:2px;background:var(--color-accent-400);animation:pulse 1.2s ease-in-out infinite"></span>
+<span style="width:3px;height:3px;border-radius:2px;background:var(--color-accent-400);animation:pulse 1.2s ease-in-out .2s infinite"></span>
+<span style="width:3px;height:3px;border-radius:2px;background:var(--color-accent-400);animation:pulse 1.2s ease-in-out .4s infinite"></span>
+</span>
+</div>
+</div>
+<div style="border-top:1px solid var(--color-neutral-900);padding:10px 16px;background:var(--color-bg);display:flex;gap:9px;align-items:center">
+<span style="color:var(--color-accent)">❯</span>
+<span style="color:var(--color-neutral-600);font-size:11.5px">join as the operator — both agents see it</span>
+<span style="width:7px;height:15px;background:var(--color-accent-400);animation:blink 1.1s step-end infinite"></span>
+<span style="flex:1"></span>
+<span style="color:var(--color-neutral-700);font-size:10px">a message wakes an idle recipient</span>
+</div>
+</div>
+</div>
+</sc-if>
+
 <sc-if value="{{ isTasks }}">
 <div style="flex:1;display:flex;min-height:0">
 <div style="flex:1;min-width:0;display:flex;flex-direction:column;border-right:1px solid var(--color-neutral-900)">
@@ -287,7 +384,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <sc-for list="{{ mail }}" as="m" hint-placeholder-count="10">
 <div style="display:flex;flex-direction:column;gap:2px">
 <div style="display:flex;gap:6px;align-items:baseline;font-size:10.5px">
-<span style="color:var(--color-neutral-800)">{{ m.ts }}</span>
+<span style="color:var(--color-neutral-600)">{{ m.ts }}</span>
 <span style="color:var(--color-accent-400)">{{ m.from }}</span>
 <span style="color:var(--color-neutral-700)">→</span>
 <span style="color:var(--color-accent-400)">{{ m.to }}</span>
@@ -673,7 +770,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <sc-for list="{{ mail }}" as="m" hint-placeholder-count="10">
 <div style="display:flex;flex-direction:column;gap:2px">
 <div style="display:flex;gap:6px;align-items:baseline;font-size:10.5px">
-<span style="color:var(--color-neutral-800)">{{ m.ts }}</span>
+<span style="color:var(--color-neutral-600)">{{ m.ts }}</span>
 <span style="color:var(--color-accent-400)">{{ m.from }}</span>
 <span style="color:var(--color-neutral-700)">→</span>
 <span style="color:var(--color-accent-400)">{{ m.to }}</span>
@@ -1266,6 +1363,26 @@ const STUDY = [
   ['●', 'Bash(curl -sS -m 3 http://127.0.0.1:4823/api/teams 2>/dev/null…', ''],
   ['⎿', '{"current":"session-a8cf05bb","teams":[{"name":"session-a8cf05b…', '▸'],
 ];
+/* JSON payload rows: collapsed to one line, expanded as pretty-printed + tokenised */
+const JSON_ROW = {
+  success: true,
+  message: "Message sent to baseline-2's inbox",
+  recipient: 'baseline-2',
+  delivered_at: '2026-08-28T14:22:08.411Z',
+  inbox: { path: '~/.claude/teams/session-90c470/inboxes/baseline-2.json', unread: 3, size_bytes: 4192 },
+  task: { id: 'T-07', state: 'in_progress', owner: 'baseline-2', depends_on: ['T-03'] },
+  tokens: { prompt: 1284, completion: null },
+  warnings: [],
+};
+const JSON_COL = {
+  key: '#b5abfc',
+  str: '#9ec9a8',
+  num: '#d99e5c',
+  bool: '#7fb4d9',
+  nul: '#c98d8d',
+  punct: '#75798c',
+};
+
 const STUDY_HEAD = ['●', 'The console is back up on http://127.0.0.1:4823/ and serving your session'];
 const STUDY_BODY = [
   'The outage was mine: my probe listener was bound to 4823 answering only POST /hook, so your open tab got nothing back. It is killed, the real server is running, and the probe file it created is deleted.',
@@ -1402,6 +1519,26 @@ const SESSIONS = [
   ['session-c14e02', 'flake hunt in the e2e suite', 'fix/e2e-flake', 3, '1 blocked', 'live', 'no PR · +38 −12'],
   ['session-7ab355', 'docs restructure', 'docs/restructure', 5, 'all idle', 'idle', 'PR #139 · +904 −612'],
   ['session-0f61d8', 'v2.4 release checklist', 'release/2.4', 2, 'ended 41m ago', 'done', 'PR #151 · +12 −4'],
+];
+
+/* --- inter-agent comms: mailbox threads (docs: teammates message each other
+   directly; a message lands in the recipient's inbox and is read at its next
+   turn boundary, waking it if idle) --- */
+const CHANNELS = [
+  ['perf', 'security', 4, 0, 'batching vs rotation', 'live'],
+  ['security', 'tests', 3, 0, 'coverage on the 401 path', 'read'],
+  ['lead', 'security', 2, 1, 'findings roll-up', 'unread'],
+  ['architect', 'lead', 1, 1, 'plan approval', 'unread'],
+  ['repro', 'lead', 1, 0, 'turn failed · 529', 'read'],
+  ['lead', 'tests', 2, 0, 'wake — claim T-08', 'read'],
+];
+
+/* the open thread: perf ⇄ security */
+const THREAD = [
+  ['perf', 'I want to batch sessionsByUser into a single IN () query. Before I touch it — does per-request rotation depend on the lookup being per-session?', -412, 'read', 'read at turn 9'],
+  ['security', 'Rotation is keyed on the session row, not the lookup. Batching is fine as long as you keep the rotated_at write inside the same transaction.', -388, 'read', 'read at turn 9'],
+  ['perf', 'It is. Benchmarks after the change: 1.9ms p50, 6.4ms p99 — back to baseline.', -96, 'read', 'read at turn 11'],
+  ['security', 'Good. I am marking finding 1 as resolved-by-perf and dropping it from my report.', -34, 'unread', 'delivered · unread 34s'],
 ];
 
 const TASKS = [
@@ -1572,6 +1709,40 @@ class Component extends DCLogic {
     document.body.style.cursor = 'col-resize';
     this.setState({ dragging: name });
   }
+  /* flatten a value into printable, coloured tokens — one array entry per rendered line */
+  jsonLines(val, indent, keyName, trailing, out) {
+    out = out || [];
+    const C = JSON_COL;
+    const pad = '  '.repeat(indent);
+    const kv = keyName === undefined ? [] : [
+      { t: '"' + keyName + '"', c: C.key },
+      { t: ': ', c: C.punct },
+    ];
+    const push = (parts) => out.push({ pad, parts });
+
+    if (Array.isArray(val)) {
+      if (!val.length) return push(kv.concat([{ t: '[]', c: C.punct }, { t: trailing, c: C.punct }])), out;
+      push(kv.concat([{ t: '[', c: C.punct }]));
+      val.forEach((v, i) => this.jsonLines(v, indent + 1, undefined, i < val.length - 1 ? ',' : '', out));
+      push([{ t: ']' + trailing, c: C.punct }]);
+      return out;
+    }
+    if (val && typeof val === 'object') {
+      const keys = Object.keys(val);
+      if (!keys.length) return push(kv.concat([{ t: '{}', c: C.punct }, { t: trailing, c: C.punct }])), out;
+      push(kv.concat([{ t: '{', c: C.punct }]));
+      keys.forEach((k, i) => this.jsonLines(val[k], indent + 1, k, i < keys.length - 1 ? ',' : '', out));
+      push([{ t: '}' + trailing, c: C.punct }]);
+      return out;
+    }
+    const lit =
+      val === null ? { t: 'null', c: C.nul }
+      : typeof val === 'string' ? { t: JSON.stringify(val), c: C.str }
+      : typeof val === 'number' ? { t: String(val), c: C.num }
+      : { t: String(val), c: C.bool };
+    push(kv.concat([lit, { t: trailing, c: C.punct }]));
+    return out;
+  }
   sprite(name) {
     const rows = SPRITES[name] || SPRITES.lead;
     const skin = SPR_SKIN[name] || SPR_SKIN.lead;
@@ -1729,9 +1900,42 @@ class Component extends DCLogic {
     }));
     const sessOpen = !!this.state.sessOpen;
 
+    const byName = {};
+    team.forEach((a) => { byName[a.name] = a; });
+
+    const channels = CHANNELS.map((c, i) => ({
+      a: c[0], b: c[1], pair: c[0] + ' ⇄ ' + c[1], count: c[2] + ' msgs',
+      topic: c[4],
+      unread: c[3] ? String(c[3]) : '',
+      unreadBg: c[3] ? 'var(--color-accent-600)' : 'transparent',
+      unreadCol: c[3] ? '#161826' : 'transparent',
+      sprA: (byName[c[0]] || team[0]).spr,
+      sprB: (byName[c[1]] || team[1]).spr,
+      rowBg: i === 0 ? 'var(--color-accent-900)' : 'transparent',
+      rowBar: i === 0 ? 'var(--color-accent-500)' : 'transparent',
+      dot: c[5] === 'live' ? '●' : c[5] === 'unread' ? '◆' : '·',
+      dotCol: c[5] === 'live' ? 'var(--color-accent-400)' : c[5] === 'unread' ? '#d99e5c' : 'var(--color-neutral-700)',
+    }));
+
+    const thread = THREAD.map((m) => {
+      const mine = m[0] === 'perf';
+      return {
+        from: m[0], text: m[1],
+        spr: (byName[m[0]] || team[0]).spr,
+        ts: this.clock(m[2] + t * 3),
+        state: m[4],
+        stateCol: m[3] === 'unread' ? '#d99e5c' : 'var(--color-neutral-700)',
+        align: mine ? 'flex-start' : 'flex-end',
+        rowDir: mine ? 'row' : 'row-reverse',
+        bg: mine ? 'var(--color-bg)' : 'var(--color-accent-900)',
+        edge: mine ? 'var(--color-neutral-900)' : 'var(--color-accent-700)',
+        textAlign: mine ? 'left' : 'right',
+      };
+    });
+
     const view = this.state.view || 'wall';
     const views = [
-      ['wall', 'wall'], ['overview', 'overview'], ['tasks', 'tasks'],
+      ['wall', 'wall'], ['overview', 'overview'], ['comms', 'comms'], ['tasks', 'tasks'],
       ['rail', 'rail'], ['grid', 'grid'],
     ].map((v) => ({
       key: v[0], label: v[1],
@@ -1739,6 +1943,12 @@ class Component extends DCLogic {
       ul: view === v[0] ? 'var(--color-accent-700)' : 'transparent',
       pill: view === v[0] ? 'var(--color-accent-900)' : 'transparent',
       on: () => this.setState({ view: v[0] }),
+    }));
+
+    const jsonLines = this.jsonLines(JSON_ROW, 0, undefined, '').map((l, i) => ({
+      no: String(i + 1).padStart(2, ' '),
+      pad: l.pad,
+      parts: l.parts.filter((p) => p.t !== ''),
     }));
 
     const study = STUDY.map((r, j) => {
@@ -1750,6 +1960,10 @@ class Component extends DCLogic {
     return {
       w: 1180, h: 760, h2: 560, h3: 800, h4: 660,
       study,
+      jsonCollapsed: '⎿ ' + JSON.stringify(JSON_ROW).slice(0, 46) + '…',
+      jsonLines: jsonLines,
+      jsonMeta: Object.keys(JSON_ROW).length + ' keys · ' + jsonLines.length + ' lines · ' +
+        JSON.stringify(JSON_ROW).length + ' B',
       studyHead: { mark: STUDY_HEAD[0], text: STUDY_HEAD[1] },
       studyBody: STUDY_BODY.map((p) => ({ p })),
       team,
@@ -1767,6 +1981,8 @@ class Component extends DCLogic {
       isWall: view === 'wall',
       isOver: view === 'overview',
       isTasks: view === 'tasks',
+      isComms: view === 'comms',
+      channels, thread,
       isRail: view === 'rail',
       isGrid: view === 'grid',
       tasks,
