@@ -4143,22 +4143,19 @@ var HOOK_EVENTS = [
 ];
 var MATCHER_EVENTS = /* @__PURE__ */ new Set(["PreToolUse", "PostToolUse", "PermissionRequest"]);
 var CONSOLE_HOOK_URL = /^http:\/\/127\.0\.0\.1:\d+\/hook$/;
+var CONSOLE_HOOK_COMMAND_URL = /http:\/\/127\.0\.0\.1:\d+\/hook\b/;
 function post(port, route) {
   return `curl -sS -m 2 -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:${port}/${route} >/dev/null 2>&1; printf ''`;
+}
+function observe(port, timeoutSeconds) {
+  return `curl -sS -m ${timeoutSeconds} -X POST -H 'content-type: application/json' --data-binary @- http://127.0.0.1:${port}/hook 2>/dev/null; exit 0`;
 }
 function hookBlock(port) {
   const hooks = {};
   for (const event of HOOK_EVENTS) {
+    const timeout = event === "PermissionRequest" ? PERMISSION_HOOK_TIMEOUT_SECONDS : HOOK_TIMEOUT_SECONDS;
     const entry = {
-      hooks: [
-        {
-          type: "http",
-          url: `http://127.0.0.1:${port}/hook`,
-          // PermissionRequest is deliberately held for the operator; every other
-          // event must not be able to stall the agent's turn.
-          timeout: event === "PermissionRequest" ? PERMISSION_HOOK_TIMEOUT_SECONDS : HOOK_TIMEOUT_SECONDS
-        }
-      ]
+      hooks: [{ type: "command", command: observe(port, timeout), timeout }]
     };
     if (MATCHER_EVENTS.has(event)) entry.matcher = "*";
     hooks[event] = [entry];
@@ -4189,7 +4186,7 @@ function isConsoleEntry(entry) {
   const hooks = entry?.hooks;
   if (!Array.isArray(hooks)) return false;
   return hooks.some(
-    (h) => h?.type === "http" && typeof h.url === "string" && CONSOLE_HOOK_URL.test(h.url) || h?.type === "command" && typeof h.command === "string" && h.command.includes("console-launch.sh")
+    (h) => h?.type === "http" && typeof h.url === "string" && CONSOLE_HOOK_URL.test(h.url) || h?.type === "command" && typeof h.command === "string" && (h.command.includes("console-launch.sh") || CONSOLE_HOOK_COMMAND_URL.test(h.command))
   );
 }
 function isConsoleStatusLine(value, route) {
@@ -4506,6 +4503,7 @@ async function listTeamSummaries(teamsRoot2, sessionsRoot, current, projectsRoot
   const liveTeams = projectsRoot ? await teamsOfLiveSessions(projectsRoot, sessions) : /* @__PURE__ */ new Map();
   const now = Date.now();
   const teams = [];
+  const leadCwds = /* @__PURE__ */ new Map();
   for (const name of entries) {
     const teamDir = path9.join(teamsRoot2, name);
     let configMtimeMs;
@@ -4524,6 +4522,7 @@ async function listTeamSummaries(teamsRoot2, sessionsRoot, current, projectsRoot
     const lastActivityAt = await lastActivityOf(teamDir, configMtimeMs);
     const recent = now - lastActivityAt < IDLE_GRACE_MS;
     const lead = config.members.find((m) => m.agentId === config.leadAgentId) ?? config.members[0];
+    leadCwds.set(name, lead?.cwd ?? "");
     teams.push({
       // The DIRECTORY name, not config.name: the ingest gates its own team's
       // config.json on the directory, so a mismatch would make the team
@@ -4546,10 +4545,33 @@ async function listTeamSummaries(teamsRoot2, sessionsRoot, current, projectsRoot
       state: leadAlive ? "live" : recent ? "idle" : "done"
     });
   }
+  adoptByCwd(teams, leadCwds, sessions);
   teams.sort(
     (a, b) => Number(b.current) - Number(a.current) || Number(b.live) - Number(a.live) || b.lastActivityAt - a.lastActivityAt || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
   );
   return { current, teams };
+}
+function adoptByCwd(teams, leadCwds, sessions) {
+  const byCwd = /* @__PURE__ */ new Map();
+  const ambiguous = /* @__PURE__ */ new Set();
+  for (const sessionId of sessions.live) {
+    const cwd = sessions.cwds.get(sessionId);
+    if (!cwd) continue;
+    if (byCwd.has(cwd)) ambiguous.add(cwd);
+    else byCwd.set(cwd, sessionId);
+  }
+  for (const cwd of ambiguous) byCwd.delete(cwd);
+  if (byCwd.size === 0) return;
+  const claimed = new Set(teams.filter((t) => t.leadAlive).map((t) => t.name));
+  for (const [cwd, sessionId] of byCwd) {
+    const best = teams.filter((t) => !claimed.has(t.name) && leadCwds.get(t.name) === cwd).sort((a, b) => b.lastActivityAt - a.lastActivityAt)[0];
+    if (!best) continue;
+    claimed.add(best.name);
+    best.leadAlive = true;
+    best.live = true;
+    best.state = "live";
+    best.goal ??= sessions.names.get(sessionId);
+  }
 }
 function fencedSink(live, generation, current) {
   const mine = () => generation === current();
