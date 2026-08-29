@@ -679,11 +679,31 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
   };
 
   const handleSessionJson = async (file: string) => {
-    if (chain.size > 0 && !chain.has(path.basename(file, '.json'))) return;
-    const doc = await readJsonSafe<{ gitBranch?: string; branch?: string }>(file);
+    const doc = await readJsonSafe<{
+      gitBranch?: string;
+      branch?: string;
+      name?: string;
+      sessionId?: string;
+    }>(file);
+    // The file is named for the PID and carries the session id INSIDE it, so the
+    // chain has to be tested against the document. Matching on the basename
+    // compared a pid against session ids and never hit, which left this handler
+    // dead on any real machine — the basename fallback is for the id-named
+    // layout the fixtures use.
+    const sid = typeof doc?.sessionId === 'string' ? doc.sessionId : path.basename(file, '.json');
+    if (chain.size > 0 && !chain.has(sid)) return;
+    // The NAME is identity, so it needs proof rather than the absence of a
+    // contradiction: every session on the machine writes one of these files, and
+    // with an unresolved chain the guard above lets all of them through. Naming
+    // the console after a stranger's session is worse than not naming it, so an
+    // unproven file contributes its branch and nothing else.
+    const ours = chain.has(sid);
     const branch = doc?.gitBranch ?? doc?.branch;
-    if (!branch) return;
-    store.append('statusline', { branch }, leadName);
+    // The same file carries what the operator called the session, so the console
+    // can name itself without a second read or a listing fetch.
+    const sessionName = typeof doc?.name === 'string' && doc.name ? doc.name : undefined;
+    if (!branch && !(ours && sessionName)) return;
+    store.append('statusline', { branch, sessionName: ours ? sessionName : undefined }, leadName);
   };
 
   const dispatchJson = async (file: string, root: string) => {

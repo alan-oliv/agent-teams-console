@@ -99,6 +99,8 @@ export interface StatuslinePayload {
   contextTokens?: number;
   contextWindow?: number;
   branch?: string;
+  /** What the operator called the session; the lead's session file carries it. */
+  sessionName?: string;
   fiveHourPct?: number;
   sevenDayPct?: number;
   resetsAt?: string;
@@ -245,6 +247,7 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
   let config: TeamConfig | null = null;
   let sidecars: Array<{ meta: Sidecar; transcriptPath: string }> = [];
   let branch: string | undefined;
+  let sessionName: string | undefined;
   let rateLimits: RateLimits | undefined;
 
   const records = new Map<string, TranscriptRecord[]>();
@@ -339,6 +342,7 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
       case 'statusline': {
         const p = ev.payload as StatuslinePayload;
         if (p.branch) branch = p.branch;
+        if (p.sessionName) sessionName = p.sessionName;
         if (p.fiveHourPct !== undefined || p.sevenDayPct !== undefined) {
           rateLimits = {
             fiveHourPct: p.fiveHourPct ?? 0,
@@ -477,6 +481,7 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
 
   return {
     teamName: config?.name ?? '',
+    sessionName,
     leadSessionId: config?.leadSessionId ?? '',
     branch,
     startedAt: config?.createdAt ?? 0,

@@ -1813,3 +1813,47 @@ describe('lead session chain (/branch)', () => {
     expect(state.totalCostUsd).toBeCloseTo(totalCost(dedupeUsage(usageRecordsOf(leadRecords))), 9);
   });
 });
+
+describe("the lead session's own file", () => {
+  // Named for the PID, with the session id INSIDE. Matching the chain on the
+  // basename compared a pid against session ids, so this handler never fired on
+  // a real machine and the console could not name itself.
+  it('reads a pid-named session file and carries its name and branch', async () => {
+    await layout();
+    await fs.writeFile(
+      path.join(paths.sessions, '75251.json'),
+      JSON.stringify({ pid: 75251, sessionId: LEAD_SESSION, name: 'agents-team-design-3', gitBranch: 'main' }),
+    );
+    // The console knows its lead session, so the chain is seeded rather than
+    // left to a race between the watcher and the sweep.
+    const ingest = startFileIngest(store, { paths, sweepIntervalMs: 0, leadSessionId: LEAD_SESSION });
+    try {
+      await settle();
+      await ingest.sweep();
+    } finally {
+      ingest.close();
+    }
+
+    const named = of(store.replay(), 'statusline')
+      .map((e) => e.payload as { branch?: string; sessionName?: string })
+      .filter((p) => p.sessionName);
+    expect(named.at(-1)?.sessionName).toBe('agents-team-design-3');
+    expect(project(store.replay(), false).sessionName).toBe('agents-team-design-3');
+  });
+
+  it('ignores a session file belonging to another session', async () => {
+    await layout();
+    await fs.writeFile(
+      path.join(paths.sessions, '99999.json'),
+      JSON.stringify({ pid: 99999, sessionId: 'someone-else', name: 'not ours', gitBranch: 'other' }),
+    );
+    const ingest = startFileIngest(store, { paths, sweepIntervalMs: 0, leadSessionId: LEAD_SESSION });
+    try {
+      await settle();
+      await ingest.sweep();
+    } finally {
+      ingest.close();
+    }
+    expect(project(store.replay(), false).sessionName).toBeUndefined();
+  });
+});

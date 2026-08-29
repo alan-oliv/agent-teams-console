@@ -86,6 +86,12 @@ export interface RateLimits { fiveHourPct: number; sevenDayPct: number; resetsAt
 
 export interface TeamState {
   teamName: string;
+  /**
+   * What the operator called this session (`/branch` writes it), as opposed to
+   * the directory id `teamName` carries. Absent until the lead's session file
+   * has been read, and for a session that was never named.
+   */
+  sessionName?: string;
   leadSessionId: string;
   branch?: string;
   startedAt: number;
