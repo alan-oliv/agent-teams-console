@@ -3237,6 +3237,17 @@ function startFileIngest(store, config) {
       if (i + INGEST_BATCH_RECORDS >= records.length) payload.totals = totals;
       store.append("transcript", payload, agent);
     }
+    appendDrainedMail(agent, records);
+  };
+  const appendDrainedMail = (agent, records) => {
+    for (const rec of records) {
+      if (rec.type !== "user") continue;
+      const content = rec.message?.content;
+      if (typeof content !== "string" || !content.includes("<teammate-message")) continue;
+      const deliveredAt = rec.timestamp ? Date.parse(rec.timestamp) : NaN;
+      if (Number.isNaN(deliveredAt)) continue;
+      store.append("mail", { source: "transcript", to: agent, text: content, deliveredAt }, agent);
+    }
   };
   const flushPending = (agent, transcript) => {
     const buf = pending.get(transcript);
