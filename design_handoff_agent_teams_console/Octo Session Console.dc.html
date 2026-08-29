@@ -18,7 +18,7 @@ body{margin:0;background:#0d0e17;font-family:"Inter",system-ui,sans-serif;color:
 a{color:#b5abfc}a:hover{color:#d2cefd}
 @keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
 @keyframes pulse{0%,100%{opacity:.35}50%{opacity:1}}
-.tscroll>*:first-child{margin-top:auto}
+.tscroll.tail>*:first-child{margin-top:auto}
 .tscroll{overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#3f424d transparent;overscroll-behavior:contain}
 .tscroll::-webkit-scrollbar{width:9px}
 .tscroll::-webkit-scrollbar-track{background:rgba(233,233,237,.035)}
@@ -37,6 +37,65 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 .dv-next{margin:24px 0 0;font:12px/1.5 "Inter",system-ui,sans-serif;color:#75798c}
 </style>
 </helmet>
+
+<section class="dv-turn" id="t5">
+<div class="dv-thd"><a class="dv-tid" href="#t5">5</a><span class="dv-tname">Expanded output — the inset drawer</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="5b">
+<div class="dv-olabel"><a class="dv-oid" href="#5b">5b</a>Click a row and its output opens as a drawer on the lighter ground, with its own edge, a divider under the header and copy/collapse actions. Collapsed rows keep the stream's fade; the body is exempt from it.</div>
+<div class="dv-card" style="width:640px">
+<div style="height:600px;display:flex;flex-direction:column;background:#12141f;color:var(--color-text);font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11.5px;line-height:1.55">
+<div style="padding:9px 12px 8px;background:var(--color-bg);border-bottom:1px solid var(--color-neutral-900);display:flex;gap:11px;align-items:center">
+<div style="width:24px;height:24px;position:relative;flex:none">
+<div style="position:absolute;top:0;left:0;width:2px;height:2px;background:transparent;box-shadow:{{ focus.spr }}"></div>
+</div>
+<span style="color:var(--color-text);font-weight:500;font-size:13px">team-lead</span>
+<span style="border:1px solid var(--color-neutral-800);color:var(--color-neutral-500);border-radius:var(--radius-sm);padding:0 5px;font-size:9.5px">team-lead</span>
+<span style="flex:1"></span>
+<span style="color:var(--color-accent-400);font-size:11px">working</span>
+</div>
+<div class="tscroll tail" style="flex:1;padding:13px 12px;display:flex;flex-direction:column;gap:10px">
+<sc-for list="{{ study }}" as="l" hint-placeholder-count="8">
+<div style="display:flex;gap:7px;align-items:baseline;white-space:nowrap;opacity:{{ l.op }}">
+<span style="color:var(--color-accent-500);width:9px;flex:none">{{ l.mark }}</span>
+<span style="color:var(--color-neutral-300);overflow:hidden;text-overflow:ellipsis">{{ l.text }}</span>
+<span style="flex:1"></span>
+<span style="color:var(--color-neutral-700);flex:none;font-size:10px">{{ l.caret }}</span>
+</div>
+</sc-for>
+<div style="background:var(--color-bg);border:1px solid var(--color-neutral-900);border-radius:var(--radius-md);padding:10px 12px 11px;margin:4px 0;display:flex;flex-direction:column;gap:10px;box-shadow:var(--shadow-sm)">
+<div style="display:flex;gap:7px;align-items:baseline">
+<span style="color:var(--color-accent-400);width:9px;flex:none">{{ studyHead.mark }}</span>
+<span style="color:var(--color-text);text-wrap:pretty">{{ studyHead.text }}</span>
+<span style="flex:1"></span>
+<span style="color:var(--color-accent-400);flex:none;font-size:10px">▾</span>
+</div>
+<div style="height:1px;background:var(--color-neutral-900)"></div>
+<div style="display:flex;flex-direction:column;gap:11px;padding-left:16px">
+<sc-for list="{{ studyBody }}" as="b" hint-placeholder-count="4">
+<span style="color:var(--color-neutral-300);text-wrap:pretty;line-height:1.65">{{ b.p }}</span>
+</sc-for>
+</div>
+<div style="display:flex;gap:10px;align-items:center;padding-left:16px">
+<span style="color:var(--color-neutral-700);font-size:10px">47 lines</span>
+<span style="flex:1"></span>
+<span style="border:1px solid var(--color-neutral-800);color:var(--color-neutral-500);border-radius:var(--radius-sm);padding:1px 7px;font-size:10px" style-hover="background:var(--color-neutral-900)">copy</span>
+<span style="border:1px solid var(--color-accent-700);color:var(--color-accent-300);border-radius:var(--radius-sm);padding:1px 7px;font-size:10px" style-hover="background:var(--color-accent-900)">collapse</span>
+</div>
+</div>
+</div>
+<div style="border-top:1px solid var(--color-neutral-900);padding:9px 12px;display:flex;gap:7px;align-items:center;background:var(--color-bg)">
+<span style="color:var(--color-accent-600)">❯</span>
+<span style="color:var(--color-neutral-700)">message team-lead</span>
+</div>
+</div>
+</div>
+</div>
+
+</div>
+<p class="dv-next">Try next: "wire the drawer into the wall columns in <a class="dv-oid" href="#4a">4a</a>" · "show a collapsed row mid-stream, not at the end" · "cap the drawer height and scroll inside it"</p>
+</section>
 
 <section class="dv-turn" id="t4">
 <div class="dv-thd"><a class="dv-tid" href="#t4">4</a><span class="dv-tname">One console, five views — the switcher lives in the status bar and the chrome never moves</span></div>
@@ -131,11 +190,11 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 </div>
 </div>
 </div>
-<div class="tscroll" style="flex:1;padding:9px 12px;display:flex;flex-direction:column;gap:1px">
+<div class="tscroll tail" style="flex:1;padding:13px 12px;display:flex;flex-direction:column;gap:10px">
 <sc-for list="{{ a.wall }}" as="l" hint-placeholder-count="16">
-<div style="display:flex;gap:7px;align-items:baseline;white-space:nowrap">
-<span style="color:var(--color-accent-600);width:9px;flex:none;font-size:11px">{{ l.mark }}</span>
-<span style="color:var(--color-neutral-500);overflow:hidden;text-overflow:ellipsis;font-size:11.5px">{{ l.text }}</span>
+<div style="display:flex;gap:7px;align-items:baseline;white-space:nowrap;opacity:{{ l.op }}">
+<span style="color:var(--color-accent-500);width:9px;flex:none;font-size:11px">{{ l.mark }}</span>
+<span style="color:var(--color-neutral-300);overflow:hidden;text-overflow:ellipsis;font-size:11.5px">{{ l.text }}</span>
 </div>
 </sc-for>
 </div>
@@ -179,11 +238,11 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <div style="height:100%;background:var(--color-accent-600);width:{{ a.pct }}"></div>
 </div>
 </div>
-<div class="tscroll" style="flex:1;padding:8px 10px;display:flex;flex-direction:column;gap:1px">
+<div class="tscroll tail" style="flex:1;padding:10px 10px;display:flex;flex-direction:column;gap:8px">
 <sc-for list="{{ a.wall }}" as="l" hint-placeholder-count="12">
-<div style="display:flex;gap:5px;align-items:baseline;white-space:nowrap">
-<span style="color:var(--color-accent-700);width:8px;flex:none;font-size:9.5px">{{ l.mark }}</span>
-<span style="color:var(--color-neutral-600);overflow:hidden;text-overflow:ellipsis;font-size:10px">{{ l.text }}</span>
+<div style="display:flex;gap:5px;align-items:baseline;white-space:nowrap;opacity:{{ l.op }}">
+<span style="color:var(--color-accent-500);width:8px;flex:none;font-size:9.5px">{{ l.mark }}</span>
+<span style="color:var(--color-neutral-400);overflow:hidden;text-overflow:ellipsis;font-size:10px">{{ l.text }}</span>
 </div>
 </sc-for>
 </div>
@@ -207,7 +266,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 </div>
 <div class="tscroll" style="flex:1;display:flex;flex-direction:column">
 <sc-for list="{{ tasks }}" as="k" hint-placeholder-count="11">
-<div style="display:flex;gap:10px;align-items:baseline;padding:7px 16px;border-bottom:1px solid #1b1d2b;font-size:11.5px" style-hover="background:var(--color-bg)">
+<div style="display:flex;gap:10px;align-items:baseline;padding:12px 16px;border-bottom:1px solid #1b1d2b;font-size:11.5px" style-hover="background:var(--color-bg)">
 <span style="width:44px;color:var(--color-neutral-600)">{{ k.id }}</span>
 <span style="flex:1;color:var(--color-neutral-300);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ k.text }}</span>
 <span style="width:92px;display:flex;gap:5px;align-items:baseline;color:{{ k.col }}"><span style="font-size:10px">{{ k.dot }}</span><span>{{ k.label }}</span></span>
@@ -224,7 +283,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 </div>
 <div style="width:404px;display:flex;flex-direction:column;background:var(--color-bg)">
 <div style="padding:10px 14px 8px;color:var(--color-neutral-700);font-size:10.5px;letter-spacing:.12em;border-bottom:1px solid var(--color-neutral-900)">MAILBOX TRAFFIC</div>
-<div class="tscroll" style="flex:1;padding:10px 14px;display:flex;flex-direction:column;gap:9px">
+<div class="tscroll tail" style="flex:1;padding:14px 14px;display:flex;flex-direction:column;gap:18px">
 <sc-for list="{{ mail }}" as="m" hint-placeholder-count="10">
 <div style="display:flex;flex-direction:column;gap:2px">
 <div style="display:flex;gap:6px;align-items:baseline;font-size:10.5px">
@@ -290,11 +349,11 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <span style="color:var(--color-neutral-500);font-size:11px">{{ focus.ctx }}</span>
 <span style="color:var(--color-neutral-600);font-size:11px">{{ focus.cost }}</span>
 </div>
-<div class="tscroll" style="flex:1;padding:12px 18px;display:flex;flex-direction:column;gap:1px">
+<div class="tscroll tail" style="flex:1;padding:15px 18px;display:flex;flex-direction:column;gap:11px">
 <sc-for list="{{ focus.wall }}" as="l" hint-placeholder-count="18">
-<div style="display:flex;gap:9px;align-items:baseline;white-space:nowrap">
-<span style="color:var(--color-accent-600);width:10px;flex:none;font-size:11px">{{ l.mark }}</span>
-<span style="color:var(--color-neutral-400);overflow:hidden;text-overflow:ellipsis">{{ l.text }}</span>
+<div style="display:flex;gap:9px;align-items:baseline;white-space:nowrap;opacity:{{ l.op }}">
+<span style="color:var(--color-accent-500);width:10px;flex:none;font-size:11px">{{ l.mark }}</span>
+<span style="color:var(--color-neutral-300);overflow:hidden;text-overflow:ellipsis">{{ l.text }}</span>
 </div>
 </sc-for>
 </div>
@@ -332,11 +391,11 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 </div>
 </div>
 </div>
-<div class="tscroll" style="flex:1;padding:8px 11px;display:flex;flex-direction:column;gap:1px">
+<div class="tscroll tail" style="flex:1;padding:10px 11px;display:flex;flex-direction:column;gap:8px">
 <sc-for list="{{ a.wall }}" as="l" hint-placeholder-count="12">
-<div style="display:flex;gap:6px;align-items:baseline;white-space:nowrap">
-<span style="color:var(--color-accent-700);width:8px;flex:none;font-size:10px">{{ l.mark }}</span>
-<span style="color:var(--color-neutral-600);overflow:hidden;text-overflow:ellipsis;font-size:11px">{{ l.text }}</span>
+<div style="display:flex;gap:6px;align-items:baseline;white-space:nowrap;opacity:{{ l.op }}">
+<span style="color:var(--color-accent-500);width:8px;flex:none;font-size:10px">{{ l.mark }}</span>
+<span style="color:var(--color-neutral-400);overflow:hidden;text-overflow:ellipsis;font-size:11px">{{ l.text }}</span>
 </div>
 </sc-for>
 </div>
@@ -474,11 +533,11 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 </div>
 </div>
 </div>
-<div class="tscroll" style="flex:1;padding:9px 12px;display:flex;flex-direction:column;gap:1px">
+<div class="tscroll tail" style="flex:1;padding:13px 12px;display:flex;flex-direction:column;gap:10px">
 <sc-for list="{{ a.wall }}" as="l" hint-placeholder-count="16">
-<div style="display:flex;gap:7px;align-items:baseline;white-space:nowrap">
-<span style="color:var(--color-accent-600);width:9px;flex:none;font-size:11px">{{ l.mark }}</span>
-<span style="color:var(--color-neutral-500);overflow:hidden;text-overflow:ellipsis;font-size:11.5px">{{ l.text }}</span>
+<div style="display:flex;gap:7px;align-items:baseline;white-space:nowrap;opacity:{{ l.op }}">
+<span style="color:var(--color-accent-500);width:9px;flex:none;font-size:11px">{{ l.mark }}</span>
+<span style="color:var(--color-neutral-300);overflow:hidden;text-overflow:ellipsis;font-size:11.5px">{{ l.text }}</span>
 </div>
 </sc-for>
 </div>
@@ -592,7 +651,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 </div>
 <div class="tscroll" style="flex:1;display:flex;flex-direction:column">
 <sc-for list="{{ tasks }}" as="k" hint-placeholder-count="11">
-<div style="display:flex;gap:10px;align-items:baseline;padding:7px 16px;border-bottom:1px solid #1b1d2b;font-size:11.5px" style-hover="background:var(--color-bg)">
+<div style="display:flex;gap:10px;align-items:baseline;padding:12px 16px;border-bottom:1px solid #1b1d2b;font-size:11.5px" style-hover="background:var(--color-bg)">
 <span style="width:44px;color:var(--color-neutral-600)">{{ k.id }}</span>
 <span style="flex:1;color:var(--color-neutral-300);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ k.text }}</span>
 <span style="width:92px;display:flex;gap:5px;align-items:baseline;color:{{ k.col }}"><span style="font-size:10px">{{ k.dot }}</span><span>{{ k.label }}</span></span>
@@ -610,7 +669,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 
 <div style="width:404px;display:flex;flex-direction:column;background:var(--color-bg)">
 <div style="padding:10px 14px 8px;color:var(--color-neutral-700);font-size:10.5px;letter-spacing:.12em;border-bottom:1px solid var(--color-neutral-900)">MAILBOX TRAFFIC</div>
-<div class="tscroll" style="flex:1;padding:10px 14px;display:flex;flex-direction:column;gap:9px">
+<div class="tscroll tail" style="flex:1;padding:14px 14px;display:flex;flex-direction:column;gap:18px">
 <sc-for list="{{ mail }}" as="m" hint-placeholder-count="10">
 <div style="display:flex;flex-direction:column;gap:2px">
 <div style="display:flex;gap:6px;align-items:baseline;font-size:10.5px">
@@ -680,11 +739,11 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <span style="color:var(--color-neutral-600);font-size:10.5px">{{ a.cost }}</span>
 </div>
 </div>
-<div class="tscroll" style="flex:1;padding:9px 12px;display:flex;flex-direction:column;gap:1px">
+<div class="tscroll tail" style="flex:1;padding:13px 12px;display:flex;flex-direction:column;gap:10px">
 <sc-for list="{{ a.wall }}" as="l" hint-placeholder-count="12">
-<div style="display:flex;gap:7px;align-items:baseline;white-space:nowrap">
-<span style="color:var(--color-accent-600);width:9px;flex:none;font-size:11px">{{ l.mark }}</span>
-<span style="color:var(--color-neutral-500);overflow:hidden;text-overflow:ellipsis;font-size:11.5px">{{ l.text }}</span>
+<div style="display:flex;gap:7px;align-items:baseline;white-space:nowrap;opacity:{{ l.op }}">
+<span style="color:var(--color-accent-500);width:9px;flex:none;font-size:11px">{{ l.mark }}</span>
+<span style="color:var(--color-neutral-300);overflow:hidden;text-overflow:ellipsis;font-size:11.5px">{{ l.text }}</span>
 </div>
 </sc-for>
 </div>
@@ -743,11 +802,11 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <div style="height:100%;background:var(--color-accent-600);width:{{ a.pct }}"></div>
 </div>
 </div>
-<div class="tscroll" style="flex:1;padding:7px 9px;display:flex;flex-direction:column;gap:1px">
+<div class="tscroll tail" style="flex:1;padding:9px 9px;display:flex;flex-direction:column;gap:7px">
 <sc-for list="{{ a.wall }}" as="l" hint-placeholder-count="9">
-<div style="display:flex;gap:5px;align-items:baseline;white-space:nowrap">
-<span style="color:var(--color-accent-700);width:8px;flex:none;font-size:9.5px">{{ l.mark }}</span>
-<span style="color:var(--color-neutral-600);overflow:hidden;text-overflow:ellipsis;font-size:10px">{{ l.text }}</span>
+<div style="display:flex;gap:5px;align-items:baseline;white-space:nowrap;opacity:{{ l.op }}">
+<span style="color:var(--color-accent-500);width:8px;flex:none;font-size:9.5px">{{ l.mark }}</span>
+<span style="color:var(--color-neutral-400);overflow:hidden;text-overflow:ellipsis;font-size:10px">{{ l.text }}</span>
 </div>
 </sc-for>
 </div>
@@ -847,7 +906,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <div><span style="color:var(--color-neutral-700)">[ ]</span> <span style="color:var(--color-neutral-500)">regenerate types + docs</span> <span style="color:var(--color-neutral-700)">queued</span></div>
 </div>
 </div>
-<div class="tscroll" style="flex:1;padding:12px 18px;display:flex;flex-direction:column;gap:1px">
+<div class="tscroll tail" style="flex:1;padding:15px 18px;display:flex;flex-direction:column;gap:11px">
 <sc-for list="{{ log }}" as="l" hint-placeholder-count="14">
 <div style="display:flex;gap:9px;align-items:baseline;white-space:nowrap">
 <span style="color:var(--color-neutral-800);font-size:11px">{{ l.ts }}</span>
@@ -900,7 +959,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 <span style="color:var(--color-neutral-700);font-size:10.5px">{{ a.model }}</span>
 </div>
 <div style="padding:6px 11px 4px;color:var(--color-neutral-500);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-bottom:1px dashed var(--color-neutral-900)">{{ a.tool }}</div>
-<div style="flex:1;overflow:hidden;padding:7px 11px;color:var(--color-neutral-600);font-size:11px;white-space:pre;display:flex;align-items:flex-end">{{ a.tail }}</div>
+<div class="tscroll" style="flex:1;padding:7px 11px;color:var(--color-neutral-600);font-size:11px;white-space:pre;display:flex;align-items:flex-end">{{ a.tail }}</div>
 <div style="display:flex;align-items:baseline;gap:8px;padding:6px 11px 8px;border-top:1px solid var(--color-neutral-900)">
 <span style="letter-spacing:-.5px;color:var(--color-accent-600)">{{ a.bar }}</span>
 <span style="color:var(--color-neutral-500);font-size:11px">{{ a.pct }}</span>
@@ -936,7 +995,7 @@ a{color:#b5abfc}a:hover{color:#d2cefd}
 </div>
 <div style="white-space:pre;color:var(--color-neutral-400);font-size:12.5px;line-height:1.62;flex:none">{{ tree }}</div>
 <div style="height:1px;background:var(--color-neutral-900);margin:14px 0 10px"></div>
-<div style="flex:1;overflow:hidden;display:flex;flex-direction:column;gap:1px">
+<div class="tscroll tail" style="flex:1;display:flex;flex-direction:column;gap:7px">
 <sc-for list="{{ log }}" as="l" hint-placeholder-count="10">
 <div style="display:flex;gap:9px;align-items:baseline;white-space:nowrap">
 <span style="color:var(--color-neutral-800);font-size:11px">{{ l.ts }}</span>
@@ -1194,6 +1253,25 @@ const TEAM = [
     tool: 'plan approval pending with lead', tok: 61200, rate: 0, cost: 0.31, crate: 0, t0: 342 },
   { name: 'repro', type: 'general-purpose', model: 'haiku-4.5', st: 'fail', role: 'reproduce the exit bug',
     tool: 'turn ended on an API error', tok: 23900, rate: 0, cost: 0.06, crate: 0, t0: 214 },
+];
+
+/* --- expanded-row study (turn 5) --- */
+const STUDY = [
+  ['●', 'Bash(env | grep -i "claude" | head -10; echo "---")', ''],
+  ['⎿', 'PATH=/Users/alanoliv/.local/share/pnpm:/Users/alanoliv/Library…', '▸'],
+  ['●', 'Bash(SP=/private/tmp/claude-501/-Users-alanoliv-code-agents-te…', ''],
+  ['✗', 'Exit code 143 · command timed out after 3m 0s', '▸'],
+  ['●', "That's me — my probe listener is squatting on 4823 and only an…", ''],
+  ['⎿', 'port free · GET / → 200 · claude 2.1.231 matches the pinned co…', '▸'],
+  ['●', 'Bash(curl -sS -m 3 http://127.0.0.1:4823/api/teams 2>/dev/null…', ''],
+  ['⎿', '{"current":"session-a8cf05bb","teams":[{"name":"session-a8cf05b…', '▸'],
+];
+const STUDY_HEAD = ['●', 'The console is back up on http://127.0.0.1:4823/ and serving your session'];
+const STUDY_BODY = [
+  'The outage was mine: my probe listener was bound to 4823 answering only POST /hook, so your open tab got nothing back. It is killed, the real server is running, and the probe file it created is deleted.',
+  'Refresh the tab and it should render normally.',
+  'Where the actual work landed — pushed as 9be5ee0: the plugin now carries all ten observation hooks itself. PreToolUse, PostToolUse, PermissionRequest, UserPromptSubmit, Notification, Stop, SubagentStop, SessionStart, SessionEnd and PreCompact all live in hooks/hooks.json.',
+  'A bare claude plugin install now gets permission cards, plan approvals and tool activity with zero settings.json edits. I verified this rather than assuming it.',
 ];
 
 const PRELUDE = [
@@ -1612,7 +1690,11 @@ class Component extends DCLogic {
         onGripDbl: () => this.setState((s) => ({ widths: Object.assign({}, s.widths, { [a.name]: 366 }) })),
         selBg: (this.state.sel ?? 1) === i ? 'var(--color-accent-900)' : 'transparent',
         selBar: (this.state.sel ?? 1) === i ? 'var(--color-accent-500)' : 'var(--color-neutral-800)',
-        wall: src.slice(0, n).map((r) => ({ mark: r[0], text: r[1] })),
+        wall: src.slice(0, n).map((r, j, arr) => {
+          const back = arr.length - 1 - j;
+          const base = back === 0 ? 1 : back === 1 ? 0.72 : back < 5 ? 0.5 : 0.38;
+          return { mark: r[0], text: r[1], op: live ? base : base * 0.72 };
+        }),
         tok: (tok / 1000).toFixed(1) + 'k',
         ctx: (tok / 1000).toFixed(1) + 'k / 200k',
         pct: Math.round(p * 100) + '%',
@@ -1659,8 +1741,17 @@ class Component extends DCLogic {
       on: () => this.setState({ view: v[0] }),
     }));
 
+    const study = STUDY.map((r, j) => {
+      const back = STUDY.length - 1 - j;
+      return { mark: r[0], text: r[1], caret: r[2], op: back < 3 ? 0.5 : 0.38 };
+    });
+
+
     return {
       w: 1180, h: 760, h2: 560, h3: 800, h4: 660,
+      study,
+      studyHead: { mark: STUDY_HEAD[0], text: STUDY_HEAD[1] },
+      studyBody: STUDY_BODY.map((p) => ({ p })),
       team,
       views,
       sessions,
