@@ -22,6 +22,46 @@ export const COLUMN_WIDTH = 366;
 export const COLUMN_MIN = 232;
 export const COLUMN_MAX = 720;
 
+// A wall the operator has sized is a property of this screen, not of the team
+// being watched — the same reasoning, and the same store, as the appearance
+// settings. Kept under its own key because the entries are agent names, so the
+// shape is open where Settings is fixed.
+export const WIDTHS_KEY = 'console.widths';
+
+const clampWidth = (px: number): number =>
+  Math.max(COLUMN_MIN, Math.min(COLUMN_MAX, Math.round(px)));
+
+/**
+ * Key by key, so one bad entry from an older build — or a hand-edited store —
+ * costs that column and not the whole layout. A width outside the grip's range
+ * is clamped rather than dropped: the number came from a real drag, and the
+ * range is only what this build happens to allow.
+ */
+export function parseWidths(raw: string | null): Record<string, number> {
+  if (!raw) return {};
+  let stored: unknown;
+  try {
+    stored = JSON.parse(raw);
+  } catch {
+    return {};
+  }
+  if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return {};
+  const widths: Record<string, number> = {};
+  for (const [name, px] of Object.entries(stored as Record<string, unknown>)) {
+    if (typeof px === 'number' && Number.isFinite(px)) widths[name] = clampWidth(px);
+  }
+  return widths;
+}
+
+function readWidths(): Record<string, number> {
+  try {
+    return parseWidths(window.localStorage.getItem(WIDTHS_KEY));
+  } catch {
+    // Private browsing and a blocked origin both throw on access, not on write.
+    return {};
+  }
+}
+
 export function readUrlState(search: string): {
   view: ViewId;
   agent: string | null;
@@ -106,7 +146,7 @@ export function useTeamState(url = '/stream'): TeamStateStore {
   const [selected, setAgent] = useState<string | null>(initial.agent);
   // Held here rather than in Wall so a width survives a trip through another
   // view — Wall unmounts on every switch.
-  const [widths, setWidths] = useState<Record<string, number>>({});
+  const [widths, setWidths] = useState<Record<string, number>>(readWidths);
 
   const setWidth = useCallback((name: string, px: number | null) => {
     setWidths((prev) => {
@@ -116,10 +156,22 @@ export function useTeamState(url = '/stream'): TeamStateStore {
         delete next[name];
         return next;
       }
-      const clamped = Math.max(COLUMN_MIN, Math.min(COLUMN_MAX, Math.round(px)));
+      const clamped = clampWidth(px);
       return prev[name] === clamped ? prev : { ...prev, [name]: clamped };
     });
   }, []);
+
+  // From an effect rather than the updater above, which StrictMode invokes
+  // twice. Identity is the gate: setWidth returns `prev` unchanged when a drag
+  // lands on the width it already had, so a mousemove that moves nothing costs
+  // no write.
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(WIDTHS_KEY, JSON.stringify(widths));
+    } catch {
+      // A full or blocked store costs persistence, never the session in hand.
+    }
+  }, [widths]);
 
   // A switch replaces the whole roster, so the selected name is meaningless in the
   // new team. Derived rather than cleared in an effect: the render path must stay

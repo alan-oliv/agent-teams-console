@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, renderHook } from '@testing-library/react';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TeamState } from '../../shared/domain';
 import { MockEventSource, installMockEventSource } from '../test/mockEventSource';
 import { sampleTeamState } from '../test/state-fixture';
@@ -8,13 +8,18 @@ import {
   COLUMN_MAX,
   COLUMN_MIN,
   COLUMN_WIDTH,
+  WIDTHS_KEY,
   isAnnouncedTeam,
+  parseWidths,
   useTeamState,
 } from './useTeamState';
 
 beforeEach(() => {
   installMockEventSource();
   window.history.replaceState(null, '', '/');
+  // Widths now outlive the hook, so without this each test inherits the last
+  // one's wall.
+  window.localStorage.clear();
 });
 
 afterEach(() => {
@@ -263,4 +268,69 @@ it('keeps column widths across a view switch', () => {
   act(() => result.current.setView('tasks'));
   act(() => result.current.setView('wall'));
   expect(result.current.widths['probe-alpha']).toBe(500);
+});
+
+it('brings a resized wall back after a reload', () => {
+  const first = renderHook(() => useTeamState());
+  act(() => first.result.current.setWidth('probe-alpha', 500));
+  first.unmount();
+
+  const { result } = renderHook(() => useTeamState());
+  expect(result.current.widths['probe-alpha']).toBe(500);
+});
+
+it('forgets a column the operator reset', () => {
+  const first = renderHook(() => useTeamState());
+  act(() => first.result.current.setWidth('probe-alpha', 500));
+  act(() => first.result.current.setWidth('probe-alpha', null));
+  first.unmount();
+
+  const { result } = renderHook(() => useTeamState());
+  expect(result.current.widths).toEqual({});
+});
+
+it('survives a store that throws on every access', () => {
+  const boom = () => {
+    throw new Error('blocked');
+  };
+  vi.stubGlobal('localStorage', { getItem: boom, setItem: boom, clear: () => {} });
+  const { result } = renderHook(() => useTeamState());
+  expect(result.current.widths).toEqual({});
+  act(() => result.current.setWidth('probe-alpha', 500));
+  expect(result.current.widths['probe-alpha']).toBe(500);
+});
+
+describe('parseWidths', () => {
+  it('defaults an empty store', () => {
+    expect(parseWidths(null)).toEqual({});
+    expect(parseWidths('')).toEqual({});
+  });
+
+  it('defaults rather than throwing on a corrupt blob', () => {
+    expect(parseWidths('{not json')).toEqual({});
+    expect(parseWidths('null')).toEqual({});
+    expect(parseWidths('[366]')).toEqual({});
+  });
+
+  // Key by key, so one bad entry costs that column and not the whole layout.
+  it('keeps the columns it can read and drops only the rest', () => {
+    expect(parseWidths(JSON.stringify({ a: 500, b: 'wide', c: null, d: 300 }))).toEqual({
+      a: 500,
+      d: 300,
+    });
+  });
+
+  it('clamps a stored width into the range this build allows', () => {
+    expect(parseWidths(JSON.stringify({ a: 40, b: 5000, c: 512.4 }))).toEqual({
+      a: COLUMN_MIN,
+      b: COLUMN_MAX,
+      c: 512,
+    });
+  });
+
+  it('reads back exactly what the hook writes', () => {
+    const { result } = renderHook(() => useTeamState());
+    act(() => result.current.setWidth('probe-alpha', 500));
+    expect(parseWidths(window.localStorage.getItem(WIDTHS_KEY))).toEqual({ 'probe-alpha': 500 });
+  });
 });
