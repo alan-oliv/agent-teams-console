@@ -14,6 +14,7 @@ import { Composer } from '../components/Composer';
 import { Elapsed, NowContext } from '../components/Elapsed';
 import { Portrait } from '../components/Portrait';
 import { StatusGlyph } from '../components/StatusGlyph';
+import { StopControlButton } from '../components/StopButton';
 import { TranscriptFeed } from '../components/TranscriptFeed';
 import { contextBar, costLabel, ctxLabel, pctLabel, warnMark } from '../format';
 import { COLUMN_WIDTH } from '../state/useTeamState';
@@ -127,6 +128,7 @@ const Column = memo(function Column({
             >
               {agent.model}
             </span>
+            <StopControlButton agent={agent} />
           </div>
 
           <div style={LINE}>

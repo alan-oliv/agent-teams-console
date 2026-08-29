@@ -1,6 +1,6 @@
 export type AgentStatus = 'working' | 'idle' | 'plan_pending' | 'failed' | 'blocked' | 'departed';
 export type TaskState = 'pending' | 'in_progress' | 'completed' | 'plan_pending' | 'failed' | 'blocked';
-export type ViewId = 'wall' | 'overview' | 'tasks' | 'rail' | 'grid';
+export type ViewId = 'wall' | 'overview' | 'comms' | 'tasks' | 'rail' | 'grid';
 export type Marker = '❯' | '⏺' | '⎿' | '✓' | '✗' | '+' | '!' | '▲' | '○';
 export type PortraitId = 'lead' | 'security' | 'perf' | 'tests' | 'architect' | 'repro';
 
@@ -49,6 +49,14 @@ export type ProtocolFrameType =
   | 'shutdown_request' | 'shutdown_approved' | 'shutdown_rejected'
   | 'mode_set_request' | 'teammate_terminated';
 
+/**
+ * Who a message the OPERATOR sent is stamped as. Only messages to the lead
+ * carry it: one sent to a teammate arrives as the lead, because that is who
+ * directs teammates in the team's model — so a console-sent message to a
+ * teammate is genuinely indistinguishable from one the lead wrote.
+ */
+export const CONSOLE_SENDER = 'console';
+
 export interface MailMessage {
   msgId: string;             // msg_id from the inbox; synthesised for backfill frames
   from: string;
@@ -57,6 +65,10 @@ export interface MailMessage {
   summary?: string;
   ts: number;                // SENT time when known (inbox), delivery time otherwise
   tsIsDelivery: boolean;     // true when only the batched transcript time was available
+  // Whether the recipient has drained it. A message sits in the inbox file until
+  // the recipient's next turn boundary, so this is the difference between "sent"
+  // and "arrived" — the comms view is built on it.
+  read: boolean;
   color?: string;
   protocol?: { type: ProtocolFrameType; data: Record<string, unknown> };
 }

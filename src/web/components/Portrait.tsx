@@ -7,9 +7,15 @@ const SLOT_MARGIN: Record<PortraitSlot, number> = { wall: 3, 'rail-row': 1, defa
 export interface PortraitProps {
   agent: { name: string; agentType: string; isLead: boolean };
   slot?: PortraitSlot;
+  /**
+   * Rendered edge, in px. The sprite is a 12x12 viewBox, so scaling the whole
+   * thing keeps the pixel grid square at any size; shrinking the pixels without
+   * their offset step is what leaves sub-pixel gaps and stripes the face.
+   */
+  size?: number;
 }
 
-export function Portrait({ agent, slot = 'default' }: PortraitProps) {
+export function Portrait({ agent, slot = 'default', size = 24 }: PortraitProps) {
   const { portrait, skinIndex } = portraitFor(agent);
   return (
     <div
@@ -17,8 +23,8 @@ export function Portrait({ agent, slot = 'default' }: PortraitProps) {
       data-portrait={portrait}
       aria-hidden="true"
       style={{
-        width: 24,
-        height: 24,
+        width: size,
+        height: size,
         position: 'relative',
         flex: 'none',
         marginTop: SLOT_MARGIN[slot],

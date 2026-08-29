@@ -1,7 +1,6 @@
 import { useState, type CSSProperties } from 'react';
-import type { MailMessage, Task } from '../../shared/domain';
+import type { Task } from '../../shared/domain';
 import { TASK_STATUS } from '../../shared/status';
-import { clockLabel } from '../format';
 
 const COLUMN_HEAD: CSSProperties = {
   display: 'flex',
@@ -32,10 +31,9 @@ const FOOTER: CSSProperties = {
 };
 
 export function Tasks({
-  tasks, mail, teamName,
+  tasks, teamName,
 }: {
   tasks: Task[];
-  mail: MailMessage[];
   teamName: string;
 }) {
   const [hovered, setHovered] = useState<string | null>(null);
@@ -48,7 +46,6 @@ export function Tasks({
           minWidth: 0,
           display: 'flex',
           flexDirection: 'column',
-          borderRight: '1px solid var(--color-neutral-900)',
         }}
       >
         <div style={COLUMN_HEAD}>
@@ -131,88 +128,6 @@ export function Tasks({
         </div>
       </div>
 
-      <div
-        data-testid="mailbox"
-        style={{ width: '404px', display: 'flex', flexDirection: 'column', background: 'var(--color-bg)' }}
-      >
-        <div
-          style={{
-            padding: '10px 14px 8px',
-            color: 'var(--color-neutral-700)',
-            fontSize: '10.5px',
-            letterSpacing: '.12em',
-            borderBottom: '1px solid var(--color-neutral-900)',
-          }}
-        >
-          MAILBOX TRAFFIC
-        </div>
-
-        <div
-          className="tscroll tail"
-          style={{
-            flex: 1,
-            minHeight: 0,
-            padding: '14px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '18px',
-          }}
-        >
-          {mail.map((m) => (
-            <div
-              key={m.msgId}
-              data-testid="mail-entry"
-              style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}
-            >
-              <div style={{ display: 'flex', gap: '6px', alignItems: 'baseline', fontSize: '10.5px' }}>
-                <span
-                  data-testid="mail-ts"
-                  title={m.tsIsDelivery ? 'delivery time — send time unknown' : undefined}
-                  style={{ color: 'var(--color-neutral-800)' }}
-                >
-                  {`${m.tsIsDelivery ? '~' : ''}${clockLabel(m.ts)}`}
-                </span>
-                <span data-testid="mail-from" style={{ color: 'var(--color-accent-400)' }}>{m.from}</span>
-                <span style={{ color: 'var(--color-neutral-700)' }}>→</span>
-                <span data-testid="mail-to" style={{ color: 'var(--color-accent-400)' }}>{m.to}</span>
-              </div>
-              <div
-                data-testid="mail-body"
-                style={{
-                  color: 'var(--color-neutral-500)',
-                  fontSize: '11.5px',
-                  paddingLeft: '2px',
-                  textWrap: 'pretty',
-                }}
-              >
-                {m.protocol ? m.protocol.type : m.text}
-              </div>
-            </div>
-          ))}
-
-          {mail.length === 0 && (
-            <div data-testid="mailbox-empty" style={{ ...EMPTY, padding: 0 }}>
-              no messages yet
-            </div>
-          )}
-        </div>
-
-        <div
-          data-testid="mailbox-footer"
-          style={{
-            borderTop: '1px solid var(--color-neutral-900)',
-            padding: '9px 14px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '3px',
-            color: 'var(--color-neutral-700)',
-            fontSize: '10.5px',
-          }}
-        >
-          <span>{`~/.claude/teams/${teamName}/inboxes/`}</span>
-          <span>teammates message each other directly — the lead doesn&apos;t relay</span>
-        </div>
-      </div>
     </div>
   );
 }

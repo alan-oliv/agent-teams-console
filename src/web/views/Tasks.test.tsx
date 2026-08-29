@@ -43,6 +43,7 @@ const MAIL: MailMessage[] = [
     summary: 'probe-charlie alive',
     ts: Date.parse('2026-08-27T15:10:15.734Z'),
     tsIsDelivery: false,
+    read: true,
     color: 'yellow',
   },
   {
@@ -53,6 +54,7 @@ const MAIL: MailMessage[] = [
     summary: 'probe-alpha claimed task 1',
     ts: Date.parse('2026-08-27T15:10:17.891Z'),
     tsIsDelivery: false,
+    read: true,
     color: 'blue',
   },
   {
@@ -62,13 +64,14 @@ const MAIL: MailMessage[] = [
     text: '{"type":"idle_notification","from":"probe-charlie","timestamp":"2026-08-27T15:10:22.099Z","idleReason":"available"}',
     ts: Date.parse('2026-08-27T15:12:17.951Z'),
     tsIsDelivery: true,
+    read: true,
     color: 'yellow',
     protocol: { type: 'idle_notification', data: { from: 'probe-charlie', idleReason: 'available' } },
   },
 ];
 
 function renderTasks() {
-  render(<Tasks tasks={TASKS} mail={MAIL} teamName="session-98b0b4a7" />);
+  render(<Tasks tasks={TASKS} teamName="session-98b0b4a7" />);
 }
 
 // jsdom's CSSOM always serialises the `flex` shorthand back out in its
@@ -113,11 +116,10 @@ describe('Tasks — left pane', () => {
   // tool and never called TaskCreate leaves a genuinely empty list, and bare
   // column headers over a blank pane read as a console that failed to load.
   it('says so when the team never used the shared list', () => {
-    render(<Tasks tasks={[]} mail={[]} teamName="session-98b0b4a7" />);
+    render(<Tasks tasks={[]} teamName="session-98b0b4a7" />);
     expect(screen.getByTestId('tasks-empty').textContent).toBe(
       "no tasks \u2014 this team hasn't used the shared list",
     );
-    expect(screen.getByTestId('mailbox-empty').textContent).toBe('no messages yet');
     expect(screen.queryAllByTestId('task-row')).toHaveLength(0);
   });
 
@@ -146,56 +148,3 @@ describe('Tasks — left pane', () => {
   });
 });
 
-describe('Tasks — mailbox pane', () => {
-  it('is a 404px pane headed MAILBOX TRAFFIC', () => {
-    renderTasks();
-    expect(screen.getByTestId('mailbox').style.width).toBe('404px');
-    expect(screen.getByText('MAILBOX TRAFFIC')).toBeTruthy();
-  });
-
-  it('is a stream: bottom-anchored, scrollable, 18px between entries', () => {
-    renderTasks();
-    const list = screen.getAllByTestId('mail-entry')[0].parentElement!;
-    expect(list.className).toBe('tscroll tail');
-    // `justify-content: flex-end` looks the same and cannot be scrolled upward.
-    expect(list.style.justifyContent).toBe('');
-    expect(list.style.gap).toBe('18px');
-  });
-
-  it('shows the SENT time of a message recovered from the inbox', () => {
-    renderTasks();
-    const entries = screen.getAllByTestId('mail-entry');
-    expect(within(entries[1]).getByTestId('mail-ts').textContent).toBe('15:10:17');
-    expect(within(entries[1]).getByTestId('mail-from').textContent).toBe('probe-alpha');
-    expect(within(entries[1]).getByTestId('mail-to').textContent).toBe('team-lead');
-    expect(within(entries[1]).getByTestId('mail-body').textContent).toBe(
-      'probe-alpha reporting: I claimed task 1. This is spike traffic.',
-    );
-  });
-
-  it('marks a backfilled entry whose only timestamp is the delivery batch time', () => {
-    renderTasks();
-    const entries = screen.getAllByTestId('mail-entry');
-    expect(within(entries[2]).getByTestId('mail-ts').textContent).toBe('~15:12:17');
-    expect(within(entries[2]).getByTestId('mail-ts').title).toBe('delivery time — send time unknown');
-  });
-
-  it('renders a protocol frame by type rather than as raw JSON', () => {
-    renderTasks();
-    const body = within(screen.getAllByTestId('mail-entry')[2]).getByTestId('mail-body');
-    expect(body.textContent).toBe('idle_notification');
-    expect(body.textContent).not.toContain('{');
-  });
-
-  it('has a two-line footer naming the inboxes and the no-relay rule', () => {
-    renderTasks();
-    const footer = screen.getByTestId('mailbox-footer');
-    expect(footer.style.flexDirection).toBe('column');
-    expect(footer.style.gap).toBe('3px');
-    expect(footer.children).toHaveLength(2);
-    expect(footer.children[0].textContent).toBe('~/.claude/teams/session-98b0b4a7/inboxes/');
-    expect(footer.children[1].textContent).toBe(
-      "teammates message each other directly — the lead doesn't relay",
-    );
-  });
-});

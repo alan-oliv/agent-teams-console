@@ -43,6 +43,18 @@ export function formatElapsed(ms: number): string {
     : `${minutes}m ${String(seconds).padStart(2, '0')}s`;
 }
 
+/**
+ * How long ago, in one unit. `formatElapsed` always leads with minutes, and
+ * `delivered · unread 0m 34s` buries the number that matters in a chat bubble's
+ * footnote.
+ */
+export function briefAge(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  if (total < 60) return `${total}s`;
+  if (total < 3600) return `${Math.floor(total / 60)}m`;
+  return `${Math.floor(total / 3600)}h`;
+}
+
 export function tokensLabel(n: number): string {
   return formatTokens(n);
 }

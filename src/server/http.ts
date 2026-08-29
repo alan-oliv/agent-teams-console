@@ -12,7 +12,8 @@ import { PLUGIN_DIR } from './lifecycle';
 // Who the operator is when they speak through the console. Not a team member,
 // so it never collides with a real name, and it survives the SAFE_NAME gate in
 // the inbox writer.
-export const CONSOLE_SENDER = 'console';
+export { CONSOLE_SENDER } from '../shared/domain';
+import { CONSOLE_SENDER } from '../shared/domain';
 
 export const READ_ONLY_BODY = {
   error: 'read-only',
@@ -114,6 +115,7 @@ export interface HttpDeps {
   listTeams?: () => Promise<TeamsResponse>;
   /** Older transcript lines for one agent — the wall's scrollback. */
   history?: (agent: string) => TranscriptLine[];
+  lineText?: (agent: string, id: string) => string | undefined;
   /** Re-points the console at another team; the SSE frame carries the result. */
   selectTeam?: (name: string) => Promise<SelectTeamOutcome>;
   /** Spec §5.4's shutdown action, shared with the SessionEnd hook handler. */
@@ -251,6 +253,27 @@ export function createHttpServer(deps: HttpDeps): Server {
             return;
           }
           json(res, 200, { agent, lines: deps.history(agent) });
+          return;
+        }
+
+        // One row's uncapped text, fetched when the operator expands it. Kept
+        // off the poll: the cap is what holds a frame small for every agent at
+        // once, and a drawer is opened by hand, one row at a time.
+        if (method === 'GET' && route === '/api/line' && deps.lineText) {
+          const agent = url.searchParams.get('agent') ?? '';
+          const id = url.searchParams.get('id') ?? '';
+          if (!agent || !id) {
+            json(res, 400, { error: 'bad request', message: 'agent and id are required' });
+            return;
+          }
+          const text = deps.lineText(agent, id);
+          if (text === undefined) {
+            // The record aged out of the store, or the id names no such row.
+            // Either way the caller keeps the capped text it already has.
+            json(res, 404, { error: 'not found', message: 'no stored record for that line' });
+            return;
+          }
+          json(res, 200, { id, text });
           return;
         }
 

@@ -131,12 +131,22 @@ function resultText(content: unknown): string {
   return tidy(JSON.stringify(content ?? ''));
 }
 
-export function toTranscriptLines(rec: TranscriptRecord): TranscriptLine[] {
-  if (!rec.uuid || !rec.timestamp) return [];
-  const ts = Date.parse(rec.timestamp);
-  if (Number.isNaN(ts)) return [];
+interface Draft {
+  marker: Marker;
+  text: string;
+}
 
-  const drafts: Array<{ marker: Marker; text: string }> = [];
+/**
+ * The rows one record projects to, before capText. Split out of
+ * toTranscriptLines so an expanded row can ask for the text it was cut from
+ * without a second copy of the projection rules to drift against.
+ */
+function draftsOf(rec: TranscriptRecord): { ts: number; drafts: Draft[] } | null {
+  if (!rec.uuid || !rec.timestamp) return null;
+  const ts = Date.parse(rec.timestamp);
+  if (Number.isNaN(ts)) return null;
+
+  const drafts: Draft[] = [];
   const content = rec.message?.content;
 
   if (rec.type === 'user') {
@@ -170,12 +180,32 @@ export function toTranscriptLines(rec: TranscriptRecord): TranscriptLine[] {
     }
   }
 
-  return drafts.map((draft, i) => ({
+  return { ts, drafts };
+}
+
+export function toTranscriptLines(rec: TranscriptRecord): TranscriptLine[] {
+  const built = draftsOf(rec);
+  if (!built) return [];
+  return built.drafts.map((draft, i) => ({
     id: `${rec.uuid}#${i}`,
     marker: draft.marker,
     text: capText(draft.text),
-    ts,
+    ts: built.ts,
   }));
+}
+
+/**
+ * The uncapped text behind one projected line, addressed by its index within
+ * the record — the `#N` half of a TranscriptLine id.
+ *
+ * `TranscriptLine.text` is capped so that every poll stays small for every
+ * agent; that bound was sized for a COLLAPSED row, where 1000 characters is
+ * already more than one line can show. An expanded row is a different question,
+ * and it is asked by hand, one row at a time, so it can afford the whole thing.
+ * Undefined when the index names no row of this record.
+ */
+export function fullLineText(rec: TranscriptRecord, index: number): string | undefined {
+  return draftsOf(rec)?.drafts[index]?.text;
 }
 
 export function currentToolOf(rec: TranscriptRecord): string | undefined {

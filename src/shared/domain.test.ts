@@ -45,6 +45,7 @@ describe('domain contract', () => {
       summary: 'probe-alpha claimed task 1',
       ts: 1787843417891,
       tsIsDelivery: false,
+      read: true,
       color: 'blue',
     };
     const task: Task = {

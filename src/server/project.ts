@@ -18,7 +18,12 @@ import {
   totalCost,
   usageRecordsOf,
 } from '../shared/usage';
-import { currentToolOf, toTranscriptLines, type TranscriptRecord } from '../shared/transcript';
+import {
+  currentToolOf,
+  fullLineText,
+  toTranscriptLines,
+  type TranscriptRecord,
+} from '../shared/transcript';
 import {
   mergeMail,
   parseInboxEntry,
@@ -196,6 +201,44 @@ export function transcriptHistory(events: StoredEvent[], agent: string): Transcr
   const lines: TranscriptLine[] = [];
   for (const rec of records) lines.push(...linesOf(rec));
   return lines;
+}
+
+/**
+ * The uncapped text behind one line of an agent's transcript, for a row the
+ * operator expanded. `id` is a TranscriptLine id — `<record uuid>#<index>`.
+ *
+ * Undefined when the id names nothing we still hold: the store keeps only
+ * TRANSCRIPT_RECORDS_PER_AGENT records per agent, so a row can outlive the
+ * record it was projected from. A drawer that asks too late gets the capped
+ * text it already has, which is the honest answer.
+ */
+export function transcriptLineText(
+  events: StoredEvent[],
+  agent: string,
+  id: string,
+): string | undefined {
+  const hash = id.lastIndexOf('#');
+  if (hash <= 0) return undefined;
+  const uuid = id.slice(0, hash);
+  // Digits only, and at least one: `Number('')` is 0, so a bare `uuid#` would
+  // otherwise resolve to the record's first row.
+  const suffix = id.slice(hash + 1);
+  if (!/^\d+$/.test(suffix)) return undefined;
+  const index = Number(suffix);
+
+  // Newest wins: a re-read from byte zero can leave two copies of a uuid in the
+  // log, and the later one is the one the projection kept.
+  for (let i = events.length - 1; i >= 0; i--) {
+    const ev = events[i];
+    if (ev.kind !== 'transcript') continue;
+    const p = ev.payload as TranscriptPayload;
+    if (p.agent !== agent) continue;
+    for (const rec of p.records) {
+      if (rec.uuid !== uuid) continue;
+      return fullLineText(rec, index);
+    }
+  }
+  return undefined;
 }
 
 export function project(events: StoredEvent[], readOnly: boolean): TeamState {

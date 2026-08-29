@@ -3,7 +3,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type ReactNode,
+  type ReactElement,
   type RefObject,
 } from 'react';
 import type { TeamState, ViewId } from '../../shared/domain';
@@ -16,11 +16,11 @@ import { TeamSelect } from './TeamSelect';
 const METRIC: CSSProperties = { flex: 'none', whiteSpace: 'nowrap' };
 
 /**
- * How many trailing metrics the bar can draw without overflowing.
+ * How many metrics the bar can draw without overflowing.
  *
- * Nothing in the bar may shrink or wrap, so at a narrow viewport the rightmost
- * metrics would silently run off the edge. Dropping them right-to-left keeps
- * the identity and the switcher, which is what the operator navigates by.
+ * Nothing in the bar may shrink or wrap, so at a narrow viewport the surplus
+ * metrics would silently run off the edge. Which ones go is not this hook's
+ * business — see {@link METRIC_RANK}; this only answers how many fit.
  *
  * Shrink one per pass and let the layout effect re-run; widening resets to the
  * full set and lets it settle again. It terminates because a pass that changes
@@ -39,7 +39,13 @@ function useFittedCount(total: number, bar: RefObject<HTMLDivElement | null>): n
       const grew = el.clientWidth > lastWidth.current;
       lastWidth.current = el.clientWidth;
       if (grew) setShown(total);
-      else if (el.scrollWidth > el.clientWidth) setShown((n) => Math.max(0, n - 1));
+      // Absolute, not a functional decrement. This effect has no dep array, so
+      // it re-observes on every pass and ResizeObserver fires again on observe —
+      // fit() runs several times against ONE committed layout, and a functional
+      // n - 1 per call shed three metrics off a 3px overflow, leaving the bar a
+      // third empty. Every call in a commit now computes the same value and
+      // React drops the repeats.
+      else if (el.scrollWidth > el.clientWidth) setShown(Math.max(0, shown - 1));
     };
     fit();
     const ro = new ResizeObserver(fit);
@@ -49,6 +55,22 @@ function useFittedCount(total: number, bar: RefObject<HTMLDivElement | null>): n
 
   return Math.min(shown, total);
 }
+
+/**
+ * The order metrics are SHED in, which is not the order they are read in. The
+ * bar reads left to right in the handoff's arrangement, and when it runs out of
+ * room the handoff sheds the token figure and keeps the spend. Dropping
+ * whatever sits rightmost would shed exactly the figure the sixth switcher pill
+ * was blamed for bleeding off-frame. Lower survives longer.
+ */
+const METRIC_RANK: Record<string, number> = {
+  tasks: 0,
+  windows: 1,
+  spend: 2,
+  limits: 3,
+  meter: 4,
+  tokens: 5,
+};
 
 export interface StatusBarProps {
   state: TeamState;
@@ -69,9 +91,9 @@ export function StatusBar({
   const totalLimit = state.agents.reduce((n, a) => n + a.contextLimit, 0);
   const occupied = state.agents.reduce((n, a) => n + a.contextTokens, 0);
 
-  // Left to right, so dropping the tail drops the least important first: the
-  // handoff's order is spend, then elapsed, then the rest.
-  const metrics: ReactNode[] = [
+  // Reading order — the handoff's arrangement. What goes when the bar runs out
+  // of room is METRIC_RANK's business, not this list's.
+  const metrics: ReactElement[] = [
     <span key="tasks" style={{ color: 'var(--color-neutral-600)', ...METRIC }}>
       {`tasks ${done}/${state.tasks.length}`}
     </span>,
@@ -97,16 +119,21 @@ export function StatusBar({
           </span>,
         ]
       : []),
-    <span key="elapsed" style={{ color: 'var(--color-neutral-500)', ...METRIC }}>
-      {formatElapsed(now - state.startedAt)}
-    </span>,
-    <span key="cost" style={{ color: 'var(--color-neutral-500)', ...METRIC }}>
-      {`${formatCost(state.totalCostUsd)} api-equiv`}
+    // One chip, not two: the sixth switcher pill costs ~65px, and splitting the
+    // run of the session across two children spends a gap the bar no longer has.
+    <span key="spend" style={{ color: 'var(--color-neutral-500)', ...METRIC }}>
+      {`${formatElapsed(now - state.startedAt)} · ${formatCost(state.totalCostUsd)} api-equiv`}
     </span>,
   ];
 
   const bar = useRef<HTMLDivElement>(null);
   const fitted = useFittedCount(metrics.length, bar);
+  const kept = new Set(
+    [...metrics]
+      .sort((a, b) => METRIC_RANK[String(a.key)] - METRIC_RANK[String(b.key)])
+      .slice(0, fitted)
+      .map((m) => m.key),
+  );
 
   return (
     <div
@@ -183,7 +210,7 @@ export function StatusBar({
 
       <span style={{ flex: 1, minWidth: 8 }} />
 
-      {metrics.slice(0, fitted)}
+      {metrics.filter((m) => kept.has(m.key))}
     </div>
   );
 }

@@ -24,12 +24,13 @@ function renderBar(view: Parameters<typeof StatusBar>[0]['view'] = 'wall') {
   return onViewChange;
 }
 
-it('exposes the switcher as a tablist with the five views', () => {
+it('exposes the switcher as a tablist with the six views', () => {
   renderBar();
   const tablist = screen.getByRole('tablist');
   expect(within(tablist).getAllByRole('tab').map((t) => t.textContent)).toEqual([
     'wall',
     'overview',
+    'comms',
     'tasks',
     'rail',
     'grid',
@@ -84,8 +85,9 @@ it('renders the right-hand readouts from the fixture team', () => {
   // The meter is team context occupancy: sum(contextTokens) / sum(contextLimit).
   expect(screen.getByTestId('aggregate-meter').textContent).toBe('████░░░░░░░░░░░░');
   expect(screen.getByTestId('aggregate-meter').style.color).toBe('var(--color-accent-500)');
-  expect(screen.getByText('45m 12s')).toBeTruthy();
-  expect(screen.getByText('≈$2.56 api-equiv')).toBeTruthy();
+  // Elapsed and spend are one chip: the sixth switcher pill took the gap that
+  // used to sit between them.
+  expect(screen.getByText('45m 12s · ≈$2.56 api-equiv')).toBeTruthy();
   expect(screen.getByText('5h 41% · 7d 12%')).toBeTruthy();
 });
 
@@ -167,4 +169,23 @@ it('keeps the view switcher on one line', () => {
   const tab = screen.getByRole('tab', { name: 'wall' });
   expect(tab.style.whiteSpace).toBe('nowrap');
   expect(tab.style.padding).toBe('1px 9px');
+});
+
+// The sixth switcher pill costs ~65px, which is what pushed the bar past
+// 1180px and bled the spend figure off-frame in the first place.
+it('carries elapsed and spend as one unshrinkable chip', () => {
+  renderBar();
+  const chip = screen.getByText('45m 12s · ≈$2.56 api-equiv');
+  expect(chip.style.flex).toBe('0 0 auto');
+  expect(chip.style.whiteSpace).toBe('nowrap');
+  // Two children would spend a 10px gap the bar no longer has.
+  expect(screen.queryByText('45m 12s')).toBeNull();
+  expect(screen.queryByText('≈$2.56 api-equiv')).toBeNull();
+});
+
+// The design took it out of the bar for the room; the session rows carry it.
+it('spends no bar width on a diffstat', () => {
+  renderBar();
+  const bar = screen.getByText('TEAM').parentElement!;
+  expect(bar.textContent).not.toMatch(/[+−-]\d+\s*[−-]\d+/);
 });

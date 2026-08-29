@@ -1,7 +1,14 @@
 import config from '../../../fixtures/config-4-members.json';
 import sidecars from '../../../fixtures/meta-sidecars.json';
 import rawTasks from '../../../fixtures/tasks.json';
-import type { Agent, AgentStatus, Task, TeamState, TeamSummary } from '../../shared/domain';
+import type {
+  Agent,
+  AgentStatus,
+  MailMessage,
+  Task,
+  TeamState,
+  TeamSummary,
+} from '../../shared/domain';
 
 const OPUS = { contextLimit: 1_000_000, compactAt: 967_000 };
 const HAIKU = { contextLimit: 200_000, compactAt: 167_000 };
@@ -26,6 +33,57 @@ const TUNING: Record<string, Tuning> = {
 
 /** epoch ms 45m 12s after the fixture team was created */
 export const FIXTURE_NOW = config.createdAt + 2_712_000;
+
+/**
+ * Two threads: one teammate-to-teammate exchange whose last message is still
+ * sitting unread, and one settled report to the lead. The pair is what the
+ * comms view groups on, so both directions of the first are present.
+ */
+export function sampleMail(): MailMessage[] {
+  const base = config.createdAt + 600_000;
+  return [
+    {
+      msgId: 'm1',
+      from: 'probe-alpha',
+      to: 'probe-bravo',
+      text: 'I want to batch the lookup — does your rotation depend on it being per-session?',
+      summary: 'batching vs rotation',
+      ts: base,
+      tsIsDelivery: false,
+      read: true,
+    },
+    {
+      msgId: 'm2',
+      from: 'probe-bravo',
+      to: 'probe-alpha',
+      text: 'Rotation is keyed on the session row, so batching is fine.',
+      summary: 'rotation is keyed on the row',
+      ts: base + 60_000,
+      tsIsDelivery: false,
+      read: true,
+    },
+    {
+      msgId: 'm3',
+      from: 'probe-bravo',
+      to: 'probe-alpha',
+      text: 'Marking finding 1 resolved and dropping it from my report.',
+      summary: 'finding 1 resolved',
+      ts: FIXTURE_NOW - 34_000,
+      tsIsDelivery: false,
+      read: false,
+    },
+    {
+      msgId: 'm4',
+      from: 'probe-charlie',
+      to: 'team-lead',
+      text: 'coverage 84% → 91%, 46 tests green',
+      summary: 'coverage roll-up',
+      ts: base + 30_000,
+      tsIsDelivery: false,
+      read: true,
+    },
+  ];
+}
 
 export function sampleTeamState(): TeamState {
   const agents: Agent[] = config.members.map((m) => {
@@ -83,7 +141,7 @@ export function sampleTeamState(): TeamState {
     rateLimits: { fiveHourPct: 41, sevenDayPct: 12 },
     agents,
     tasks,
-    mail: [],
+    mail: sampleMail(),
     needsYou: [],
     readOnly: false,
   };

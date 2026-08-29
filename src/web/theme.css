@@ -63,6 +63,14 @@
   --attention-border: #6b4f2c;
   --failure-rose: #c98d8d;
 
+  /* Syntax colouring inside an expanded JSON payload, and nowhere else —
+     Nocturne is a mono palette, so these two are held at the accent's chroma so
+     they read as part of it. The other four roles already have homes: keys are
+     accent-400, numbers --attention, null --failure-rose, punctuation
+     neutral-600. */
+  --json-string: #9ec9a8;
+  --json-boolean: #7fb4d9;
+
   background-color: #12141f;
   color: var(--color-text);
   font-family: "JetBrains Mono", ui-monospace, monospace;
@@ -158,6 +166,22 @@ button {
 
 .chip:hover {
   border-color: var(--color-accent-700);
+}
+
+.thread-row:hover {
+  background: var(--color-neutral-900);
+}
+
+/* The comms view's composing dots — an agent whose current turn is mid-
+   SendMessage, so the message is in neither inbox yet. */
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 .team-trigger:hover {

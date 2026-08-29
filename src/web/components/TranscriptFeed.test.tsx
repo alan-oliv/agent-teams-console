@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { TranscriptLine } from '../../shared/domain';
+import { TRANSCRIPT_TEXT_CAP } from '../../shared/transcript';
 import { TranscriptFeed } from './TranscriptFeed';
 
 afterEach(cleanup);
@@ -314,5 +315,219 @@ describe('TranscriptFeed scrollback', () => {
     feed.scrollTop = 0;
     fireEvent.scroll(feed);
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('a row carrying a JSON payload opens formatted', () => {
+  const PAYLOAD = {
+    success: true,
+    message: "Message sent to baseline-2's inbox",
+    inbox: { unread: 3, size_bytes: 4192 },
+    completion: null,
+    warnings: [],
+  };
+  const RAW = JSON.stringify(PAYLOAD);
+  const JSON_LINES: TranscriptLine[] = [
+    { id: 'prose', marker: '⏺', text: 'Bash(curl -sS http://127.0.0.1:4823/api/teams)', ts: 1 },
+    { id: 'payload', marker: '⎿', text: RAW, ts: 2 },
+  ];
+  const rows = () => screen.getAllByTestId('transcript-row');
+  const open = () => fireEvent.click(screen.getByTestId('transcript-more'));
+
+  it('is expandable on its structure alone, with no line break to go on', () => {
+    render(<TranscriptFeed lines={JSON_LINES} size="wall" />);
+    expect(rows()[0].getAttribute('aria-expanded')).toBeNull();
+    expect(rows()[1].getAttribute('aria-expanded')).toBe('false');
+    // Collapsed it is the row as it arrived, not a line short of it.
+    expect(within(rows()[1]).getByTestId('transcript-text').textContent).toBe(RAW);
+    expect(within(rows()[1]).getByTestId('transcript-more').textContent).toBe('▸');
+  });
+
+  it('renders the payload pretty-printed on the terminal ground, one row per line', () => {
+    render(<TranscriptFeed lines={JSON_LINES} size="wall" />);
+    open();
+    const body = screen.getByTestId('json-body');
+    expect(body.style.background).toBe('var(--terminal-ground)');
+    expect(body.style.border).toBe('1px solid var(--color-neutral-900)');
+    expect(screen.getAllByTestId('json-line')).toHaveLength(
+      JSON.stringify(PAYLOAD, null, 2).split('\n').length,
+    );
+    expect(screen.getAllByTestId('json-line')[1].textContent).toContain('"success": true,');
+  });
+
+  it('caps the pane at 210px and scrolls it WITHOUT bottom-anchoring', () => {
+    render(<TranscriptFeed lines={JSON_LINES} size="wall" />);
+    open();
+    const body = screen.getByTestId('json-body');
+    expect(body.style.maxHeight).toBe('210px');
+    // JSON reads top-down. `.tail` would open the payload on its closing brace.
+    expect(body.className).toBe('tscroll');
+  });
+
+  it('numbers the lines in a right-aligned gutter', () => {
+    render(<TranscriptFeed lines={JSON_LINES} size="wall" />);
+    open();
+    const gutter = screen.getAllByTestId('json-gutter');
+    expect(gutter.map((g) => g.textContent).slice(0, 3)).toEqual(['1', '2', '3']);
+    expect(gutter[0].style.textAlign).toBe('right');
+    expect(gutter[0].style.color).toBe('var(--color-neutral-800)');
+  });
+
+  it('colours each token from the JSON palette', () => {
+    render(<TranscriptFeed lines={JSON_LINES} size="wall" />);
+    open();
+    // Filtered rather than selected by attribute value: jsdom's selector engine
+    // resolves `[data-json-token="null"]` to <html>.
+    const tokens = [...document.querySelectorAll('[data-json-token]')] as HTMLElement[];
+    const colorOf = (kind: string) =>
+      tokens.find((t) => t.dataset.jsonToken === kind)!.style.color;
+    expect(colorOf('key')).toBe('var(--color-accent-400)');
+    expect(colorOf('string')).toBe('var(--json-string)');
+    expect(colorOf('number')).toBe('var(--attention)');
+    expect(colorOf('boolean')).toBe('var(--json-boolean)');
+    expect(colorOf('null')).toBe('var(--failure-rose)');
+    expect(colorOf('punct')).toBe('var(--color-neutral-600)');
+  });
+
+  it('derives the header badge from the payload, never from a stored figure', () => {
+    render(<TranscriptFeed lines={JSON_LINES} size="wall" />);
+    open();
+    const lines = JSON.stringify(PAYLOAD, null, 2).split('\n').length;
+    const bytes = new TextEncoder().encode(RAW).length;
+    // It sits next to a live line-number gutter, which would contradict it.
+    expect(screen.getByTestId('json-meta').textContent).toBe(
+      `${Object.keys(PAYLOAD).length} keys · ${lines} lines · ${bytes} B`,
+    );
+  });
+
+  it('copies the pretty-printed payload, and the wire text once raw is showing', async () => {
+    const writeText = vi.fn(async () => {});
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    try {
+      render(<TranscriptFeed lines={JSON_LINES} size="wall" />);
+      open();
+      fireEvent.click(screen.getByTestId('json-copy'));
+      expect(writeText).toHaveBeenLastCalledWith(JSON.stringify(PAYLOAD, null, 2));
+
+      fireEvent.click(screen.getByTestId('json-raw-toggle'));
+      expect(screen.getByTestId('json-raw').textContent).toBe(RAW);
+      expect(screen.queryByTestId('json-body')).toBeNull();
+      fireEvent.click(screen.getByTestId('json-copy'));
+      expect(writeText).toHaveBeenLastCalledWith(RAW);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('falls back to the prose drawer for a payload the text cap truncated', () => {
+    const cut: TranscriptLine[] = [
+      { id: 'cut', marker: '⎿', text: '{"success":true,"message":"Message sent to b…\nrest', ts: 1 },
+    ];
+    render(<TranscriptFeed lines={cut} size="wall" />);
+    fireEvent.click(screen.getByTestId('transcript-more'));
+    expect(screen.queryByTestId('json-body')).toBeNull();
+    expect(screen.getByTestId('transcript-drawer-body')).toBeTruthy();
+  });
+});
+
+// The frame ships every line capped at TRANSCRIPT_TEXT_CAP so a poll stays
+// small. That is right for a collapsed one-line row and wrong for a drawer, so
+// an opened row fetches its own uncapped body.
+describe('an opened row fetches its full text', () => {
+  const CUT = `${'x'.repeat(TRANSCRIPT_TEXT_CAP - 1)}…`;
+  const cutLines: TranscriptLine[] = [{ id: 'rec#0', marker: '⎿', text: CUT, ts: 1 }];
+
+  function stubLine(body: unknown, status = 200) {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        calls.push(url);
+        return { ok: status === 200, status, json: async () => body, url };
+      }),
+    );
+    return calls;
+  }
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('makes a row the cap cut expandable, with or without a line break', () => {
+    stubLine({ id: 'rec#0', text: CUT });
+    render(<TranscriptFeed lines={cutLines} size="wall" agent="probe-alpha" />);
+    // Without this the 21k-char tool-result JSON — the row a drawer exists to
+    // open — arrives as one unbroken line and offers no caret at all.
+    expect(screen.getByTestId('transcript-row').getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('asks for the uncapped body by the row id, url-encoded', async () => {
+    const calls = stubLine({ id: 'rec#0', text: '{"ok":true}' });
+    render(<TranscriptFeed lines={cutLines} size="wall" agent="probe-alpha" />);
+    fireEvent.click(screen.getByTestId('transcript-more'));
+    await waitFor(() => expect(screen.queryByTestId('json-body')).toBeTruthy());
+    expect(calls).toEqual(['/api/line?agent=probe-alpha&id=rec%230']);
+  });
+
+  it('opens on the capped text at once and swaps when the body lands', async () => {
+    let release: (v: unknown) => void = () => {};
+    const pending = new Promise((r) => {
+      release = r;
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        await pending;
+        return { ok: true, status: 200, json: async () => ({ id: 'rec#0', text: 'the whole body' }) };
+      }),
+    );
+    render(<TranscriptFeed lines={cutLines} size="wall" agent="probe-alpha" />);
+    fireEvent.click(screen.getByTestId('transcript-more'));
+    // Opening never waits on the network.
+    expect(screen.getByTestId('transcript-row').getAttribute('aria-expanded')).toBe('true');
+    release(null);
+    await waitFor(() =>
+      expect(screen.getByTestId('transcript-text').textContent).toBe('the whole body'),
+    );
+  });
+
+  it('turns a cut payload into the JSON drawer once its whole text arrives', async () => {
+    const payload = { success: true, recipient: 'baseline-2' };
+    stubLine({ id: 'rec#0', text: JSON.stringify(payload) });
+    render(<TranscriptFeed lines={cutLines} size="wall" agent="probe-alpha" />);
+    // Cut, it does not parse, so it opens as prose.
+    fireEvent.click(screen.getByTestId('transcript-more'));
+    await waitFor(() => expect(screen.queryByTestId('json-body')).toBeTruthy());
+    // Re-derived from the string now on screen, which is what the gutter numbers.
+    expect(screen.getByTestId('json-meta').textContent).toBe(
+      `2 keys · ${JSON.stringify(payload, null, 2).split('\n').length} lines · ${
+        new TextEncoder().encode(JSON.stringify(payload)).length
+      } B`,
+    );
+  });
+
+  it('keeps the capped text and says nothing when the record has aged out', async () => {
+    const calls = stubLine({ error: 'not found' }, 404);
+    render(<TranscriptFeed lines={cutLines} size="wall" agent="probe-alpha" />);
+    fireEvent.click(screen.getByTestId('transcript-more'));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    // A record aging out of the store is ordinary, not a fault to report.
+    expect(screen.getByTestId('transcript-text').textContent).toBe(CUT);
+    expect(screen.getByTestId('transcript-row').getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('asks once per row however often it is opened and closed', async () => {
+    const calls = stubLine({ id: 'rec#0', text: 'the whole body' });
+    render(<TranscriptFeed lines={cutLines} size="wall" agent="probe-alpha" />);
+    fireEvent.click(screen.getByTestId('transcript-more'));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    fireEvent.click(screen.getByTestId('transcript-more'));
+    fireEvent.click(screen.getByTestId('transcript-more'));
+    expect(calls).toHaveLength(1);
+  });
+
+  it('never asks when no agent is given, so digest views stay static', () => {
+    const calls = stubLine({ id: 'rec#0', text: 'the whole body' });
+    render(<TranscriptFeed lines={cutLines} size="overview" />);
+    fireEvent.click(screen.getByTestId('transcript-more'));
+    expect(calls).toEqual([]);
+    expect(screen.getByTestId('transcript-text').textContent).toBe(CUT);
   });
 });

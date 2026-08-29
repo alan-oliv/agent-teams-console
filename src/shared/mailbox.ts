@@ -58,6 +58,7 @@ export function parseInboxEntry(e: InboxEntry, to: string): MailMessage {
     summary: e.summary,
     ts,
     tsIsDelivery: false,
+    read: e.read === true,
     color: e.color,
     protocol: detectProtocol(e.text),
   };
@@ -84,6 +85,9 @@ export function parseTeammateFrames(text: string, deliveredAt: number, to: strin
       summary: attrs.summary,
       ts: deliveredAt,
       tsIsDelivery: true,
+      // A frame in the recipient's own transcript is the message inside its
+      // context window: it was drained at that turn boundary by definition.
+      read: true,
       color: attrs.color,
       protocol: detectProtocol(body),
     });
@@ -112,7 +116,12 @@ export function mergeMail(existing: MailMessage[], incoming: MailMessage[]): Mai
       kept.set(id, { ...message, msgId: id });
       continue;
     }
-    if (previous.tsIsDelivery && !message.tsIsDelivery) kept.set(id, { ...message, msgId: id });
+    // Read is monotonic and the two sources disagree in one direction only: the
+    // inbox flag can still say false on a copy the recipient's transcript has
+    // already proved it consumed, and this fold prefers the inbox copy.
+    const read = previous.read || message.read;
+    if (previous.tsIsDelivery && !message.tsIsDelivery) kept.set(id, { ...message, msgId: id, read });
+    else if (read !== previous.read) kept.set(id, { ...previous, read });
   }
   return [...kept.values()].sort((a, b) => a.ts - b.ts);
 }

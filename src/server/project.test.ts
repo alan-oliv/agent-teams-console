@@ -1,7 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { project, transcriptHistory, PROJECTED_TRANSCRIPT_LINES } from './project';
+import {
+  project,
+  transcriptHistory,
+  transcriptLineText,
+  PROJECTED_TRANSCRIPT_LINES,
+} from './project';
 import { TRANSCRIPT_RECORDS_PER_AGENT, type StoredEvent, type EventKind } from './store';
 import type { TeamConfig, Sidecar } from '../shared/roster';
 import { parseLine, TRANSCRIPT_TEXT_CAP, type TranscriptRecord } from '../shared/transcript';
@@ -902,5 +907,59 @@ describe('transcriptHistory', () => {
       },
     ];
     expect(transcriptHistory(events, 'solo').map((l) => l.text)).toEqual(['line 50', 'line 51']);
+  });
+});
+
+describe('transcriptLineText', () => {
+  // Three times the cap, so a capped row and the real text cannot be confused.
+  const long = 'x'.repeat(TRANSCRIPT_TEXT_CAP * 3);
+  const record = (uuid: string, ...texts: string[]): TranscriptRecord => ({
+    type: 'assistant',
+    uuid,
+    timestamp: new Date(1787843400000).toISOString(),
+    message: { content: texts.map((text) => ({ type: 'text', text })) },
+  });
+  const log = (records: TranscriptRecord[], agent = 'solo'): StoredEvent[] => [
+    { seq: 1, ts: 0, kind: 'transcript', agent, payload: { agent, records } },
+  ];
+
+  it('returns the text the projected line was cut from', () => {
+    const events = log([record('u1', long)]);
+    const line = transcriptHistory(events, 'solo')[0];
+    expect(line.text).toHaveLength(TRANSCRIPT_TEXT_CAP);
+    expect(line.text.endsWith('…')).toBe(true);
+    expect(transcriptLineText(events, 'solo', line.id)).toBe(long);
+  });
+
+  it('addresses the right block of a record that projects several lines', () => {
+    const events = log([record('u1', 'first', 'second', 'third')]);
+    const lines = transcriptHistory(events, 'solo');
+    expect(lines).toHaveLength(3);
+    expect(lines.map((l) => transcriptLineText(events, 'solo', l.id))).toEqual([
+      'first',
+      'second',
+      'third',
+    ]);
+  });
+
+  it('keeps one agent out of another', () => {
+    const events = [...log([record('u1', long)], 'alpha'), ...log([record('u2', 'b')], 'bravo')];
+    const alpha = transcriptHistory(events, 'alpha')[0];
+    expect(transcriptLineText(events, 'alpha', alpha.id)).toBe(long);
+    expect(transcriptLineText(events, 'bravo', alpha.id)).toBeUndefined();
+  });
+
+  it('declines an id that names nothing it still holds', () => {
+    const events = log([record('u1', long)]);
+    expect(transcriptLineText(events, 'solo', 'gone#0')).toBeUndefined();
+    expect(transcriptLineText(events, 'solo', 'u1#9')).toBeUndefined();
+    expect(transcriptLineText(events, 'nobody', 'u1#0')).toBeUndefined();
+  });
+
+  it('declines a malformed id rather than guessing', () => {
+    const events = log([record('u1', long)]);
+    for (const id of ['', 'u1', '#0', 'u1#', 'u1#-1', 'u1#x']) {
+      expect(transcriptLineText(events, 'solo', id)).toBeUndefined();
+    }
   });
 });

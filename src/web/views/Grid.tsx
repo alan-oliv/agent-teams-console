@@ -4,6 +4,7 @@ import { ContextMeter } from '../components/ContextMeter';
 import { Elapsed, NowContext } from '../components/Elapsed';
 import { Portrait } from '../components/Portrait';
 import { StatusGlyph } from '../components/StatusGlyph';
+import { StopControlButton } from '../components/StopButton';
 import { TranscriptFeed } from '../components/TranscriptFeed';
 import { pctLabel } from '../format';
 
@@ -70,6 +71,7 @@ const Pane = memo(function Pane({
             >
               {agent.model}
             </span>
+            <StopControlButton agent={agent} />
           </div>
           <div style={{ display: 'flex', gap: '7px', alignItems: 'baseline' }}>
             <ContextMeter

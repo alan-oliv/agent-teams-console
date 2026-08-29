@@ -4,6 +4,7 @@ import { AGENT_STATUS } from '../../shared/status';
 import { Elapsed, NowContext } from '../components/Elapsed';
 import { Portrait } from '../components/Portrait';
 import { StatusGlyph } from '../components/StatusGlyph';
+import { StopControlButton } from '../components/StopButton';
 import { TranscriptFeed } from '../components/TranscriptFeed';
 import { costLabel, pctLabel } from '../format';
 
@@ -140,6 +141,7 @@ const Tile = memo(function Tile({
         </span>
         <span style={{ flex: 1 }} />
         <span data-testid="overview-cost">{costLabel(agent.costUsd)}</span>
+        <StopControlButton agent={agent} />
       </div>
     </div>
   );

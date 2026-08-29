@@ -42,7 +42,7 @@ it('paints the root on the terminal ground #12141f', () => {
   expect(getComputedStyle(document.documentElement).backgroundColor).toBe('rgb(18, 20, 31)');
 });
 
-it('gives the five non-token colours explicit custom-property homes', async () => {
+it('gives every non-token colour an explicit custom-property home', async () => {
   // Aliased so Vite's `new URL('literal', import.meta.url)` static asset-URL
   // rewrite (which resolves against the served origin, not disk) doesn't fire.
   const here = import.meta.url;
@@ -54,6 +54,9 @@ it('gives the five non-token colours explicit custom-property homes', async () =
   expect(css).toContain('--attention: #d99e5c;');
   expect(css).toContain('--attention-border: #6b4f2c;');
   expect(css).toContain('--failure-rose: #c98d8d;');
+  // The JSON palette's two new hues; its other four roles reuse tokens above.
+  expect(css).toContain('--json-string: #9ec9a8;');
+  expect(css).toContain('--json-boolean: #7fb4d9;');
   expect(css).toContain('outline: 2px solid var(--color-accent);');
   expect(css).toContain('outline-offset: 2px;');
 });
@@ -122,10 +125,20 @@ it('wires each view into the body and never unmounts the chrome switching betwee
   expect(screen.getByRole('tablist')).toBe(tablist);
   expect(screen.getByText('PANEL')).toBe(panel);
 
+  fireEvent.click(screen.getByRole('tab', { name: 'comms' }));
+  expect(screen.getByTestId('comms')).toBeTruthy();
+  expect(screen.getByTestId('thread-list')).toBeTruthy();
+  expect(screen.queryByTestId('overview')).toBeNull();
+  expectChromeMounted();
+  expect(screen.getByRole('tablist')).toBe(tablist);
+  expect(screen.getByText('PANEL')).toBe(panel);
+
   fireEvent.click(screen.getByRole('tab', { name: 'tasks' }));
   expect(screen.getByTestId('tasks')).toBeTruthy();
-  expect(screen.getByTestId('mailbox')).toBeTruthy();
-  expect(screen.queryByTestId('overview')).toBeNull();
+  // The task list is the whole view: mailbox traffic moved to the comms view,
+  // which shows the same inbox data as a conversation rather than a log.
+  expect(screen.queryByTestId('mailbox')).toBeNull();
+  expect(screen.queryByTestId('comms')).toBeNull();
   expectChromeMounted();
   expect(screen.getByRole('tablist')).toBe(tablist);
   expect(screen.getByText('PANEL')).toBe(panel);
@@ -250,5 +263,148 @@ it('does not switch for a ?team= that came from a reload rather than the launche
   const fetchMock = stubTeamsFetch();
   render(<App />);
   act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
+it('opens the comms view straight from the URL and keeps it there', () => {
+  window.history.replaceState(null, '', '/?view=comms');
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+
+  expect(screen.getByTestId('comms')).toBeTruthy();
+  expect(screen.getByRole('tab', { name: 'comms' }).getAttribute('aria-selected')).toBe('true');
+  expect(window.location.search).toContain('view=comms');
+});
+
+it('hands the wall the agent whose thread was open — one store, not six screens', () => {
+  window.history.replaceState(null, '', '/?view=comms');
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+
+  fireEvent.click(screen.getByTestId('show-in-wall'));
+
+  expect(screen.getByTestId('wall')).toBeTruthy();
+  expect(screen.queryByTestId('comms')).toBeNull();
+  // The focused agent came from the thread and is now in the URL, so the rail
+  // and the panel are looking at the same teammate. With nothing focused the
+  // room is what opens, and the room points at whoever spoke last.
+  expect(window.location.search).toBe('?view=wall&agent=probe-bravo&team=session-98b0b4a7');
+});
+
+it('⌘3 switches to comms', () => {
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+
+  fireEvent.keyDown(document.body, { key: '3', metaKey: true });
+  expect(screen.getByTestId('comms')).toBeTruthy();
+});
+
+// The stop control. A stop is not a kill: it POSTs a shutdown_request into the
+// agent's inbox, which it reads at its next turn boundary and may decline. The
+// confirmation exists because that request is hard to take back, and the whole
+// flow lives in the shared chrome so every view is served by one of it.
+//
+// The wall pins the lead leftmost, so the buttons come back in roster order and
+// index is a stabler handle than a label three teammates share.
+const LEAD = 0;
+const ALPHA = 1;
+const stopButtons = () => screen.getAllByTestId('stop-button');
+
+it('asks before stopping, and sends nothing until the operator confirms', () => {
+  const fetchMock = stubTeamsFetch();
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+
+  expect(screen.queryByTestId('stop-confirm')).toBeNull();
+  fireEvent.click(stopButtons()[ALPHA]);
+
+  expect(screen.getByTestId('stop-confirm')).toBeTruthy();
+  expect(screen.getByTestId('stop-confirm-go').textContent).toBe('stop probe-alpha');
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
+it('sends the stop only for the confirmed teammate', () => {
+  const fetchMock = stubTeamsFetch();
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+
+  fireEvent.click(stopButtons()[ALPHA]);
+  fireEvent.click(screen.getByTestId('stop-confirm-go'));
+
+  expect(fetchMock.mock.calls.map((c) => c[0])).toEqual(['/api/agents/probe-alpha/stop']);
+  expect(screen.queryByTestId('stop-confirm')).toBeNull();
+});
+
+it('cancel closes the strip without sending anything', () => {
+  const fetchMock = stubTeamsFetch();
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+
+  fireEvent.click(stopButtons()[ALPHA]);
+  fireEvent.click(screen.getByTestId('stop-confirm-cancel'));
+
+  expect(screen.queryByTestId('stop-confirm')).toBeNull();
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
+// Teammates run inside the lead's session, so ending it ends them. Each one is
+// asked explicitly — an agent that never received a request has no reason to
+// wind down, and the strip promises they stop with it.
+it('ending the session asks every teammate to stop as well', () => {
+  const fetchMock = stubTeamsFetch();
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+
+  fireEvent.click(stopButtons()[LEAD]);
+  expect(screen.getByTestId('stop-confirm-go').textContent).toBe('end session');
+  expect(screen.getByTestId('stop-confirm-why').textContent).toContain('every teammate');
+  fireEvent.click(screen.getByTestId('stop-confirm-go'));
+
+  expect(fetchMock.mock.calls.map((c) => c[0]).sort()).toEqual([
+    '/api/agents/probe-alpha/stop',
+    '/api/agents/probe-bravo/stop',
+    '/api/agents/probe-charlie/stop',
+    '/api/agents/team-lead/stop',
+  ]);
+});
+
+it('x opens the same confirmation rather than stopping outright', () => {
+  const fetchMock = stubTeamsFetch();
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+
+  // `x` acts on the focused teammate, and nothing is focused until you pick one.
+  fireEvent.click(screen.getAllByTestId('wall-column')[ALPHA]);
+  fireEvent.keyDown(window, { key: 'x' });
+
+  expect(screen.getByTestId('stop-confirm-go').textContent).toBe('stop probe-alpha');
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
+// The row must not claim the agent is stopped: the request is only in its
+// inbox until it reaches a turn boundary, and it may refuse.
+it('marks the row as requested, not stopped, once the request is sent', () => {
+  stubTeamsFetch();
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+
+  fireEvent.click(stopButtons()[ALPHA]);
+  fireEvent.click(screen.getByTestId('stop-confirm-go'));
+
+  expect(stopButtons()[ALPHA].getAttribute('aria-label')).toBe(
+    'stop requested — it stops at its next turn boundary',
+  );
+  expect(screen.queryByText('stopped by you')).toBeNull();
+});
+
+it('a read-only console shows the control but will not arm it', () => {
+  const fetchMock = stubTeamsFetch();
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', { ...sampleTeamState(), readOnly: true }));
+
+  const button = stopButtons()[ALPHA] as HTMLButtonElement;
+  expect(button.disabled).toBe(true);
+  fireEvent.click(button);
+  expect(screen.queryByTestId('stop-confirm')).toBeNull();
   expect(fetchMock).not.toHaveBeenCalled();
 });

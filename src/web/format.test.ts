@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  briefAge,
   clockLabel,
   contextBar,
   costLabel,
@@ -124,5 +125,21 @@ describe('clockLabel', () => {
 
   it('renders the batched delivery time of the lead-transcript frames', () => {
     expect(clockLabel(Date.parse('2026-08-27T15:12:17.951Z'))).toBe('15:12:17');
+  });
+});
+
+describe('briefAge', () => {
+  it('holds a delivery footnote to one unit', () => {
+    expect(briefAge(34_000)).toBe('34s');
+    expect(briefAge(0)).toBe('0s');
+    expect(briefAge(59_999)).toBe('59s');
+    expect(briefAge(60_000)).toBe('1m');
+    expect(briefAge(15 * 60_000)).toBe('15m');
+    expect(briefAge(3_600_000)).toBe('1h');
+    expect(briefAge(5 * 3_600_000 + 40 * 60_000)).toBe('5h');
+  });
+
+  it('reads a clock that has not caught up yet as no time at all', () => {
+    expect(briefAge(-2_000)).toBe('0s');
   });
 });

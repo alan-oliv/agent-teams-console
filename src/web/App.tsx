@@ -1,11 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './theme.css';
+import type { Agent } from '../shared/domain';
 import { postJson } from './api';
 import { NeedsYou } from './chrome/NeedsYou';
 import { Panel } from './chrome/Panel';
 import { StatusBar } from './chrome/StatusBar';
+import { StopConfirm } from './chrome/StopConfirm';
+import { StopContext } from './components/StopButton';
 import { useKeyboard } from './state/useKeyboard';
 import { useTeamState } from './state/useTeamState';
+import { Comms } from './views/Comms';
 import { Grid } from './views/Grid';
 import { Overview } from './views/Overview';
 import { Rail } from './views/Rail';
@@ -52,6 +56,50 @@ export function App() {
     return state?.agents.find((a) => a.name === name)?.status === 'departed';
   }
 
+  // Stopping is confirmed before it is sent, and the request is remembered so
+  // the row can say it is pending. Both are console-local: a stop is a
+  // shutdown_request in the agent's inbox, so nothing observable changes until
+  // the agent reaches its next turn boundary and acts on it.
+  const [stopping, setStopping] = useState<Agent | null>(null);
+  const [stopRequested, setStopRequested] = useState<ReadonlySet<string>>(() => new Set());
+
+  const sendStop = useCallback((name: string) => {
+    setStopRequested((prev) => new Set(prev).add(name));
+    void postJson(`/api/agents/${encodeURIComponent(name)}/stop`);
+  }, []);
+
+  const confirmStop = useCallback(() => {
+    if (!stopping) return;
+    // Teammates run inside the lead's session, so ending it ends them. The
+    // request is sent to each one as well rather than left implicit — an agent
+    // that never got one has no reason to wind down.
+    const targets = stopping.isLead
+      ? [stopping.name, ...(state?.agents ?? []).filter((a) => !a.isLead).map((a) => a.name)]
+      : [stopping.name];
+    for (const name of targets) if (!isDeparted(name)) sendStop(name);
+    setStopping(null);
+  }, [stopping, state, sendStop]);
+
+  const askStop = useCallback(
+    (name: string) => {
+      const agent = state?.agents.find((a) => a.name === name);
+      if (agent && agent.status !== 'departed' && !state?.readOnly) setStopping(agent);
+    },
+    [state],
+  );
+
+  // Above the `!state` return: every hook has to run on the frame before the
+  // first snapshot lands too, or the hook order changes between renders.
+  const stopControl = useMemo(
+    () => ({
+      requested: stopRequested,
+      ask: (a: Agent) => setStopping(a),
+      // No frame yet means no team to act on, so the control stays inert.
+      readOnly: state?.readOnly ?? true,
+    }),
+    [stopRequested, state?.readOnly],
+  );
+
   useKeyboard({
     agents: wallOrder,
     view: store.view,
@@ -61,9 +109,9 @@ export function App() {
     interrupt: (name) => {
       if (!isDeparted(name)) void postJson(`/api/agents/${encodeURIComponent(name)}/interrupt`);
     },
-    stop: (name) => {
-      if (!isDeparted(name)) void postJson(`/api/agents/${encodeURIComponent(name)}/stop`);
-    },
+    // `x` opens the same confirmation the control does — the keystroke used to
+    // send the request outright, which is a hard thing to undo from one key.
+    stop: askStop,
     toggleTeams,
   });
 
@@ -76,6 +124,7 @@ export function App() {
   }
 
   return (
+    <StopContext.Provider value={stopControl}>
     <div className="console">
       <StatusBar
         state={state}
@@ -100,9 +149,22 @@ export function App() {
         {store.view === 'overview' && (
           <Overview agents={state.agents} focused={store.agent} onFocus={store.setAgent} now={now} />
         )}
-        {store.view === 'tasks' && (
-          <Tasks tasks={state.tasks} mail={state.mail} teamName={state.teamName} />
+        {store.view === 'comms' && (
+          <Comms
+            agents={state.agents}
+            mail={state.mail}
+            tasks={state.tasks}
+            focused={store.agent}
+            onFocus={store.setAgent}
+            onShowInWall={(name) => {
+              store.setAgent(name);
+              store.setView('wall');
+            }}
+            now={now}
+            readOnly={state.readOnly}
+          />
         )}
+        {store.view === 'tasks' && <Tasks tasks={state.tasks} teamName={state.teamName} />}
         {store.view === 'rail' && (
           <Rail
             agents={state.agents}
@@ -116,8 +178,10 @@ export function App() {
           <Grid agents={state.agents} focused={store.agent} onFocus={store.setAgent} now={now} />
         )}
       </main>
+      <StopConfirm target={stopping} onConfirm={confirmStop} onCancel={() => setStopping(null)} />
       <NeedsYou items={state.needsYou} readOnly={state.readOnly} now={now} />
       <Panel agents={state.agents} focusedAgent={store.agent} onFocusAgent={store.setAgent} />
     </div>
+    </StopContext.Provider>
   );
 }

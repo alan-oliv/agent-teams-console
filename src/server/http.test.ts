@@ -51,6 +51,8 @@ let shutdowns: number;
 let listed: TeamsResponse;
 let selectCalls: string[];
 let selectOutcome: (name: string) => SelectTeamOutcome;
+/** What `/api/line` can resolve, keyed `agent|id`. A miss is a dropped record. */
+let lineTexts: Record<string, string>;
 
 
 async function boot(readOnly: boolean, webDist?: string): Promise<{ server: Server; url: string }> {
@@ -74,6 +76,7 @@ async function boot(readOnly: boolean, webDist?: string): Promise<{ server: Serv
   };
   selectCalls = [];
   selectOutcome = () => ({ ok: true, changed: true });
+  lineTexts = {};
   hub = createStream(() => state, 50);
   const server = createHttpServer({
     permits,
@@ -82,6 +85,7 @@ async function boot(readOnly: boolean, webDist?: string): Promise<{ server: Serv
     state: () => state,
     readOnly,
     webDist,
+    lineText: (agent: string, id: string) => lineTexts[`${agent}|${id}`],
     listTeams: () => Promise.resolve(listed),
     selectTeam: (name: string) => {
       selectCalls.push(name);
@@ -604,5 +608,45 @@ describe('--read-only', () => {
     } finally {
       await shutdown(server);
     }
+  });
+});
+
+describe('GET /api/line', () => {
+  let server: Server;
+  let url: string;
+
+  beforeEach(async () => {
+    ({ server, url } = await boot(false));
+  });
+  afterEach(() => shutdown(server));
+
+  it('serves the uncapped text for one expanded row', async () => {
+    const full = 'y'.repeat(5000);
+    lineTexts['probe-alpha|rec-1#0'] = full;
+    const res = await fetch(`${url}/api/line?agent=probe-alpha&id=rec-1%230`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ id: 'rec-1#0', text: full });
+  });
+
+  it('requires both agent and id', async () => {
+    expect((await fetch(`${url}/api/line?id=rec-1%230`)).status).toBe(400);
+    expect((await fetch(`${url}/api/line?agent=probe-alpha`)).status).toBe(400);
+  });
+
+  // The store keeps a bounded number of records per agent, so a row on screen
+  // can outlive the record behind it. The drawer keeps its capped text.
+  it('404s a row whose record the store no longer holds', async () => {
+    const res = await fetch(`${url}/api/line?agent=probe-alpha&id=gone%230`);
+    expect(res.status).toBe(404);
+  });
+
+  // A read-only console is still allowed to READ; only the control routes close.
+  it('answers on a read-only console too', async () => {
+    await shutdown(server);
+    ({ server, url } = await boot(true));
+    lineTexts['probe-alpha|rec-1#0'] = 'visible';
+    const res = await fetch(`${url}/api/line?agent=probe-alpha&id=rec-1%230`);
+    expect(res.status).toBe(200);
+    expect((await res.json()).text).toBe('visible');
   });
 });

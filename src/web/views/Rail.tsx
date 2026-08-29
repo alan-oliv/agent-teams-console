@@ -5,6 +5,7 @@ import { Composer } from '../components/Composer';
 import { Elapsed, NowContext } from '../components/Elapsed';
 import { Portrait } from '../components/Portrait';
 import { StatusGlyph } from '../components/StatusGlyph';
+import { StopControlButton } from '../components/StopButton';
 import { TranscriptFeed } from '../components/TranscriptFeed';
 import { contextBar, costLabel, ctxLabel, pctLabel } from '../format';
 
@@ -64,6 +65,7 @@ const Row = memo(function Row({
           >
             <Elapsed startedAt={agent.startedAt} />
           </span>
+          <StopControlButton agent={agent} />
         </div>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
           <span

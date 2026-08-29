@@ -28,6 +28,7 @@ describe('parseInboxEntry', () => {
       summary: 'probe-charlie alive',
       ts: 1787843415734,
       tsIsDelivery: false,
+      read: false,
       color: 'yellow',
       protocol: undefined,
     });
@@ -86,6 +87,7 @@ describe('parseTeammateFrames', () => {
       summary: 'probe-alpha claimed task 1',
       ts: DELIVERED_AT,
       tsIsDelivery: true,
+      read: true,
       color: 'blue',
       protocol: undefined,
     });

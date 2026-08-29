@@ -2,7 +2,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
 import { openStore, type Store, type EventKind, type StoredEvent } from './store';
-import { project, transcriptHistory } from './project';
+import { project, transcriptHistory, transcriptLineText } from './project';
 import { startFileIngest } from './ingest/files';
 import { createHookHandlers } from './ingest/hooks';
 import { createPermits } from './control/permits';
@@ -650,6 +650,7 @@ export async function main(argv: string[]): Promise<number> {
     readOnly: cli.readOnly,
     listTeams: () => listTeamSummaries(teamsRoot, sessionsRoot, currentTeam, projectsRoot),
     history: (agent: string) => transcriptHistory(store.replay(), agent),
+    lineText: (agent: string, id: string) => transcriptLineText(store.replay(), agent, id),
     selectTeam,
     onShutdown: stop,
   });

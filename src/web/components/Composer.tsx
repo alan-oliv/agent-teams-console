@@ -11,7 +11,7 @@ interface Variant {
   placeholderColor: string;
 }
 
-const VARIANT: Record<'wall' | 'rail', Variant> = {
+const VARIANT: Record<'wall' | 'rail' | 'thread' | 'everyone', Variant> = {
   wall: {
     padding: '8px 12px', gap: '7px',
     promptColor: 'var(--color-accent-600)', promptSize: '11px',
@@ -24,16 +24,35 @@ const VARIANT: Record<'wall' | 'rail', Variant> = {
     placeholder: (n) => `message ${n} directly`,
     placeholderColor: 'var(--color-neutral-600)',
   },
+  thread: {
+    padding: '10px 16px', gap: '9px',
+    promptColor: 'var(--color-accent)', promptSize: '12px',
+    placeholder: () => 'join as the operator — both agents see it',
+    placeholderColor: 'var(--color-neutral-600)',
+  },
+  everyone: {
+    padding: '10px 16px', gap: '9px',
+    promptColor: 'var(--color-accent)', promptSize: '12px',
+    placeholder: () => 'message the team — everyone sees it',
+    placeholderColor: 'var(--color-neutral-600)',
+  },
 };
 
 export function Composer({
   agent,
+  alsoTo,
   variant,
   readOnly = false,
   teamLive = true,
 }: {
   agent: Agent;
-  variant: 'wall' | 'rail';
+  /**
+   * Further equal recipients. There is no relay and no group inbox in this
+   * model, so one send addressed to a pair is two direct messages, and one
+   * addressed to the room is a direct message to every member.
+   */
+  alsoTo?: Agent[];
+  variant: 'wall' | 'rail' | 'thread' | 'everyone';
   readOnly?: boolean;
   /**
    * Whether any teammate is still alive. A teammate drains its OWN inbox, so a
@@ -52,21 +71,28 @@ export function Composer({
   const [ack, setAck] = useState<'sent' | 'queued' | 'not sent' | null>(null);
   const v = VARIANT[variant];
   // Read-only 409s every control route, so an enabled composer would look live
-  // and swallow the rejection. Departed teammates have no inbox reader left.
-  const disabled = readOnly || agent.status === 'departed';
+  // and swallow the rejection. Departed teammates have no inbox reader left —
+  // in a thread only one of the two has to still be there.
+  const recipients = [agent, ...(alsoTo ?? [])].filter((a) => a.status !== 'departed');
+  const disabled = readOnly || recipients.length === 0;
 
   async function send() {
     const body = text.trim();
     if (!body || busy || disabled) return;
     setBusy(true);
     try {
-      const res = await postJson(`/api/agents/${encodeURIComponent(agent.name)}/message`, {
-        text: body,
-      });
-      if (res.ok) setText('');
+      const results = await Promise.all(
+        recipients.map((to) =>
+          postJson(`/api/agents/${encodeURIComponent(to.name)}/message`, { text: body }),
+        ),
+      );
+      const delivered = results.every((res) => res.ok);
+      if (delivered) setText('');
       // A teammate drains its own inbox, so a live one has it already. The
       // lead's is drained by the team loop, which needs a teammate alive.
-      setAck(!res.ok ? 'not sent' : agent.isLead && !teamLive ? 'queued' : 'sent');
+      setAck(
+        !delivered ? 'not sent' : recipients.some((to) => to.isLead) && !teamLive ? 'queued' : 'sent',
+      );
     } finally {
       setBusy(false);
     }
@@ -98,7 +124,7 @@ export function Composer({
         placeholder={
           readOnly
             ? 'read-only — control routes are disabled'
-            : agent.isLead && !teamLive
+            : recipients.some((to) => to.isLead) && !teamLive
               ? `${v.placeholder(agent.name)} · queued until a teammate is live`
               : v.placeholder(agent.name)
         }
@@ -134,7 +160,7 @@ export function Composer({
           {ack}
         </span>
       )}
-      {variant === 'rail' && text === '' && (
+      {variant !== 'wall' && text === '' && (
         <span
           data-testid="composer-caret"
           style={{
@@ -148,6 +174,13 @@ export function Composer({
       )}
       {variant === 'wall' ? (
         <span style={{ color: 'var(--color-neutral-800)', fontSize: '10px' }}>⌘⏎</span>
+      ) : variant === 'thread' || variant === 'everyone' ? (
+        <span
+          data-testid="composer-note"
+          style={{ color: 'var(--color-neutral-700)', fontSize: '10px', whiteSpace: 'nowrap' }}
+        >
+          a message wakes an idle recipient
+        </span>
       ) : (
         <span
           data-testid="composer-tool"
