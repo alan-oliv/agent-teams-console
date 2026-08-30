@@ -74,6 +74,9 @@ describe('Rail — left list', () => {
     const alpha = within(screen.getAllByRole('option')[1]);
     expect(alpha.getByTestId('rail-name').textContent).toBe('probe-alpha');
     expect(alpha.getByTestId('rail-type').textContent).toBe('general-purpose');
+    expect(alpha.getByTestId('rail-model').textContent).toBe('claude-opus-5');
+    expect(alpha.getByTestId('rail-model').style.fontSize).toBe('10.5px');
+    expect(alpha.getByTestId('rail-model').style.color).toBe('var(--color-neutral-700)');
     expect(alpha.getByTestId('rail-elapsed').textContent).toBe('0m 42s');
     // 34_469 / 1_000_000 * 16 cells rounds to 1 filled cell, plus the forced compactAt tick at
     // floor(967_000 / 1_000_000 * 16) = index 15.
@@ -140,6 +143,7 @@ describe('Rail — attached pane', () => {
     expect(header.style.padding).toBe('10px 18px');
     expect(within(header).getByTestId('rail-detail-name').textContent).toBe('probe-charlie');
     expect(within(header).getByTestId('rail-detail-type').textContent).toBe('general-purpose');
+    expect(within(header).getByTestId('rail-detail-model').textContent).toBe('claude-haiku-4-5');
     expect(within(header).getByTestId('rail-detail-role').textContent).toBe('Spike probe charlie');
     // 23_639 / 200_000 * 16 cells rounds to 2 filled, plus the forced compactAt tick at
     // floor(167_000 / 200_000 * 16) = index 13.

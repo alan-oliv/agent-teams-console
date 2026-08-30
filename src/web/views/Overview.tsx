@@ -80,18 +80,33 @@ const Tile = memo(function Tile({
                 {agent.name}
               </span>
             </div>
-            <span
-              data-testid="overview-type"
-              style={{
-                color: 'var(--color-neutral-600)',
-                fontSize: '9.5px',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}
-            >
-              {agent.agentType}
-            </span>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
+              <span
+                data-testid="overview-type"
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  color: 'var(--color-neutral-600)',
+                  fontSize: '9.5px',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {agent.agentType}
+              </span>
+              <span
+                data-testid="overview-model"
+                style={{
+                  flex: 'none',
+                  color: 'var(--color-neutral-700)',
+                  fontSize: '10.5px',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {agent.model}
+              </span>
+            </div>
           </div>
         </div>
 

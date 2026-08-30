@@ -60,6 +60,12 @@ const Row = memo(function Row({
           )}
           <span style={{ flex: 1 }} />
           <span
+            data-testid="rail-model"
+            style={{ color: 'var(--color-neutral-700)', fontSize: '10.5px' }}
+          >
+            {agent.model}
+          </span>
+          <span
             data-testid="rail-elapsed"
             style={{ color: 'var(--color-neutral-700)', fontSize: '10.5px' }}
           >
@@ -153,6 +159,12 @@ const Attached = memo(function Attached(
           {agent.role}
         </span>
         <span style={{ flex: 1 }} />
+        <span
+          data-testid="rail-detail-model"
+          style={{ color: 'var(--color-neutral-700)', fontSize: '10.5px' }}
+        >
+          {agent.model}
+        </span>
         <span
           data-testid="rail-detail-bar"
           style={{ letterSpacing: '-.5px', color: 'var(--color-accent-600)', fontSize: '11.5px' }}
