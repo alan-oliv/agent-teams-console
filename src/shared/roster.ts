@@ -79,18 +79,26 @@ export function buildRoster(
 }
 
 /**
- * Lead first, then live agents, then departed ones — join order kept within
- * each group (sorting by recency would make columns swap places under the
- * operator's cursor every time an agent acted). The wall, the keyboard's
- * column jumps, the grid and the overview all show one roster and must walk
- * it in the same order.
+ * Lead first, always — its sticky-left pin and its composer are load-bearing,
+ * so it stays first even idle. Then non-idle teammates (working, plan_pending,
+ * failed, blocked) — attention states must not be pushed back, they need the
+ * operator. Then idle teammates. Then departed, last. Join order kept stable
+ * within each group (sorting by recency would make columns swap places under
+ * the operator's cursor every time an agent acted).
+ *
+ * Idle moving to the end is operator-requested, and recomputed from status on
+ * every render: an agent going idle moves back immediately, and one picking
+ * up work again moves forward again, with no timer or debounce. The wall, the
+ * keyboard's column jumps, the grid and the overview all show one roster and
+ * must walk it in the same order.
  */
 export function wallOrder(agents: Agent[]): Agent[] {
   const lead = agents.find((a) => a.isLead);
   const rest = lead ? agents.filter((a) => a !== lead) : agents;
   return [
     ...(lead ? [lead] : []),
-    ...rest.filter((a) => a.status !== 'departed'),
+    ...rest.filter((a) => a.status !== 'idle' && a.status !== 'departed'),
+    ...rest.filter((a) => a.status === 'idle'),
     ...rest.filter((a) => a.status === 'departed'),
   ];
 }

@@ -41,7 +41,9 @@ describe('Grid', () => {
     render(<Grid agents={seven} focused={null} onFocus={vi.fn()} now={FIXTURE_NOW} />);
     expect(screen.getAllByTestId('grid-pane')).toHaveLength(6);
     expect(screen.getByTestId('grid-overflow').textContent).toBe('+1 more');
-    expect(screen.queryByText('probe-bravo-6')).toBeNull();
+    // probe-charlie is the only idle member of the seven, so idle-last (#31)
+    // moves it to the back of the line and it is the one that overflows.
+    expect(screen.queryByText('probe-charlie')).toBeNull();
   });
 
   it('renders the two header rows for probe-alpha', () => {
@@ -122,8 +124,10 @@ describe('Grid', () => {
     const names = screen
       .getAllByTestId('grid-pane')
       .map((p) => within(p).getByTestId('grid-name').textContent);
+    // probe-charlie and its copy are idle, so #31 moves them behind the
+    // working pair (probe-alpha-2, probe-bravo-2) — still ahead of departed.
     expect(names).toEqual([
-      'team-lead', 'probe-charlie', 'probe-alpha-2', 'probe-bravo-2', 'probe-charlie-2', 'probe-alpha',
+      'team-lead', 'probe-alpha-2', 'probe-bravo-2', 'probe-charlie', 'probe-charlie-2', 'probe-alpha',
     ]);
     expect(screen.getByTestId('grid-overflow').textContent).toBe('+1 more');
   });

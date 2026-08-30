@@ -161,4 +161,72 @@ describe('wallOrder', () => {
     const agents = [agent('probe-alpha', 'working'), agent('probe-bravo', 'departed')];
     expect(wallOrder(agents).map((a) => a.name)).toEqual(['probe-alpha', 'probe-bravo']);
   });
+
+  // Operator-requested: idle teammates move to the end of the line, past
+  // every attention state, but still ahead of departed.
+  it('moves idle teammates behind working ones, still ahead of departed', () => {
+    const agents = [
+      agent('probe-alpha', 'idle'),
+      agent('team-lead', 'working', true),
+      agent('probe-bravo', 'working'),
+      agent('probe-charlie', 'departed'),
+    ];
+    expect(wallOrder(agents).map((a) => a.name)).toEqual([
+      'team-lead', 'probe-bravo', 'probe-alpha', 'probe-charlie',
+    ]);
+  });
+
+  it('keeps every attention status ahead of idle, not just working', () => {
+    const agents = [
+      agent('team-lead', 'working', true),
+      agent('probe-alpha', 'idle'),
+      agent('probe-bravo', 'plan_pending'),
+      agent('probe-charlie', 'failed'),
+      agent('probe-delta', 'blocked'),
+    ];
+    expect(wallOrder(agents).map((a) => a.name)).toEqual([
+      'team-lead', 'probe-bravo', 'probe-charlie', 'probe-delta', 'probe-alpha',
+    ]);
+  });
+
+  it('keeps the lead first even when the lead itself is idle', () => {
+    const agents = [
+      agent('probe-alpha', 'working'),
+      agent('team-lead', 'idle', true),
+      agent('probe-bravo', 'working'),
+    ];
+    expect(wallOrder(agents).map((a) => a.name)).toEqual([
+      'team-lead', 'probe-alpha', 'probe-bravo',
+    ]);
+  });
+
+  it('keeps join order stable within the idle group too', () => {
+    const agents = [
+      agent('team-lead', 'working', true),
+      agent('probe-charlie', 'idle'),
+      agent('probe-alpha', 'idle'),
+      agent('probe-bravo', 'idle'),
+    ];
+    expect(wallOrder(agents).map((a) => a.name)).toEqual([
+      'team-lead', 'probe-charlie', 'probe-alpha', 'probe-bravo',
+    ]);
+  });
+
+  it('moves an agent back toward the front the instant it picks up work again', () => {
+    const idling = [
+      agent('team-lead', 'working', true),
+      agent('probe-alpha', 'idle'),
+      agent('probe-bravo', 'working'),
+    ];
+    expect(wallOrder(idling).map((a) => a.name)).toEqual([
+      'team-lead', 'probe-bravo', 'probe-alpha',
+    ]);
+
+    const backToWork = idling.map((a) =>
+      a.name === 'probe-alpha' ? { ...a, status: 'working' as const } : a,
+    );
+    expect(wallOrder(backToWork).map((a) => a.name)).toEqual([
+      'team-lead', 'probe-alpha', 'probe-bravo',
+    ]);
+  });
 });

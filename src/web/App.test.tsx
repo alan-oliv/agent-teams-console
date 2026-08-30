@@ -334,7 +334,9 @@ it('asks before stopping, and sends nothing until the operator confirms', () => 
   fireEvent.click(stopButtons()[ALPHA]);
 
   expect(screen.getByTestId('stop-confirm')).toBeTruthy();
-  expect(screen.getByTestId('stop-confirm-go').textContent).toBe('stop probe-alpha');
+  // probe-alpha is idle in this fixture, so #31's idle-last order seats
+  // probe-bravo (the only working teammate) in the second column instead.
+  expect(screen.getByTestId('stop-confirm-go').textContent).toBe('stop probe-bravo');
   expect(fetchMock).not.toHaveBeenCalled();
 });
 
@@ -346,7 +348,7 @@ it('sends the stop only for the confirmed teammate', () => {
   fireEvent.click(stopButtons()[ALPHA]);
   fireEvent.click(screen.getByTestId('stop-confirm-go'));
 
-  expect(fetchMock.mock.calls.map((c) => c[0])).toEqual(['/api/agents/probe-alpha/stop']);
+  expect(fetchMock.mock.calls.map((c) => c[0])).toEqual(['/api/agents/probe-bravo/stop']);
   expect(screen.queryByTestId('stop-confirm')).toBeNull();
 });
 
@@ -392,7 +394,8 @@ it('x opens the same confirmation rather than stopping outright', () => {
   fireEvent.click(screen.getAllByTestId('wall-column')[ALPHA]);
   fireEvent.keyDown(window, { key: 'x' });
 
-  expect(screen.getByTestId('stop-confirm-go').textContent).toBe('stop probe-alpha');
+  // probe-alpha is idle in this fixture, so #31 seats probe-bravo here instead.
+  expect(screen.getByTestId('stop-confirm-go').textContent).toBe('stop probe-bravo');
   expect(fetchMock).not.toHaveBeenCalled();
 });
 
