@@ -1,6 +1,6 @@
 import { memo, useCallback, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import type { Agent } from '../../shared/domain';
-import { AGENT_STATUS } from '../../shared/status';
+import { AGENT_STATUS, DORMANT_OPACITY, isDormant } from '../../shared/status';
 import { Elapsed, NowContext } from '../components/Elapsed';
 import { Portrait } from '../components/Portrait';
 import { StatusGlyph } from '../components/StatusGlyph';
@@ -36,7 +36,7 @@ const Tile = memo(function Tile({
     flexDirection: 'column',
     minHeight: 0,
     cursor: 'pointer',
-    opacity: agent.status === 'departed' ? 0.55 : 1,
+    opacity: isDormant(agent.status) ? DORMANT_OPACITY : 1,
   };
 
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {

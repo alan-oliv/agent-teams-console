@@ -23,6 +23,22 @@ export const AGENT_STATUS: Record<AgentStatus, StatusStyle> = {
  */
 export const AGENT_STALE_MS = 30 * 60 * 1000;
 
+/**
+ * Agents drawn at reduced strength. `idle` sits with `departed` because an
+ * idle teammate is a subagent that has already returned its result — the
+ * console cannot reach it, and a `shutdown_request` written to its inbox
+ * drains with nothing running to read it. Drawing it at full strength beside
+ * a working agent implies a teammate that is merely between turns.
+ *
+ * `failed`, `blocked` and `plan_pending` are deliberately NOT here: each one
+ * wants the operator, and dimming the rows that need a human is backwards.
+ */
+export function isDormant(status: AgentStatus): boolean {
+  return status === 'idle' || status === 'departed';
+}
+
+export const DORMANT_OPACITY = 0.55;
+
 export const TASK_STATUS: Record<TaskState, StatusStyle> = {
   pending: { glyph: '○', label: 'pending', color: 'var(--color-neutral-500)' },
   in_progress: { glyph: '●', label: 'in progress', color: 'var(--color-accent-400)' },

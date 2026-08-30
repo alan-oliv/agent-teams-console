@@ -7,6 +7,7 @@ import { StatusGlyph } from '../components/StatusGlyph';
 import { StopControlButton } from '../components/StopButton';
 import { TranscriptFeed } from '../components/TranscriptFeed';
 import { pctLabel } from '../format';
+import { DORMANT_OPACITY, isDormant } from '../../shared/status';
 
 const PANES = 6;
 
@@ -41,7 +42,7 @@ const Pane = memo(function Pane({
         minHeight: 0,
         minWidth: 0,
         cursor: 'pointer',
-        opacity: agent.status === 'departed' ? 0.55 : 1,
+        opacity: isDormant(agent.status) ? DORMANT_OPACITY : 1,
       }}
     >
       <div

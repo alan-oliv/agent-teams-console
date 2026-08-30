@@ -9,7 +9,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react';
 import type { Agent } from '../../shared/domain';
-import { AGENT_STATUS } from '../../shared/status';
+import { AGENT_STATUS, DORMANT_OPACITY, isDormant } from '../../shared/status';
 import { Composer, RosterContext } from '../components/Composer';
 import { Elapsed, NowContext } from '../components/Elapsed';
 import { Portrait } from '../components/Portrait';
@@ -111,7 +111,7 @@ const Column = memo(function Column({
     flexDirection: 'column',
     minHeight: 0,
     cursor: 'pointer',
-    opacity: agent.status === 'departed' ? 0.55 : 1,
+    opacity: isDormant(agent.status) ? DORMANT_OPACITY : 1,
     ...(shadows.length ? { boxShadow: shadows.join(',') } : {}),
     ...(isLeadColumn ? { position: 'sticky' as const, left: 0, zIndex: 2 } : {}),
   };

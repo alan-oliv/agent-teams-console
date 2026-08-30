@@ -98,6 +98,18 @@ describe('Overview', () => {
     const alpha = tiles.find((t) => within(t).getByTestId('overview-name').textContent === 'probe-alpha')!;
     expect(alpha.style.opacity).toBe('1');
   });
+
+  it('dims an idle agent tile too — an idle teammate has already returned', () => {
+    const withDeparted = four.map((a) =>
+      a.name === 'probe-charlie' ? { ...a, status: 'idle' as const } : a,
+    );
+    render(<Overview agents={withDeparted} focused={null} onFocus={vi.fn()} now={FIXTURE_NOW} />);
+    const tiles = screen.getAllByTestId('overview-tile');
+    const charlie = tiles.find((t) => within(t).getByTestId('overview-name').textContent === 'probe-charlie')!;
+    expect(charlie.style.opacity).toBe('0.55');
+    const alpha = tiles.find((t) => within(t).getByTestId('overview-name').textContent === 'probe-alpha')!;
+    expect(alpha.style.opacity).toBe('1');
+  });
 });
 
 describe('Overview tile memoisation', () => {

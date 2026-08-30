@@ -1,6 +1,6 @@
 import { memo, useState, type KeyboardEvent } from 'react';
 import type { Agent } from '../../shared/domain';
-import { AGENT_STATUS } from '../../shared/status';
+import { AGENT_STATUS, DORMANT_OPACITY, isDormant } from '../../shared/status';
 import { Composer } from '../components/Composer';
 import { Elapsed, NowContext } from '../components/Elapsed';
 import { Portrait } from '../components/Portrait';
@@ -34,7 +34,7 @@ const Row = memo(function Row({
         alignItems: 'flex-start',
         background: isSelected ? 'var(--color-bg)' : 'transparent',
         borderLeft: `2px solid ${isSelected ? 'var(--color-accent-600)' : 'transparent'}`,
-        opacity: agent.status === 'departed' ? 0.55 : 1,
+        opacity: isDormant(agent.status) ? DORMANT_OPACITY : 1,
       }}
     >
       <Portrait agent={agent} slot="rail-row" />
