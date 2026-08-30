@@ -15,6 +15,22 @@ const num = (v: unknown): number | undefined =>
   typeof v === 'number' && Number.isFinite(v) ? v : undefined;
 const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 
+/**
+ * An agent launched with a schema returns an OBJECT, so the journal's `result`
+ * is as often a bag as a string and reading only strings dropped every
+ * structured return. A literal `null` stays undefined — absent is what the
+ * journal view's "returned null" path keys on.
+ */
+function resultText(v: unknown): string | undefined {
+  if (typeof v === 'string') return v;
+  if (v === null || v === undefined) return undefined;
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return undefined; // circular; nothing readable to show
+  }
+}
+
 const RUN_STATUS = new Set(['completed', 'killed', 'failed', 'running']);
 
 /**
@@ -114,7 +130,7 @@ export function parseWorkflowJournal(runId: string, lines: readonly string[]): W
     // `result` already seen.
     const existing = byId.get(agentId);
     if (rec.type === 'result') {
-      byId.set(agentId, { agentId, state: 'done', ...opt('result', str(rec.result)) });
+      byId.set(agentId, { agentId, state: 'done', ...opt('result', resultText(rec.result)) });
     } else if (rec.type === 'started' && !existing) {
       byId.set(agentId, { agentId, state: 'run' });
     }

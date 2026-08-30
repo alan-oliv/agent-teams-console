@@ -110,6 +110,32 @@ describe('parseWorkflowJournal', () => {
     expect(run.agents[0].result).toBe('the text');
   });
 
+  it('serializes the object an agent with a schema returns', () => {
+    const structured = line({
+      type: 'result',
+      key: 'v2:aaa',
+      agentId: 'a111',
+      result: { item: 'S1', status: 'ok' },
+    });
+    const run = parseWorkflowJournal('wf_live', [STARTED, structured]);
+
+    expect(run.agents[0].result).toBe('{"item":"S1","status":"ok"}');
+  });
+
+  it('keeps an empty string, which is a return value and not a missing one', () => {
+    const empty = line({ type: 'result', key: 'v2:aaa', agentId: 'a111', result: '' });
+    const run = parseWorkflowJournal('wf_live', [STARTED, empty]);
+
+    expect(run.agents[0].result).toBe('');
+  });
+
+  it('leaves the result absent when an agent returned null', () => {
+    const returnedNull = line({ type: 'result', key: 'v2:aaa', agentId: 'a111', result: null });
+    const run = parseWorkflowJournal('wf_live', [STARTED, returnedNull]);
+
+    expect(run.agents[0]).not.toHaveProperty('result');
+  });
+
   it('invents no phase, label or usage for a live agent', () => {
     const run = parseWorkflowJournal('wf_live', [STARTED, RESULT]);
 
