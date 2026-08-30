@@ -18,7 +18,13 @@ Agent teams console → http://127.0.0.1:4823/?team=session-98b0b4a7
 
 ## Six views
 
-These are team mode's. A second mode, for a dynamic workflow, hasn't landed.
+These are team mode's. The console has a second mode, chosen by what triggered
+the run rather than by a toggle: a dynamic workflow. A workflow subagent never
+enters `members[]`, so a workflow is not a team and is not drawn as one — that
+mode has no roster, no inboxes, no task list and no composer. Its four views are
+**run** (agents grouped by phase), **agents** (the ephemeral roster), **script**
+(the persisted script with the resume model drawn on it) and **journal** (each
+agent's actual return value, `null` included).
 
 | | |
 |---|---|
