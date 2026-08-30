@@ -3,6 +3,23 @@ import type { WorkflowRun } from '../../shared/domain';
 
 const PANEL_WIDTH = '360px';
 
+/**
+ * Measured, not chosen — and unlike the team trigger's 146px it is derived from
+ * the BAR's budget rather than from the name, because run names have no shape
+ * to derive from: the runtime defaults an unlabelled one to the prompt's first
+ * 60 characters, and a run named after its own task is longer still.
+ *
+ * At 700px the bar can spare 239.75px here — 700 less its 14px right padding,
+ * the four view pills (229.83 + 2 margin), a 10px gap, and the 204.42 left of
+ * the trigger (14 padding + 24.42 wordmark + 10 + the 146 team trigger + 10).
+ * Rounded down to leave a little against fallback-font metrics.
+ *
+ * Unbounded, a 65-character name measured 610px: 87% of a 700px bar, with the
+ * view pills, the task id and every total pushed off the frame, so the operator
+ * could not reach a single workflow view.
+ */
+const TRIGGER_MAX_WIDTH = 236;
+
 export const RUN_STATUS_COLOR: Record<WorkflowRun['status'], string> = {
   completed: 'var(--color-accent-400)',
   running: 'var(--color-accent-500)',
@@ -104,6 +121,7 @@ export function RunSelect({ run, runs, onSelect, backToTeam }: RunSelectProps) {
           alignItems: 'baseline',
           gap: 7,
           flex: 'none',
+          maxWidth: TRIGGER_MAX_WIDTH,
           whiteSpace: 'nowrap',
           padding: '3px 8px',
           margin: '-3px 0',
@@ -111,14 +129,38 @@ export function RunSelect({ run, runs, onSelect, backToTeam }: RunSelectProps) {
           borderRadius: 'var(--radius-sm)',
         }}
       >
+        {/* `min-width: 0` is what lets the name give: a flex item floors at its
+            own content width otherwise, and the trigger would blow past its cap
+            rather than ellipsise. */}
         <span
           data-testid="wf-identity"
-          style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}
+          style={{ display: 'flex', gap: 8, alignItems: 'baseline', minWidth: 0 }}
         >
-          <span style={{ color: 'var(--color-text)' }}>{runLabel(run)}</span>
-          <span style={{ color: 'var(--color-neutral-600)', fontSize: 11 }}>{run.runId}</span>
+          <span
+            data-testid="run-name"
+            style={{
+              color: 'var(--color-text)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {runLabel(run)}
+          </span>
+          {/* The identity survives the squeeze whole — a half-drawn runId
+              identifies nothing, so the name is what gives. */}
+          <span
+            data-testid="run-runid"
+            style={{ color: 'var(--color-neutral-600)', fontSize: 11, flex: 'none' }}
+          >
+            {run.runId}
+          </span>
         </span>
-        <span aria-hidden="true" style={{ color: 'var(--color-accent-400)', fontSize: 10 }}>
+        <span
+          data-testid="run-caret"
+          aria-hidden="true"
+          style={{ color: 'var(--color-accent-400)', fontSize: 10, flex: 'none' }}
+        >
           ▾
         </span>
       </button>
