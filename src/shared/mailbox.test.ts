@@ -1,6 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { mergeMail, parseInboxEntry, parseTeammateFrames, type InboxEntry } from './mailbox';
+import {
+  mergeMail,
+  parseInboxEntry,
+  parseTeammateFrames,
+  unwrapTeammateFrames,
+  type InboxEntry,
+} from './mailbox';
 
 const snapshots = JSON.parse(
   readFileSync(new URL('../../fixtures/inbox-snapshots.json', import.meta.url), 'utf8'),
@@ -109,6 +115,26 @@ describe('parseTeammateFrames', () => {
 
   it('returns an empty array when there is no frame', () => {
     expect(parseTeammateFrames('just prose', DELIVERED_AT, 'team-lead')).toEqual([]);
+  });
+});
+
+describe('unwrapTeammateFrames', () => {
+  it('leaves the bodies and the prose around them', () => {
+    const text = `Another Claude session sent a message:\n${frames[0]}\n\n${frames[1]}\n\nover to you.`;
+    expect(unwrapTeammateFrames(text)).toBe(
+      [
+        'Another Claude session sent a message:',
+        'probe-charlie reporting: running on a different model so the console can prove per-agent model resolution.',
+        '',
+        'probe-alpha reporting: I claimed task 1. This is spike traffic.',
+        '',
+        'over to you.',
+      ].join('\n'),
+    );
+  });
+
+  it('leaves text carrying no frame alone', () => {
+    expect(unwrapTeammateFrames('just a sentence')).toBe('just a sentence');
   });
 });
 

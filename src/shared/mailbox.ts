@@ -95,6 +95,16 @@ export function parseTeammateFrames(text: string, deliveredAt: number, to: strin
   return out;
 }
 
+/**
+ * The same text with each frame replaced by the message inside it. A delivery
+ * is never a bare frame: it opens with a preamble line, carries as many frames
+ * as were queued, and the prose around them is the recipient's own context.
+ */
+export function unwrapTeammateFrames(text: string): string {
+  FRAME_RE.lastIndex = 0;
+  return text.replace(FRAME_RE, (_frame, _attrs: string, body: string) => body);
+}
+
 function contentKey(m: MailMessage): string {
   return `${m.from}\u0000${m.to}\u0000${m.text}`;
 }

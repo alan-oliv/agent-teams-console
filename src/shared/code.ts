@@ -28,13 +28,36 @@ export type Segment =
 
 const FENCE = /^```([A-Za-z0-9_+-]*)\s*$/;
 
+// Two columns, not markdown's four: a teammate reporting a type or a command
+// indents it by two, measured across every indented block in this machine's
+// transcripts. The blank line above is what separates a block from a wrapped
+// list item, which is indented too and is prose.
+const INDENTED = /^(?: {2,}|\t)/;
+const LEADING = /^[^\S\n]*/;
+
+const isBlank = (line: string) => line.trim() === '';
+
+/** Off the common indent, so the block starts at column 0 and keeps its nesting. */
+function dedent(lines: string[]): string[] {
+  let common: string | null = null;
+  for (const line of lines) {
+    if (isBlank(line)) continue;
+    const indent = LEADING.exec(line)![0];
+    if (common === null) common = indent;
+    else while (!indent.startsWith(common)) common = common.slice(0, -1);
+  }
+  return lines.map((line) => (isBlank(line) ? '' : line.slice(common?.length ?? 0)));
+}
+
 /**
- * Splits on ``` fences. An unterminated fence — a message cut by the transcript
- * cap mid-block, which is common — still opens a code segment rather than
- * dumping the rest as prose with a stray fence in it.
+ * Splits on ``` fences, and on the indented blocks a teammate writes instead of
+ * fencing. An unterminated fence — a message cut by the transcript cap
+ * mid-block, which is common — still opens a code segment rather than dumping
+ * the rest as prose with a stray fence in it.
  */
 export function segments(text: string): Segment[] {
   const out: Segment[] = [];
+  const lines = text.split('\n');
   let prose: string[] = [];
   let code: string[] | null = null;
   let lang = '';
@@ -44,7 +67,8 @@ export function segments(text: string): Segment[] {
     prose = [];
   };
 
-  for (const line of text.split('\n')) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     const fence = FENCE.exec(line.trim());
     if (fence) {
       if (code === null) {
@@ -58,8 +82,22 @@ export function segments(text: string): Segment[] {
       }
       continue;
     }
-    if (code === null) prose.push(line);
-    else code.push(line);
+    if (code !== null) {
+      code.push(line);
+      continue;
+    }
+    if (INDENTED.test(line) && !isBlank(line) && (i === 0 || isBlank(lines[i - 1]))) {
+      // A blank line inside the block keeps it going — pasted output arrives in
+      // runs, and one paste reads as one block.
+      let end = i;
+      while (end < lines.length && (isBlank(lines[end]) || INDENTED.test(lines[end]))) end++;
+      while (isBlank(lines[end - 1])) end--;
+      flushProse();
+      out.push({ kind: 'code', lang: '', lines: dedent(lines.slice(i, end)) });
+      i = end - 1;
+      continue;
+    }
+    prose.push(line);
   }
 
   if (code !== null) out.push({ kind: 'code', lang, lines: code });

@@ -22,6 +22,42 @@ describe('segments', () => {
   it('carries an unlabelled fence', () => {
     expect(segments('```\nplain\n```')[0]).toEqual({ kind: 'code', lang: '', lines: ['plain'] });
   });
+
+  it('reads a block a teammate indented rather than fenced as code', () => {
+    const out = segments('the shape:\n\n  const a = 1;\n  const b = 2;\n\nafter');
+    expect(out.map((s) => s.kind)).toEqual(['prose', 'code', 'prose']);
+    expect(out[1]).toEqual({ kind: 'code', lang: '', lines: ['const a = 1;', 'const b = 2;'] });
+  });
+
+  it('keeps the nesting inside an indented block', () => {
+    const out = segments('shape:\n\n  interface D {\n    path: string;\n  }');
+    expect(out[1]).toEqual({
+      kind: 'code',
+      lang: '',
+      lines: ['interface D {', '  path: string;', '}'],
+    });
+  });
+
+  // Pasted terminal output comes in runs with a blank line between them; one
+  // block reads as one paste.
+  it('holds an indented block together across a blank line', () => {
+    const out = segments('verified:\n\n  $ npm run typecheck\n\n  exit=0\n\ndone');
+    expect(out.map((s) => s.kind)).toEqual(['prose', 'code', 'prose']);
+    expect(out[1]).toEqual({ kind: 'code', lang: '', lines: ['$ npm run typecheck', '', 'exit=0'] });
+  });
+
+  // A wrapped list item is indented too, and it is prose. A code block has a
+  // blank line above it; a continuation line does not.
+  it('leaves an indented continuation of the line above as prose', () => {
+    expect(segments('- an item\n  wrapped onto the next line')).toEqual([
+      { kind: 'prose', text: '- an item\n  wrapped onto the next line' },
+    ]);
+  });
+
+  it('leaves an indented line inside a fence to the fence', () => {
+    const out = segments('```ts\nif (a) {\n  b();\n}\n```');
+    expect(out).toEqual([{ kind: 'code', lang: 'ts', lines: ['if (a) {', '  b();', '}'] }]);
+  });
 });
 
 describe('codeTokens', () => {

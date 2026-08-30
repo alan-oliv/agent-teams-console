@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { segments } from './code';
 import {
   currentToolOf,
   parseLine,
@@ -205,6 +206,63 @@ describe('toTranscriptLines', () => {
     expect(toTranscriptLines(plan)[0].marker).toBe('▲');
   });
 
+  // Every real delivery opens with a preamble line and carries several frames,
+  // so an anchored strip matches neither end and the tags render as body text.
+  it('unwraps teammate frames that arrive inside surrounding prose', () => {
+    const rec: TranscriptRecord = {
+      type: 'user',
+      uuid: 'e1',
+      timestamp: '2026-08-27T15:12:17.951Z',
+      message: {
+        role: 'user',
+        content: `Another Claude session sent a message:\n${frames[0]}\n\n${frames[1]}\n\nReply when you have read this.`,
+      },
+    };
+    const { text } = toTranscriptLines(rec)[0];
+    expect(text).not.toMatch(/teammate-message/);
+    expect(text.startsWith('Another Claude session sent a message:')).toBe(true);
+    expect(text.endsWith('Reply when you have read this.')).toBe(true);
+    expect(text).toContain('probe-charlie reporting: running on a different model');
+    expect(text).toContain('probe-alpha reporting: I claimed task 1.');
+  });
+
+  // A teammate reporting a type indents it rather than fencing it, and the
+  // indentation is the whole difference between code and a run-on paragraph.
+  it('keeps the indentation of a snippet a teammate indented rather than fenced', () => {
+    const rec: TranscriptRecord = {
+      type: 'user',
+      uuid: 'e2',
+      timestamp: '2026-08-27T15:12:17.951Z',
+      message: {
+        role: 'user',
+        content: [
+          'Another Claude session sent a message:',
+          '<teammate-message teammate_id="domain" color="green" summary="Task #2 done">',
+          'Task #2 is DONE. The shape:',
+          '',
+          '  export interface Diff {',
+          '    path: string;',
+          '  }',
+          '',
+          'Verified with typecheck.',
+          '</teammate-message>',
+        ].join('\n'),
+      },
+    };
+    const { text } = toTranscriptLines(rec)[0];
+    expect(text).toContain('\n  export interface Diff {\n');
+    expect(text).toContain('\n    path: string;\n');
+
+    // What the drawer does with it: the head line off, the rest to segments().
+    const body = segments(text.slice(text.indexOf('\n') + 1));
+    expect(body.map((s) => s.kind)).toEqual(['prose', 'code', 'prose']);
+    expect(body[1]).toEqual({
+      kind: 'code',
+      lang: '',
+      lines: ['export interface Diff {', '  path: string;', '}'],
+    });
+  });
+
   it('maps a delivered task_assignment frame to ❯', () => {
     const lines = toTranscriptLines(records[22]);
     expect(lines).toHaveLength(1);
@@ -301,9 +359,18 @@ describe('structure worth expanding', () => {
     expect(shown(assistant([{ type: 'text', text: body }]))).toBe(body);
   });
 
-  it('still squashes indentation runs, which carry no structure at a 47-char width', () => {
-    expect(shown(assistant([{ type: 'text', text: 'one\n\n\n\n   two    three' }]))).toBe(
+  it('still squashes space runs and blank lines, which carry no structure at a 47-char width', () => {
+    expect(shown(assistant([{ type: 'text', text: 'one\n\n\n\ntwo    three   ' }]))).toBe(
       'one\n\ntwo three',
+    );
+  });
+
+  // Leading indentation is the exception, on the same argument as the newlines:
+  // it is the difference between a code block and a run-on paragraph, and it is
+  // invisible on a collapsed row either way.
+  it('keeps the leading indentation a code block is made of', () => {
+    expect(shown(assistant([{ type: 'text', text: 'head\n\n  Test  Files   1 passed   ' }]))).toBe(
+      'head\n\n  Test Files 1 passed',
     );
   });
 
