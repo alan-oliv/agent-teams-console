@@ -208,7 +208,7 @@ export function WorkflowRun({ run }: { run: Run }) {
           </>
         ) : (
           <>
-            {offered && (
+            {offered ? (
               <div data-testid="wf-layout" style={{ flex: 'none', display: 'flex', padding: '8px 12px 0' }}>
                 {(['phases', 'grid'] as const).map((id) => (
                   <button
@@ -224,6 +224,17 @@ export function WorkflowRun({ run }: { run: Run }) {
                     {id === 'phases' ? 'BY PHASE' : 'ITEM GRID'}
                   </button>
                 ))}
+              </div>
+            ) : (
+              // A control that silently is not there reads as one the console
+              // forgot. The grid is derived from a naming convention, so when
+              // the convention does not hold, say that rather than nothing.
+              <div
+                data-testid="wf-no-grid"
+                style={{ flex: 'none', padding: '9px 16px 0', color: 'var(--color-neutral-700)', fontSize: '10px' }}
+              >
+                no item grid for this run — its labels do not resolve to one set
+                of work items shared across the phases
               </div>
             )}
 

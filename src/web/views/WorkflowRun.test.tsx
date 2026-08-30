@@ -150,6 +150,9 @@ describe('WorkflowRun', () => {
     );
     expect(screen.queryByTestId('wf-layout-grid')).toBeNull();
     expect(screen.getAllByTestId('wf-phase-group')).toHaveLength(2);
+    // A missing control reads as one the console forgot, so the withheld grid
+    // says why it is withheld.
+    expect(screen.getByTestId('wf-no-grid').textContent).toMatch(/labels do not resolve/i);
   });
 
   // A cluster of ≥2 proves a parallel() fan-out. A cluster of 1 proves nothing,
