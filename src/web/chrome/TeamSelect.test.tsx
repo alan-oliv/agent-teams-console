@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, createEvent, fireEvent, render, screen, within } from '@testing-library/react';
+import { useState } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { FIXTURE_NOW, sampleTeams } from '../test/state-fixture';
 import { WatchContext, type WatchState } from '../state/useWatch';
@@ -52,19 +53,31 @@ function renderSelect(props: Partial<Parameters<typeof TeamSelect>[0]> = {}, wat
     hidden: new Set(),
     hideSession: vi.fn(),
     showHidden: vi.fn(),
+    revealed: false,
     ...watch,
   };
-  const view = render(
-    <WatchContext.Provider value={watchValue}>
-      <TeamSelect {...all} />
-    </WatchContext.Provider>,
-  );
-  const rerender = (next: Partial<typeof all> = {}) =>
-    view.rerender(
-      <WatchContext.Provider value={watchValue}>
-        <TeamSelect {...all} {...next} />
-      </WatchContext.Provider>,
+  // The reveal is App's state, not the picker's — `show them` un-hides and
+  // reveals in one action, and the empty screen offers the same control. The
+  // harness stands in for App so the picker is exercised as it is really wired.
+  function Harness({ extra }: { extra: Partial<typeof all> }) {
+    const [revealed, setRevealed] = useState(watchValue.revealed);
+    return (
+      <WatchContext.Provider
+        value={{
+          ...watchValue,
+          revealed,
+          showHidden: () => {
+            setRevealed(true);
+            watchValue.showHidden();
+          },
+        }}
+      >
+        <TeamSelect {...all} {...extra} />
+      </WatchContext.Provider>
     );
+  }
+  const view = render(<Harness extra={{}} />);
+  const rerender = (next: Partial<typeof all> = {}) => view.rerender(<Harness extra={next} />);
   return { onOpenChange, rerender, watch: watchValue };
 }
 
@@ -645,4 +658,12 @@ it('lets the keyboard land on a workflow row', async () => {
   expect(list.getAttribute('aria-activedescendant')).toBe('team-option-session-b5129c7b');
   fireEvent.keyDown(list, { key: 'Enter' });
   expect(selectPosts()).toEqual(['/api/teams/session-b5129c7b/select']);
+});
+
+// The reveal lives at App level now: the empty screen has to be able to turn it
+// on as well, and it cannot reach a flag the picker keeps to itself.
+it('shows lead-only rows when the lifted state says they are revealed', async () => {
+  soloList();
+  renderSelect({}, { revealed: true });
+  expect(await screen.findAllByRole('option')).toHaveLength(2);
 });

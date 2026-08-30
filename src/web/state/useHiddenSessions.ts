@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import type { TeamSummary } from '../../shared/domain';
 
 /**
  * Sessions the operator has taken out of the picker with its `✕`.
@@ -34,13 +35,50 @@ export function parseHidden(raw: string | null): ReadonlySet<string> {
   }
 }
 
+/**
+ * A session with nothing in it to switch to. Claude Code writes a
+ * `teams/<session>/config.json` for every window, holding just that window's
+ * own lead, so on a busy machine these are most of the list.
+ *
+ * A workflow run is the exception, and the reason this is not just a member
+ * count: a workflow's agents never enter `members[]`, so the session running
+ * one has a roster of one and is somewhere to go all the same.
+ */
+export function isEmptySession(team: TeamSummary): boolean {
+  return team.members < 2 && !team.workflow;
+}
+
+/**
+ * Whether the picker is dropping this row — the rule the empty screens count
+ * by, so their `N not shown` and the picker's cannot disagree.
+ *
+ * The reveal is deliberately not persisted, unlike hiding: it is a question the
+ * operator asked once, not a preference they set.
+ */
+export function isNotShown(
+  team: TeamSummary,
+  hidden: ReadonlySet<string>,
+  revealed: boolean,
+): boolean {
+  return hidden.has(team.name) || (!revealed && isEmptySession(team));
+}
+
 export interface HiddenSessions {
   hidden: ReadonlySet<string>;
   hide(name: string): void;
+  /**
+   * One `show them`, both kinds of dropped row: the ✕-hidden set is cleared and
+   * lead-only sessions are revealed. Held here rather than inside the picker so
+   * the empty screen can offer the same control — hiding the last row must
+   * never be a one-way door, and the picker is not reachable from there.
+   */
   showAll(): void;
+  /** Whether lead-only sessions are being shown. Per-session, never stored. */
+  revealed: boolean;
 }
 
 export function useHiddenSessions(): HiddenSessions {
+  const [revealed, setRevealed] = useState(false);
   const [hidden, setHidden] = useState<ReadonlySet<string>>(() => {
     // A store that THROWS on read is not hypothetical — a blocked origin and
     // Safari's private mode both do it, and this runs in a state initialiser,
@@ -70,7 +108,10 @@ export function useHiddenSessions(): HiddenSessions {
     [hidden, persist],
   );
 
-  const showAll = useCallback(() => persist(new Set()), [persist]);
+  const showAll = useCallback(() => {
+    setRevealed(true);
+    persist(new Set());
+  }, [persist]);
 
-  return { hidden, hide, showAll };
+  return { hidden, hide, showAll, revealed };
 }

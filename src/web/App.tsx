@@ -8,7 +8,7 @@ import { StatusBar } from './chrome/StatusBar';
 import { StopConfirm, WatchConfirm } from './chrome/StopConfirm';
 import { DiffModal } from './components/DiffModal';
 import { StopContext } from './components/StopButton';
-import { useHiddenSessions } from './state/useHiddenSessions';
+import { isEmptySession, isNotShown, useHiddenSessions } from './state/useHiddenSessions';
 import { useKeyboard } from './state/useKeyboard';
 import { SettingsContext, useSettings } from './state/useSettings';
 import { DiffContext, useTeamState } from './state/useTeamState';
@@ -65,7 +65,7 @@ export function App() {
     setDismissed(false);
   }, [state?.teamName]);
 
-  const { hidden, hide, showAll } = useHiddenSessions();
+  const { hidden, hide, showAll, revealed } = useHiddenSessions();
   /**
    * Nothing worth drawing in the body. Two ways to get here:
    *
@@ -83,8 +83,23 @@ export function App() {
    */
   const currentHidden = state ? hidden.has(state.teamName) : false;
   const leadOnlyHere = state ? state.mode !== 'workflow' && state.agents.length < 2 : false;
-  const noTeamsAnywhere = leadOnlyHere && elsewhere.every((t) => t.members < 2);
+  // A team that has ENDED is not somewhere the console has to be, so it does not
+  // hold the empty screen off — even though the lists below keep it, because
+  // paging back into a finished session is what they are for.
+  const noTeamsAnywhere =
+    leadOnlyHere && elsewhere.every((t) => t.state === 'done' || isEmptySession(t));
   const bodyEmpty = currentHidden || noTeamsAnywhere;
+
+  // ONE rule for both empty screens. They disagreed: LeftSession got the raw
+  // list, so hidden and lead-only sessions were one-click destinations there and
+  // absent from NoSessions. What is offered is what the picker would let you
+  // switch to, nothing more.
+  const switchable = elsewhere.filter((t) => !hidden.has(t.name) && !isEmptySession(t));
+  // Everything the picker is dropping, plus the session on screen when hiding it
+  // is how we got here — `elsewhere` excludes it, and without it the way back
+  // disappears exactly when it is needed.
+  const notShownCount =
+    elsewhere.filter((t) => isNotShown(t, hidden, revealed)).length + (currentHidden ? 1 : 0);
 
   // Fetched only once there's something to show — the same "on open" rule the
   // picker's own listing follows.
@@ -95,7 +110,10 @@ export function App() {
       .then((res) => (res.ok ? (res.json() as Promise<TeamsResponse>) : Promise.reject(res.status)))
       .then((payload) => {
         if (!live) return;
-        setElsewhere(payload.teams.filter((t) => t.name !== state.teamName && t.state !== 'done'));
+        // Finished sessions stay: the design makes paging back into "a running
+        // or finished session" the picker's whole point, and dropping them here
+        // left the ✓ treatment on both screens as dead code.
+        setElsewhere(payload.teams.filter((t) => t.name !== state.teamName));
       })
       .catch(() => {
         if (live) setElsewhere([]);
@@ -118,8 +136,9 @@ export function App() {
       hidden,
       hideSession: hide,
       showHidden: showAll,
+      revealed,
     }),
-    [dismissed, watchAgain, hidden, hide, showAll],
+    [dismissed, watchAgain, hidden, hide, showAll, revealed],
   );
 
   // The launcher announces a new team at a console that is already running for
@@ -281,8 +300,8 @@ export function App() {
             point at nothing. */}
         {bodyEmpty ? (
           <NoSessions
-            remaining={elsewhere.filter((t) => !hidden.has(t.name) && t.members >= 2)}
-            hiddenCount={hidden.size}
+            remaining={switchable}
+            notShownCount={notShownCount}
             onShowHidden={showAll}
             onSwitchTo={(name) => void postJson(`/api/teams/${encodeURIComponent(name)}/select`)}
           />
@@ -291,7 +310,7 @@ export function App() {
             state={state}
             now={now}
             awaySince={awaySince}
-            elsewhere={elsewhere}
+            elsewhere={switchable}
             onWatchAgain={watchState.watchAgain}
             onEndForReal={endForReal}
             onSwitchTo={(name) => void postJson(`/api/teams/${encodeURIComponent(name)}/select`)}

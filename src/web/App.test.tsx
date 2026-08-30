@@ -550,7 +550,9 @@ it('lists the other live sessions on the machine and switches to one on click', 
               current: 'session-98b0b4a7',
               teams: [
                 sampleTeams()[0],
-                { ...sampleTeams()[1], state: 'idle' as const, current: false },
+                // A real team: the ELSEWHERE list offers only what the picker
+                // would let you switch to, and a lead-only session is not that.
+                { ...sampleTeams()[1], members: 3, state: 'idle' as const, current: false },
               ],
             }),
             { status: 200 },
@@ -671,4 +673,64 @@ it('remembers hidden sessions across a reload, per browser', async () => {
   render(<App />);
   act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
   expect(screen.getByTestId('no-sessions')).toBeTruthy();
+});
+
+/** current + one real team, one lead-only session, one finished team. */
+function stubMixedFetch() {
+  const [current, other] = sampleTeams();
+  const teams = [
+    current,
+    { ...other, name: 'session-real0002', members: 3, state: 'live' as const, live: true },
+    { ...other, name: 'session-solo0003', members: 1, state: 'live' as const, live: true },
+    { ...other, name: 'session-done0004', members: 3, state: 'done' as const, live: false },
+  ];
+  const fetchMock = vi.fn((path: string) =>
+    path === '/api/teams'
+      ? Promise.resolve(
+          new Response(JSON.stringify({ current: 'session-98b0b4a7', teams }), { status: 200 }),
+        )
+      : Promise.resolve(new Response('{}', { status: 200 })),
+  );
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
+}
+
+// The reveal used to live inside the picker, so this screen could only count
+// the ✕-hidden rows — and hiding the last one was a one-way door.
+it('counts the lead-only sessions the picker drops as well as the hidden one', async () => {
+  stubTeamsFetch();
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+  await openAndHideCurrent();
+
+  // The session just hidden, plus the lead-only one the picker never offers.
+  expect(await screen.findByText('2 not shown')).toBeTruthy();
+});
+
+// One filter, or the two screens contradict each other: hidden and lead-only
+// sessions were one-click destinations on one and absent on the other.
+it('offers the same sessions on both empty screens — no hidden, no lead-only', async () => {
+  stubMixedFetch();
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+  await openAndStopWatching();
+
+  const rows = await screen.findAllByTestId('left-session-elsewhere-row');
+  const named = rows.map((r) => r.textContent ?? '');
+  expect(named.some((t) => t.includes('session-solo0003'))).toBe(false);
+  expect(named.some((t) => t.includes('session-real0002'))).toBe(true);
+});
+
+// Paging back into a session that has finished is what the picker is for, so
+// the screens that list sessions must not quietly drop the finished ones.
+it('keeps a finished session in the list you can page back into', async () => {
+  stubMixedFetch();
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+  await openAndStopWatching();
+
+  const rows = await screen.findAllByTestId('left-session-elsewhere-row');
+  expect(rows.map((r) => r.textContent ?? '').some((t) => t.includes('session-done0004'))).toBe(
+    true,
+  );
 });

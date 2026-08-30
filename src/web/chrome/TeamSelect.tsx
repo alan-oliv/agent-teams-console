@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { TeamSummary, TeamsResponse } from '../../shared/domain';
 import { postJson } from '../api';
 import { formatElapsed } from '../format';
+import { isEmptySession, isNotShown } from '../state/useHiddenSessions';
 import { useWatch } from '../state/useWatch';
 
 // Derived, not chosen: 2 border + 12 padding + 120.03 ("session-" + 8 hex at the
@@ -68,9 +69,6 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
   const [cursor, setCursor] = useState(0);
   const [mark, setMark] = useState<Mark | null>(null);
   const [query, setQuery] = useState('');
-  // Reveals the rows filtered out for having no team. Local and per-open rather
-  // than persisted: unlike hiding, this is not a preference the operator set.
-  const [revealed, setRevealed] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const wrapper = useRef<HTMLDivElement>(null);
@@ -180,17 +178,14 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
   // never enter members[], so the session running one has a roster of one and
   // is indistinguishable from an empty window on every other field — and
   // switching to it is exactly how the console gets into workflow mode. Only
-  // the run makes the difference, so only `emptySession` filters.
-  const isLeadOnly = (t: TeamSummary) => t.members < 2;
-  const runOf = (t: TeamSummary) => (isLeadOnly(t) ? t.workflow : undefined);
-  const emptySession = (t: TeamSummary) => isLeadOnly(t) && !t.workflow;
+  // the run makes the difference, so only `isEmptySession` filters.
+  const runOf = (t: TeamSummary) => (t.members < 2 ? t.workflow : undefined);
   const listed = (teams ?? []).filter((t) => t.state !== 'done' || t.current);
   // No `|| t.current` exception here, unlike the `done` filter above: this is a
   // TEAM picker, so a lead-only session is not a row in it even when it is the
   // one on screen. There is no wall to contradict in that case — the body is the
   // empty state — and the trigger still names where you are.
-  const filteredOut = (t: TeamSummary) =>
-    watch.hidden.has(t.name) || (!revealed && emptySession(t));
+  const filteredOut = (t: TeamSummary) => isNotShown(t, watch.hidden, watch.revealed);
   const rows = listed.filter((t) => !filteredOut(t));
   const notShown = listed.filter(filteredOut);
   const hiddenCount = notShown.length;
@@ -205,8 +200,8 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
    * The header count follows the same line: it says TEAMS, so it counts teams
    * — and a workflow session, being somewhere you can go, counts with them.
    */
-  const selectable = filteredRows.filter((t) => !emptySession(t));
-  const teamCount = rows.filter((t) => !emptySession(t)).length;
+  const selectable = filteredRows.filter((t) => !isEmptySession(t));
+  const teamCount = rows.filter((t) => !isEmptySession(t)).length;
   const cursorTeam = selectable[Math.min(cursor, selectable.length - 1)];
 
   function onListKeyDown(e: KeyboardEvent<HTMLDivElement>) {
@@ -361,7 +356,7 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
               // watching" text sitting right below it. Drop the mark instead.
               const notWatching = isCurrent && watch.dismissed;
               // Revealed for awareness, not offered as a destination.
-              const soloOnly = emptySession(team);
+              const soloOnly = isEmptySession(team);
               const run = runOf(team);
               const rowMark = mark?.team === team.name ? mark.kind : isCurrent && !notWatching ? 'current' : null;
               const state = team.state ?? (team.live ? 'live' : 'done');
@@ -589,7 +584,6 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
                 data-testid="show-hidden-rows"
                 onClick={() => {
                   watch.showHidden();
-                  setRevealed(true);
                   setCursor(0);
                 }}
                 style={{
