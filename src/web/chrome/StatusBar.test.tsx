@@ -105,6 +105,41 @@ it('renders the right-hand readouts from the fixture team', () => {
   expect(screen.getByText('5h 41% · 7d 12%')).toBeTruthy();
 });
 
+it('shows the branch when the state carries one', () => {
+  const state = sampleTeamState();
+  state.branch = 'fix/design-sync-wave-1';
+  render(
+    <StatusBar
+      state={state}
+      view="wall"
+      onViewChange={vi.fn()}
+      now={FIXTURE_NOW}
+      teamsOpen={false}
+      onTeamsOpenChange={vi.fn()}
+      appearance={APPEARANCE}
+    />,
+  );
+  const branch = screen.getByText('fix/design-sync-wave-1');
+  expect(branch.style.color).toBe('var(--color-accent-400)');
+});
+
+it('renders no branch when the state has none', () => {
+  const state = sampleTeamState();
+  expect(state.branch).toBeUndefined();
+  render(
+    <StatusBar
+      state={state}
+      view="wall"
+      onViewChange={vi.fn()}
+      now={FIXTURE_NOW}
+      teamsOpen={false}
+      onTeamsOpenChange={vi.fn()}
+      appearance={APPEARANCE}
+    />,
+  );
+  expect(screen.queryByTestId('status-branch')).toBeNull();
+});
+
 it('makes the team name the control that opens the team list', () => {
   const onTeamsOpenChange = vi.fn();
   render(

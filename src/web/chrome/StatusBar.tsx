@@ -71,7 +71,8 @@ const METRIC_RANK: Record<string, number> = {
   spend: 2,
   limits: 3,
   meter: 4,
-  tokens: 5,
+  branch: 5,
+  tokens: 6,
 };
 
 export interface StatusBarProps {
@@ -98,6 +99,17 @@ export function StatusBar({
   // Reading order — the handoff's arrangement. What goes when the bar runs out
   // of room is METRIC_RANK's business, not this list's.
   const metrics: ReactElement[] = [
+    ...(state.branch
+      ? [
+          <span
+            key="branch"
+            data-testid="status-branch"
+            style={{ color: 'var(--color-accent-400)', ...METRIC }}
+          >
+            {state.branch}
+          </span>,
+        ]
+      : []),
     <span key="tasks" style={{ color: 'var(--color-neutral-600)', ...METRIC }}>
       {`tasks ${done}/${state.tasks.length}`}
     </span>,
