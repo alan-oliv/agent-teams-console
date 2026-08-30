@@ -104,6 +104,27 @@ describe('Grid', () => {
     const alpha = panes.find((p) => within(p).getByTestId('grid-name').textContent === 'probe-alpha')!;
     expect(alpha.style.opacity).toBe('1');
   });
+
+  it('keeps every live agent in a pane before a departed one holds one, even over the 6-pane limit', () => {
+    const [lead, alpha, bravo, charlie] = four;
+    const withDepartedMidRoster = [
+      lead,
+      { ...alpha, status: 'departed' as const },
+      { ...bravo, status: 'departed' as const },
+      charlie,
+      { ...alpha, name: 'probe-alpha-2' },
+      { ...bravo, name: 'probe-bravo-2' },
+      { ...charlie, name: 'probe-charlie-2' },
+    ];
+    render(<Grid agents={withDepartedMidRoster} focused={null} onFocus={vi.fn()} now={FIXTURE_NOW} />);
+    const names = screen
+      .getAllByTestId('grid-pane')
+      .map((p) => within(p).getByTestId('grid-name').textContent);
+    expect(names).toEqual([
+      'team-lead', 'probe-charlie', 'probe-alpha-2', 'probe-bravo-2', 'probe-charlie-2', 'probe-alpha',
+    ]);
+    expect(screen.getByTestId('grid-overflow').textContent).toBe('+1 more');
+  });
 });
 
 describe('Grid pane memoisation', () => {

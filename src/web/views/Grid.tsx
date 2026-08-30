@@ -6,6 +6,7 @@ import { Portrait } from '../components/Portrait';
 import { StatusGlyph } from '../components/StatusGlyph';
 import { StopControlButton } from '../components/StopButton';
 import { TranscriptFeed } from '../components/TranscriptFeed';
+import { wallOrder } from '../../shared/roster';
 import { DORMANT_OPACITY, isDormant } from '../../shared/status';
 
 const PANES = 6;
@@ -124,7 +125,9 @@ export function Grid({
   onFocus: (name: string) => void;
   now: number;
 }) {
-  const shown = agents.slice(0, PANES);
+  // Lead first, then live, then departed — a stale departed agent must not
+  // hoard a pane while a live teammate is pushed into the '+N more' chip.
+  const shown = wallOrder(agents).slice(0, PANES);
   const overflow = agents.length - shown.length;
 
   return (

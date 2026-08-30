@@ -9,6 +9,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react';
 import type { Agent } from '../../shared/domain';
+import { wallOrder } from '../../shared/roster';
 import { AGENT_STATUS, DORMANT_OPACITY, isDormant } from '../../shared/status';
 import { Composer, RosterContext } from '../components/Composer';
 import { Elapsed, NowContext } from '../components/Elapsed';
@@ -400,12 +401,8 @@ export function Wall({
     (name: string) => setHovered((h) => (h === name ? null : h)),
     [],
   );
-  const lead = agents.find((a) => a.isLead);
-  const rest = lead ? agents.filter((a) => a !== lead) : agents;
   // Live first: the columns are ~366px in a scroller that runs past 5000px on a
-  // real team, so anything ordered after a finished teammate is off-screen. Join
-  // order is preserved WITHIN each group — sorting by recency instead would make
-  // columns swap places under the operator's cursor every time an agent acted.
+  // real team, so anything ordered after a finished teammate is off-screen.
   //
   // Ordered, never dropped. The design README asks for idle rows to collapse 30s
   // after the whole team goes idle, but its prototype has no such timer — the
@@ -416,11 +413,7 @@ export function Wall({
   // read back. Dimming is the reversible form of the same idea and the one this
   // console took (DORMANT_OPACITY). The `N idle agents` chip from the same
   // paragraph IS built — in the footer panel, where the prototype puts it too.
-  const ordered = [
-    ...(lead ? [lead] : []),
-    ...rest.filter((a) => a.status !== 'departed'),
-    ...rest.filter((a) => a.status === 'departed'),
-  ];
+  const ordered = wallOrder(agents);
 
   // A teammate drains its own inbox; the LEAD's is drained by the team loop,
   // which stops with the last teammate. The composer says so rather than

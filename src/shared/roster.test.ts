@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { buildRoster, type Sidecar, type TeamConfig } from './roster';
+import { buildRoster, wallOrder, type Sidecar, type TeamConfig } from './roster';
+import type { Agent, AgentStatus } from './domain';
 
 const config = JSON.parse(
   readFileSync(new URL('../../fixtures/config-4-members.json', import.meta.url), 'utf8'),
@@ -109,5 +110,55 @@ describe('buildRoster', () => {
     expect(roster[4].agentId).toBe('probe-delta@session-98b0b4a7');
     expect(roster[4].rawModel).toBe('claude-sonnet-5');
     expect(roster[4].joinedAt).toBe(0);
+  });
+});
+
+function agent(name: string, status: AgentStatus, isLead = false): Agent {
+  return {
+    name,
+    agentId: `${name}@session-98b0b4a7`,
+    isLead,
+    agentType: 'general-purpose',
+    model: 'claude-opus-5',
+    role: '',
+    status,
+    contextTokens: 0,
+    contextLimit: 1_000_000,
+    compactAt: 967_000,
+    costUsd: 0,
+    startedAt: 0,
+    transcript: [],
+    unread: 0,
+  };
+}
+
+describe('wallOrder', () => {
+  it('orders the lead first, then live agents, then departed ones', () => {
+    const agents = [
+      agent('probe-alpha', 'departed'),
+      agent('probe-bravo', 'departed'),
+      agent('team-lead', 'working', true),
+      agent('probe-charlie', 'idle'),
+    ];
+    expect(wallOrder(agents).map((a) => a.name)).toEqual([
+      'team-lead', 'probe-charlie', 'probe-alpha', 'probe-bravo',
+    ]);
+  });
+
+  it('keeps join order within each group, so columns do not reshuffle as agents act', () => {
+    const agents = [
+      agent('probe-bravo', 'departed'),
+      agent('probe-alpha', 'working'),
+      agent('team-lead', 'working', true),
+      agent('probe-charlie', 'working'),
+    ];
+    expect(wallOrder(agents).map((a) => a.name)).toEqual([
+      'team-lead', 'probe-alpha', 'probe-charlie', 'probe-bravo',
+    ]);
+  });
+
+  it('leaves the roster as-is when there is no lead', () => {
+    const agents = [agent('probe-alpha', 'working'), agent('probe-bravo', 'departed')];
+    expect(wallOrder(agents).map((a) => a.name)).toEqual(['probe-alpha', 'probe-bravo']);
   });
 });

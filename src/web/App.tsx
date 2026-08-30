@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './theme.css';
 import type { Agent, TeamsResponse, TeamSummary } from '../shared/domain';
+import { wallOrder as rosterOrder } from '../shared/roster';
 import { postJson } from './api';
 import { NeedsYou } from './chrome/NeedsYou';
 import { Panel } from './chrome/Panel';
@@ -152,17 +153,10 @@ export function App() {
     void postJson(`/api/teams/${encodeURIComponent(target)}/select`);
   }, [state, store.announcedTeam]);
 
-  // The wall pins the lead leftmost, so column navigation (h/l) walks the
-  // same order — computed here rather than exported from Wall, since App
-  // needs only the names, not the rendered columns.
-  const wallOrder = state
-    ? (() => {
-        const lead = state.agents.find((a) => a.isLead);
-        return lead
-          ? [lead.name, ...state.agents.filter((a) => a !== lead).map((a) => a.name)]
-          : state.agents.map((a) => a.name);
-      })()
-    : [];
+  // The wall pins the lead leftmost then departed last, so column navigation
+  // (h/l) walks the same order — App needs only the names, not the rendered
+  // columns.
+  const wallOrder = state ? rosterOrder(state.agents).map((a) => a.name) : [];
 
   function isDeparted(name: string): boolean {
     return state?.agents.find((a) => a.name === name)?.status === 'departed';

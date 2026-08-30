@@ -1,5 +1,6 @@
 import { memo, useCallback, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import type { Agent } from '../../shared/domain';
+import { wallOrder } from '../../shared/roster';
 import { AGENT_STATUS, DORMANT_OPACITY, isDormant } from '../../shared/status';
 import { Elapsed, NowContext } from '../components/Elapsed';
 import { Portrait } from '../components/Portrait';
@@ -184,8 +185,9 @@ export function Overview({
       data-testid="overview"
       style={{ flex: 1, display: 'flex', gap: '1px', background: 'var(--color-neutral-900)', minHeight: 0 }}
     >
+      {/* The overview is the wall condensed, so it walks the same roster order. */}
       <NowContext value={now}>
-        {agents.map((agent) => (
+        {wallOrder(agents).map((agent) => (
           <Tile
             key={agent.name}
             agent={agent}

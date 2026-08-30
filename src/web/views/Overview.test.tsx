@@ -113,6 +113,21 @@ describe('Overview', () => {
     const alpha = tiles.find((t) => within(t).getByTestId('overview-name').textContent === 'probe-alpha')!;
     expect(alpha.style.opacity).toBe('1');
   });
+
+  it('pins the lead leftmost and puts departed agents last, same as the wall', () => {
+    const [lead, alpha, bravo, charlie] = four;
+    const withDepartedMidRoster = [
+      { ...alpha, status: 'departed' as const },
+      bravo,
+      lead,
+      charlie,
+    ];
+    render(<Overview agents={withDepartedMidRoster} focused={null} onFocus={vi.fn()} now={FIXTURE_NOW} />);
+    const names = screen
+      .getAllByTestId('overview-tile')
+      .map((t) => within(t).getByTestId('overview-name').textContent);
+    expect(names).toEqual(['team-lead', 'probe-bravo', 'probe-charlie', 'probe-alpha']);
+  });
 });
 
 describe('Overview tile memoisation', () => {
