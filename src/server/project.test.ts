@@ -6,6 +6,7 @@ import {
   transcriptHistory,
   transcriptLineText,
   PROJECTED_TRANSCRIPT_LINES,
+  type TaskPayload,
 } from './project';
 import { TRANSCRIPT_RECORDS_PER_AGENT, type StoredEvent, type EventKind } from './store';
 import type { TeamConfig, Sidecar } from '../shared/roster';
@@ -851,6 +852,109 @@ describe('bounded transcript history', () => {
       expect(capped.agents[i].currentTool).toBe(truth.agents[i].currentTool);
       expect(capped.agents[i].status).toBe(truth.agents[i].status);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// deriveTaskState only sees the blockedBy list it's handed, so this is the
+// call site that resolves it against the full task map — a completed
+// dependency must actually stop blocking its dependent, and an owner who is
+// actively working must never show as blocked, in the task list or the roster.
+// ---------------------------------------------------------------------------
+describe('task blocking', () => {
+  const configWith = (names: string[]): TeamConfig => ({
+    name: 'session-blocking',
+    createdAt: 0,
+    leadAgentId: names[0],
+    leadSessionId: names[0],
+    members: names.map((n) => ({ agentId: n, name: n, joinedAt: 0, tmuxPaneId: '', subscriptions: [] })),
+  });
+
+  const activity = (agent: string): TranscriptRecord => ({
+    type: 'assistant',
+    uuid: `${agent}-1`,
+    timestamp: '2026-08-27T15:20:00.000Z',
+    message: { content: [{ type: 'text', text: 'working' }] },
+  });
+
+  const taskEvent = (seq: number, task: Partial<TaskPayload> & { id: string }): StoredEvent => ({
+    seq,
+    ts: 0,
+    kind: 'task',
+    payload: { subject: 's', description: 'd', blocks: [], blockedBy: [], status: 'pending', ...task },
+  });
+
+  it('stops blocking a dependent once its dependency completes', () => {
+    const log: StoredEvent[] = [
+      { seq: 1, ts: 0, kind: 'roster', payload: { config: configWith(['worker']), sidecars: [] } },
+      taskEvent(2, { id: '1', status: 'completed' }),
+      taskEvent(3, { id: '2', owner: 'worker', blockedBy: ['1'] }),
+    ];
+    expect(project(log, false).tasks.find((t) => t.id === '2')!.state).toBe('pending');
+  });
+
+  it('still blocks a dependent whose dependency is still open', () => {
+    const log: StoredEvent[] = [
+      { seq: 1, ts: 0, kind: 'roster', payload: { config: configWith(['worker']), sidecars: [] } },
+      taskEvent(2, { id: '1' }),
+      taskEvent(3, { id: '2', owner: 'worker', blockedBy: ['1'] }),
+    ];
+    expect(project(log, false).tasks.find((t) => t.id === '2')!.state).toBe('blocked');
+  });
+
+  it('stays blocked while only some of its dependencies have completed', () => {
+    const log: StoredEvent[] = [
+      { seq: 1, ts: 0, kind: 'roster', payload: { config: configWith(['worker']), sidecars: [] } },
+      taskEvent(2, { id: '1', status: 'completed' }),
+      taskEvent(3, { id: '2' }),
+      taskEvent(4, { id: '3', owner: 'worker', blockedBy: ['1', '2'] }),
+    ];
+    expect(project(log, false).tasks.find((t) => t.id === '3')!.state).toBe('blocked');
+  });
+
+  it('never shows an in_progress task as blocked, even with a stale blockedBy', () => {
+    // The live repro: #4 depends on #2, #2 is completed, #4 is in_progress.
+    const completedDep: StoredEvent[] = [
+      { seq: 1, ts: 0, kind: 'roster', payload: { config: configWith(['worker']), sidecars: [] } },
+      taskEvent(2, { id: '1', status: 'completed' }),
+      taskEvent(3, { id: '2', owner: 'worker', status: 'in_progress', blockedBy: ['1'] }),
+    ];
+    expect(project(completedDep, false).tasks.find((t) => t.id === '2')!.state).toBe('in_progress');
+
+    // Someone started the task despite a dependency that is still open.
+    const openDep: StoredEvent[] = [
+      { seq: 1, ts: 0, kind: 'roster', payload: { config: configWith(['worker']), sidecars: [] } },
+      taskEvent(2, { id: '1' }),
+      taskEvent(3, { id: '2', owner: 'worker', status: 'in_progress', blockedBy: ['1'] }),
+    ];
+    expect(project(openDep, false).tasks.find((t) => t.id === '2')!.state).toBe('in_progress');
+  });
+
+  it('keeps an actively-working owner off the blocked roster, even when they also own a blocked task', () => {
+    const log: StoredEvent[] = [
+      { seq: 1, ts: 0, kind: 'roster', payload: { config: configWith(['worker']), sidecars: [] } },
+      { seq: 2, ts: 0, kind: 'transcript', agent: 'worker', payload: { agent: 'worker', records: [activity('worker')] } },
+      taskEvent(3, { id: '1' }),
+      // The task the owner is actually working right now.
+      taskEvent(4, { id: '2', owner: 'worker', status: 'in_progress' }),
+      // Also owned, but not started and genuinely blocked.
+      taskEvent(5, { id: '3', owner: 'worker', blockedBy: ['1'] }),
+    ];
+    const state = project(log, false);
+    expect(state.tasks.find((t) => t.id === '3')!.state).toBe('blocked');
+    expect(state.agents.find((a) => a.name === 'worker')!.status).toBe('working');
+  });
+
+  it('still shows a genuinely stuck owner as blocked when nothing they own is in progress', () => {
+    const log: StoredEvent[] = [
+      { seq: 1, ts: 0, kind: 'roster', payload: { config: configWith(['worker']), sidecars: [] } },
+      { seq: 2, ts: 0, kind: 'transcript', agent: 'worker', payload: { agent: 'worker', records: [activity('worker')] } },
+      taskEvent(3, { id: '1' }),
+      taskEvent(4, { id: '2', owner: 'worker', blockedBy: ['1'] }),
+    ];
+    const state = project(log, false);
+    expect(state.tasks.find((t) => t.id === '2')!.state).toBe('blocked');
+    expect(state.agents.find((a) => a.name === 'worker')!.status).toBe('blocked');
   });
 });
 

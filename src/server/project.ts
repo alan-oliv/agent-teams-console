@@ -462,21 +462,31 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
     };
   });
 
-  const tasks: Task[] = [...tasksRaw.values()].map((t) => ({
-    id: t.id,
-    subject: t.subject,
-    description: t.description,
-    activeForm: t.activeForm,
-    owner: t.owner,
-    state: deriveTaskState(t.status, { owner: t.owner, blockedBy: t.blockedBy ?? [] }, agents),
-    blocks: t.blocks ?? [],
-    blockedBy: t.blockedBy ?? [],
-  }));
+  const tasks: Task[] = [...tasksRaw.values()].map((t) => {
+    // blockedBy ids stay on a task after the blocker completes — deriveTaskState
+    // must see only the ones still open, or a resolved dependency blocks its
+    // dependent forever.
+    const openBlockedBy = (t.blockedBy ?? []).filter((id) => tasksRaw.get(id)?.status !== 'completed');
+    return {
+      id: t.id,
+      subject: t.subject,
+      description: t.description,
+      activeForm: t.activeForm,
+      owner: t.owner,
+      state: deriveTaskState(t.status, { owner: t.owner, blockedBy: openBlockedBy }, agents),
+      blocks: t.blocks ?? [],
+      blockedBy: t.blockedBy ?? [],
+    };
+  });
 
   // Agent 'blocked' needs the derived task states, so it is a second pass.
+  // An owner actively working one task is not blocked just because another
+  // task they own hasn't started and is waiting on a dependency.
   for (const agent of agents) {
     if (agent.status !== 'working') continue;
-    if (tasks.some((t) => t.owner === agent.name && t.state === 'blocked')) agent.status = 'blocked';
+    const owned = tasks.filter((t) => t.owner === agent.name);
+    if (owned.some((t) => t.state === 'in_progress')) continue;
+    if (owned.some((t) => t.state === 'blocked')) agent.status = 'blocked';
   }
 
   return {

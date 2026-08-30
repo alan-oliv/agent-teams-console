@@ -41,6 +41,9 @@ export function deriveTaskState(
   const owner = task.owner ? agents.find((a) => a.name === task.owner) : undefined;
   if (owner?.status === 'plan_pending') return 'plan_pending';
   if (owner?.status === 'failed') return 'failed';
-  if (task.blockedBy.length > 0 || owner?.status === 'blocked') return 'blocked';
+  if (owner?.status === 'blocked') return 'blocked';
+  // Once someone has started a task, an unresolved dependency no longer
+  // describes it — 'blocked' only applies before work begins.
+  if (raw === 'pending' && task.blockedBy.length > 0) return 'blocked';
   return raw;
 }

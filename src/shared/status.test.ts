@@ -86,11 +86,14 @@ describe('deriveTaskState', () => {
     expect(deriveTaskState(claimed.status, claimed, [agent('probe-alpha', 'failed')])).toBe('failed');
   });
 
-  it('derives blocked from a non-empty blockedBy', () => {
+  it('derives blocked from a non-empty blockedBy on a task not yet started', () => {
     expect(deriveTaskState('pending', { blockedBy: ['1'] }, [])).toBe('blocked');
+  });
+
+  it('never derives blocked from blockedBy once the task itself is in_progress', () => {
     expect(deriveTaskState('in_progress', { owner: 'probe-alpha', blockedBy: ['1', '2'] }, [
       agent('probe-alpha', 'working'),
-    ])).toBe('blocked');
+    ])).toBe('in_progress');
   });
 
   it('derives blocked from a blocked owner', () => {
