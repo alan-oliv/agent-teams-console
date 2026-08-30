@@ -1,4 +1,5 @@
-import type { Marker, TranscriptLine } from './domain';
+import type { Diff, DiffHunk, DiffLine, DiffSign, Marker, TranscriptLine } from './domain';
+import { DIFF_LINES_CAP, DIFF_LINE_TEXT_CAP } from './domain';
 import { unwrapTeammateFrames } from './mailbox';
 import type { Usage } from './usage';
 
@@ -104,6 +105,115 @@ function describeTool(name: string, input: unknown): string {
   return name;
 }
 
+type DiffOp = { sign: DiffSign; text: string };
+
+// Line-level LCS between an Edit's old_string and new_string. Ordinary DP: the
+// inputs are one tool call's worth of text, not a file, so O(n*m) is cheap —
+// except when it isn't, which the guard in diffOfToolUse below covers.
+function lineDiff(oldText: string, newText: string): DiffOp[] {
+  const oldLines = oldText.split('\n');
+  const newLines = newText.split('\n');
+  const n = oldLines.length;
+  const m = newLines.length;
+  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i][j] =
+        oldLines[i] === newLines[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  const ops: DiffOp[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (oldLines[i] === newLines[j]) {
+      ops.push({ sign: ' ', text: oldLines[i] });
+      i++;
+      j++;
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      ops.push({ sign: '-', text: oldLines[i] });
+      i++;
+    } else {
+      ops.push({ sign: '+', text: newLines[j] });
+      j++;
+    }
+  }
+  while (i < n) ops.push({ sign: '-', text: oldLines[i++] });
+  while (j < m) ops.push({ sign: '+', text: newLines[j++] });
+  return ops;
+}
+
+// Above this, the DP table itself (not just its output) is the cost, so an
+// unusually large Edit falls back to the un-aligned "all old lines gone, all
+// new lines arrived" shape rather than spending O(n*m) on it.
+const LCS_CELL_BUDGET = 500_000;
+
+/**
+ * The hunk an Edit or Write's tool_use input carries, before either DIFF_*
+ * cap is applied. There is no file position in this input — old_string and
+ * new_string are a substring, not an offset — so line numbers are relative to
+ * the snippet (both sides start at 1). They stay correct under duplicate
+ * lines in the snippet regardless: numbering walks OPS IN ORDER, never by
+ * matching content, so it does not depend on which of several equally valid
+ * LCS alignments a repeated line landed in.
+ */
+function diffOfToolUse(name: string, input: unknown, agent: string, ts: number): Diff | undefined {
+  if (!input || typeof input !== 'object') return undefined;
+  const fields = input as Record<string, unknown>;
+  const filePath = fields.file_path;
+  if (typeof filePath !== 'string' || !filePath) return undefined;
+
+  let ops: DiffOp[];
+  if (name === 'Edit' && typeof fields.old_string === 'string' && typeof fields.new_string === 'string') {
+    const oldText = fields.old_string;
+    const newText = fields.new_string;
+    ops =
+      (oldText.split('\n').length + 1) * (newText.split('\n').length + 1) <= LCS_CELL_BUDGET
+        ? lineDiff(oldText, newText)
+        : [
+            ...oldText.split('\n').map((text): DiffOp => ({ sign: '-', text })),
+            ...newText.split('\n').map((text): DiffOp => ({ sign: '+', text })),
+          ];
+  } else if (name === 'Write' && typeof fields.content === 'string') {
+    // No prior content is available for a Write — not from this input, and
+    // not by reading the file or shelling to git — so the whole thing shows
+    // as added rather than guessing at what it replaced.
+    ops = fields.content.split('\n').map((text): DiffOp => ({ sign: '+', text }));
+  } else {
+    return undefined;
+  }
+
+  const added = ops.filter((o) => o.sign === '+').length;
+  const removed = ops.filter((o) => o.sign === '-').length;
+
+  const lineCapped = ops.length > DIFF_LINES_CAP;
+  const kept = lineCapped ? ops.slice(0, DIFF_LINES_CAP) : ops;
+
+  let textCapped = false;
+  let oldLine = 1;
+  let newLine = 1;
+  const lines: DiffLine[] = kept.map(({ sign, text }) => {
+    const oldLineNo = sign === '+' ? null : oldLine;
+    const newLineNo = sign === '-' ? null : newLine;
+    if (sign !== '+') oldLine++;
+    if (sign !== '-') newLine++;
+    let shown = text;
+    if (shown.length > DIFF_LINE_TEXT_CAP) {
+      textCapped = true;
+      shown = `${shown.slice(0, DIFF_LINE_TEXT_CAP - 1)}…`;
+    }
+    return { sign, oldLineNo, newLineNo, text: shown };
+  });
+
+  const oldCount = lines.filter((l) => l.sign !== '+').length;
+  const newCount = lines.filter((l) => l.sign !== '-').length;
+  const hunk: DiffHunk = { header: `@@ -1,${oldCount} +1,${newCount} @@`, lines };
+
+  const diff: Diff = { path: filePath, added, removed, agent, ts, hunks: [hunk] };
+  if (lineCapped || textCapped) diff.truncated = true;
+  return diff;
+}
+
 function markerForUserText(body: string): Marker {
   const trimmed = body.trim();
   if (trimmed.startsWith('{')) {
@@ -147,14 +257,22 @@ function resultText(content: unknown): string {
 interface Draft {
   marker: Marker;
   text: string;
+  diff?: Diff;
 }
 
 /**
  * The rows one record projects to, before capText. Split out of
  * toTranscriptLines so an expanded row can ask for the text it was cut from
  * without a second copy of the projection rules to drift against.
+ *
+ * `agent` has no source inside the record itself — a lead's own transcript
+ * carries no agentId at all, and a teammate's is the transcript FILENAME's id
+ * (`aprobe-alpha-<hex>`), not the bare roster name `Diff.agent` needs — so it
+ * is the caller's job to pass the name it already resolved the record's file
+ * to. Defaulted rather than required so a caller that has none still compiles;
+ * such a caller gets a diff with an empty `agent`.
  */
-function draftsOf(rec: TranscriptRecord): { ts: number; drafts: Draft[] } | null {
+function draftsOf(rec: TranscriptRecord, agent = ''): { ts: number; drafts: Draft[] } | null {
   if (!rec.uuid || !rec.timestamp) return null;
   const ts = Date.parse(rec.timestamp);
   if (Number.isNaN(ts)) return null;
@@ -188,7 +306,10 @@ function draftsOf(rec: TranscriptRecord): { ts: number; drafts: Draft[] } | null
         const text = tidy(b.text);
         if (text) drafts.push({ marker: '⏺', text });
       } else if (b.type === 'tool_use' && typeof b.name === 'string') {
-        drafts.push({ marker: '⏺', text: describeTool(b.name, b.input) });
+        const diff = diffOfToolUse(b.name, b.input, agent, ts);
+        const draft: Draft = { marker: '⏺', text: describeTool(b.name, b.input) };
+        if (diff) draft.diff = diff;
+        drafts.push(draft);
       }
     }
   }
@@ -196,14 +317,15 @@ function draftsOf(rec: TranscriptRecord): { ts: number; drafts: Draft[] } | null
   return { ts, drafts };
 }
 
-export function toTranscriptLines(rec: TranscriptRecord): TranscriptLine[] {
-  const built = draftsOf(rec);
+export function toTranscriptLines(rec: TranscriptRecord, agent = ''): TranscriptLine[] {
+  const built = draftsOf(rec, agent);
   if (!built) return [];
   return built.drafts.map((draft, i) => ({
     id: `${rec.uuid}#${i}`,
     marker: draft.marker,
     text: capText(draft.text),
     ts: built.ts,
+    ...(draft.diff ? { diff: draft.diff } : {}),
   }));
 }
 

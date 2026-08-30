@@ -14,7 +14,7 @@ import {
 } from './files';
 import { dedupeUsage, tokensOf, totalCost, usageRecordsOf } from '../../shared/usage';
 import { buildRoster } from '../../shared/roster';
-import type { TranscriptRecord } from '../../shared/transcript';
+import { toTranscriptLines, type TranscriptRecord } from '../../shared/transcript';
 import { project } from '../project';
 import type { Agent } from '../../shared/domain';
 import type { RosterPayload, TranscriptPayload, TaskPayload, MailPayload } from '../project';
@@ -331,6 +331,76 @@ describe('a message the recipient has drained', () => {
     const message = state.mail.find((m) => m.text.includes(BODY));
     expect(message).toBeDefined();
     expect(message!.read).toBe(true);
+  });
+});
+
+// transcript.ts derives a Diff from an Edit/Write tool_use's own input rather
+// than shelling to git, so the ingest side of that feature is just this: the
+// raw record must reach the store with old_string/new_string untouched. No
+// admission or attribution logic here is diff-specific.
+describe('an Edit tool_use reaches the store with its old_string/new_string intact', () => {
+  const CHARLIE = path.join('subagents', 'agent-aprobe-charlie-12ee4cb1ed35cf7c.jsonl');
+
+  async function sweep(): Promise<StoredEvent[]> {
+    const ingest = startFileIngest(store, { paths, sweepIntervalMs: 0 });
+    try {
+      await settle();
+      await ingest.sweep();
+    } finally {
+      ingest.close();
+    }
+    return store.replay();
+  }
+
+  it('stores the tool_use input verbatim, unmodified by ingest', async () => {
+    await layout();
+    const record = {
+      type: 'assistant',
+      uuid: 'edit-1',
+      timestamp: '2026-08-27T15:31:00.000Z',
+      message: {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool_use',
+            name: 'Edit',
+            input: { file_path: '/repo/a.ts', old_string: 'const x = 1;', new_string: 'const x = 2;' },
+          },
+        ],
+      },
+    };
+    const file = path.join(paths.projects, SLUG, LEAD_SESSION, CHARLIE);
+    await fs.appendFile(file, `${JSON.stringify(record)}\n`);
+
+    const stored = of(await sweep(), 'transcript')
+      .map((e) => e.payload as TranscriptPayload)
+      .filter((p) => p.agent === 'probe-charlie')
+      .flatMap((p) => p.records)
+      .find((r) => r.uuid === 'edit-1');
+
+    expect(stored).toBeDefined();
+    const content = stored!.message!.content as Array<{ input?: Record<string, unknown> }>;
+    expect(content[0].input).toEqual({
+      file_path: '/repo/a.ts',
+      old_string: 'const x = 1;',
+      new_string: 'const x = 2;',
+    });
+
+    // And the whole point: toTranscriptLines can now build a real Diff from it.
+    const line = toTranscriptLines(stored!, 'probe-charlie')[0];
+    expect(line.diff).toEqual({
+      path: '/repo/a.ts',
+      added: 1,
+      removed: 1,
+      agent: 'probe-charlie',
+      ts: Date.parse('2026-08-27T15:31:00.000Z'),
+      hunks: [
+        {
+          header: '@@ -1,1 +1,1 @@',
+          lines: [{ sign: '-', oldLineNo: 1, newLineNo: null, text: 'const x = 1;' }, { sign: '+', oldLineNo: null, newLineNo: 1, text: 'const x = 2;' }],
+        },
+      ],
+    });
   });
 });
 

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { segments } from './code';
+import { DIFF_LINES_CAP, DIFF_LINE_TEXT_CAP } from './domain';
 import {
   currentToolOf,
   parseLine,
@@ -402,5 +403,158 @@ describe('structure worth expanding', () => {
     ]) {
       expect(shown(bash(cmd))).toBe(`Bash(${cmd})`);
     }
+  });
+});
+
+describe('diff', () => {
+  const edit = (input: Record<string, unknown>): TranscriptRecord => ({
+    type: 'assistant',
+    uuid: 'diff-1',
+    timestamp: '2026-08-27T15:09:55.618Z',
+    message: { role: 'assistant', content: [{ type: 'tool_use', name: 'Edit', input }] },
+  });
+  const write = (input: Record<string, unknown>): TranscriptRecord => ({
+    type: 'assistant',
+    uuid: 'diff-2',
+    timestamp: '2026-08-27T15:09:55.618Z',
+    message: { role: 'assistant', content: [{ type: 'tool_use', name: 'Write', input }] },
+  });
+  const diffOf = (rec: TranscriptRecord, agent?: string) => toTranscriptLines(rec, agent)[0].diff;
+
+  it('builds a hunk from old_string/new_string with correct line numbers on both sides', () => {
+    const diff = diffOf(
+      edit({ file_path: '/a.txt', old_string: 'one\ntwo\nthree', new_string: 'one\nTWO\nthree' }),
+    );
+    expect(diff?.path).toBe('/a.txt');
+    expect(diff?.added).toBe(1);
+    expect(diff?.removed).toBe(1);
+    expect(diff?.hunks).toEqual([
+      {
+        header: '@@ -1,3 +1,3 @@',
+        lines: [
+          { sign: ' ', oldLineNo: 1, newLineNo: 1, text: 'one' },
+          { sign: '-', oldLineNo: 2, newLineNo: null, text: 'two' },
+          { sign: '+', oldLineNo: null, newLineNo: 2, text: 'TWO' },
+          { sign: ' ', oldLineNo: 3, newLineNo: 3, text: 'three' },
+        ],
+      },
+    ]);
+  });
+
+  // Line numbers are assigned by WALKING THE OPS IN ORDER, never by matching
+  // content, so a line that repeats in the snippet cannot desync them —
+  // whichever of several equally-valid LCS alignments picked the repeat, the
+  // position-based count is the same.
+  it('keeps line numbers correct when a line repeats in the snippet', () => {
+    const diff = diffOf(
+      edit({ file_path: '/a.txt', old_string: 'dup\ndup\nchanged', new_string: 'dup\ndup\nCHANGED' }),
+    );
+    expect(diff?.hunks[0].lines).toEqual([
+      { sign: ' ', oldLineNo: 1, newLineNo: 1, text: 'dup' },
+      { sign: ' ', oldLineNo: 2, newLineNo: 2, text: 'dup' },
+      { sign: '-', oldLineNo: 3, newLineNo: null, text: 'changed' },
+      { sign: '+', oldLineNo: null, newLineNo: 3, text: 'CHANGED' },
+    ]);
+  });
+
+  it('treats a Write as the whole file added, with no old side to diff against', () => {
+    const diff = diffOf(write({ file_path: '/new.txt', content: 'a\nb\nc' }));
+    expect(diff?.added).toBe(3);
+    expect(diff?.removed).toBe(0);
+    expect(diff?.hunks).toEqual([
+      {
+        header: '@@ -1,0 +1,3 @@',
+        lines: [
+          { sign: '+', oldLineNo: null, newLineNo: 1, text: 'a' },
+          { sign: '+', oldLineNo: null, newLineNo: 2, text: 'b' },
+          { sign: '+', oldLineNo: null, newLineNo: 3, text: 'c' },
+        ],
+      },
+    ]);
+  });
+
+  it('carries no diff for a tool that is not Edit or Write', () => {
+    const rec: TranscriptRecord = {
+      type: 'assistant',
+      uuid: 'diff-3',
+      timestamp: '2026-08-27T15:09:55.618Z',
+      message: { role: 'assistant', content: [{ type: 'tool_use', name: 'Bash', input: { command: 'ls' } }] },
+    };
+    expect(toTranscriptLines(rec)[0].diff).toBeUndefined();
+  });
+
+  it('never fabricates a commit — the input carries no sha to report', () => {
+    const diff = diffOf(edit({ file_path: '/a.txt', old_string: 'a', new_string: 'b' }));
+    expect(diff?.commit).toBeUndefined();
+    expect('commit' in (diff ?? {})).toBe(false);
+  });
+
+  it('fills agent and ts from the caller, defaulting agent to empty rather than guessing', () => {
+    const rec = edit({ file_path: '/a.txt', old_string: 'a', new_string: 'b' });
+    expect(diffOf(rec, 'probe-alpha')?.agent).toBe('probe-alpha');
+    expect(diffOf(rec, 'probe-alpha')?.ts).toBe(Date.parse('2026-08-27T15:09:55.618Z'));
+    expect(diffOf(rec)?.agent).toBe('');
+  });
+
+  it('caps total diff lines across the hunk at DIFF_LINES_CAP, but counts added/removed on the whole patch', () => {
+    const oldLines = Array.from({ length: 350 }, (_, i) => `old-line-${i}`).join('\n');
+    const newLines = Array.from({ length: 350 }, (_, i) => `new-line-${i}`).join('\n');
+    const diff = diffOf(edit({ file_path: '/big.txt', old_string: oldLines, new_string: newLines }));
+    expect(diff?.added).toBe(350);
+    expect(diff?.removed).toBe(350);
+    expect(diff?.hunks[0].lines).toHaveLength(DIFF_LINES_CAP);
+    expect(diff?.truncated).toBe(true);
+  });
+
+  it('caps one line of diff text at DIFF_LINE_TEXT_CAP and still flags truncated', () => {
+    const long = 'x'.repeat(DIFF_LINE_TEXT_CAP + 50);
+    const diff = diffOf(edit({ file_path: '/a.txt', old_string: 'short', new_string: long }));
+    const added = diff?.hunks[0].lines.find((l) => l.sign === '+');
+    expect(added?.text).toHaveLength(DIFF_LINE_TEXT_CAP);
+    expect(added?.text.endsWith('…')).toBe(true);
+    expect(diff?.truncated).toBe(true);
+  });
+
+  it('derives a real Edit from a genuine session record with correct line numbers', () => {
+    // Captured verbatim from a live session's JSONL: an Edit whose old_string
+    // is one long line and whose new_string is a fenced code block replacing
+    // it — including two lines over DIFF_LINE_TEXT_CAP, so this also exercises
+    // the text cap on real content rather than a synthetic one.
+    const oldString =
+      'Per-agent window from the resolved model, with a tick at the auto-compact trigger (`window − outputReserve − 13000`; ≈967 k on 1 M, ≈167 k on 200 k). The `!` warn glyph fires relative to the compact point, not a fixed 75 %.';
+    const newString = [
+      'Per-agent window from the resolved model, with a tick at the auto-compact trigger:',
+      '',
+      '```',
+      'compactAt = window − OUTPUT_RESERVE − COMPACT_HEADROOM      // 20_000 and 13_000',
+      '          → 1M   − 33_000 = 967_000   (96.7 %)',
+      '          → 200k − 33_000 = 167_000   (83.5 %)',
+      '```',
+      '',
+      "Both constants live in `catalog.json` alongside the pricing, since they are read from Claude Code's compiled behaviour rather than a public contract. The `!` warn glyph fires relative to `compactAt`, not a fixed 75 %.",
+    ].join('\n');
+    const diff = diffOf(
+      edit({
+        file_path: 'docs/superpowers/specs/2026-08-27-agent-teams-console-design.md',
+        old_string: oldString,
+        new_string: newString,
+      }),
+      'team-lead',
+    );
+    expect(diff?.added).toBe(9);
+    expect(diff?.removed).toBe(1);
+    expect(diff?.truncated).toBe(true); // both the old line and the last new line exceed the text cap
+    const lines = diff!.hunks[0].lines;
+    expect(lines).toHaveLength(10);
+    expect(lines[0]).toEqual({
+      sign: '-',
+      oldLineNo: 1,
+      newLineNo: null,
+      text: `${oldString.slice(0, DIFF_LINE_TEXT_CAP - 1)}…`,
+    });
+    expect(lines[1]).toEqual({ sign: '+', oldLineNo: null, newLineNo: 1, text: 'Per-agent window from the resolved model, with a tick at the auto-compact trigger:' });
+    expect(lines[9].newLineNo).toBe(9);
+    expect(lines[9].text.endsWith('…')).toBe(true);
+    expect(lines[9].text).toHaveLength(DIFF_LINE_TEXT_CAP);
   });
 });
