@@ -163,6 +163,25 @@ describe('Tasks — left pane', () => {
     expect(screen.getByTestId('task-deps').textContent).toBe('1');
   });
 
+  it('comma-separates several dependency ids', () => {
+    render(
+      <Tasks
+        tasks={[{ ...TASKS[1], blockedBy: ['T-02', 'T-07'] }]}
+        teamName="session-98b0b4a7"
+      />,
+    );
+    expect(screen.getByTestId('task-deps').textContent).toBe('T-02, T-07');
+  });
+
+  // Ruling 1: this register measured 2.69:1 at neutral-700. The column header,
+  // the footer note and the dependency ids are all the same quiet text.
+  it('draws the quiet chrome register at neutral-600', () => {
+    renderTasks();
+    expect(screen.getByText('TASK').parentElement!.style.color).toBe('var(--color-neutral-600)');
+    expect(screen.getByTestId('tasks-footer').style.color).toBe('var(--color-neutral-600)');
+    expect(screen.getAllByTestId('task-deps')[0].style.color).toBe('var(--color-neutral-600)');
+  });
+
   it('shows the state label, and an em dash for no dependencies', () => {
     renderTasks();
     const rows = screen.getAllByTestId('task-row');

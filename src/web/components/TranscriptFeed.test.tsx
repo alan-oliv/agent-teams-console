@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import type { Diff, TranscriptLine } from '../../shared/domain';
 import { TRANSCRIPT_TEXT_CAP } from '../../shared/transcript';
 import { DiffContext } from '../state/useTeamState';
+import { DEFAULT_SETTINGS, SettingsContext } from '../state/useSettings';
 import { TranscriptFeed } from './TranscriptFeed';
 
 afterEach(cleanup);
@@ -35,6 +36,47 @@ describe('TranscriptFeed', () => {
     expect(screen.getByTestId('transcript-feed').style.gap).toBe('11px');
     rerender(<TranscriptFeed lines={LINES} size="overview" />);
     expect(screen.getByTestId('transcript-feed').style.gap).toBe('8px');
+  });
+
+  // The setting used to stop at the wall and the rail, so choosing compact left
+  // the overview and grid feeds untouched — a control that visibly does nothing
+  // in two of the four views that draw a transcript.
+  describe('line density reaches every feed', () => {
+    const atDensity = (density: 'compact' | 'roomy', size: 'wall' | 'overview' | 'grid') =>
+      render(
+        <SettingsContext.Provider value={{ ...DEFAULT_SETTINGS, density }}>
+          <TranscriptFeed lines={LINES} size={size} />
+        </SettingsContext.Provider>,
+      );
+
+    it('drives the wall and rail from the setting directly', () => {
+      atDensity('compact', 'wall');
+      expect(screen.getByTestId('transcript-feed').style.gap).toBe('5px');
+      cleanup();
+      atDensity('roomy', 'wall');
+      expect(screen.getByTestId('transcript-feed').style.gap).toBe('16px');
+    });
+
+    // A condensed pane runs 3px tighter than a full one at the same setting,
+    // floored at 3px so compact cannot close the rows up entirely.
+    it('gives the condensed feeds the tighter step of the same setting', () => {
+      atDensity('roomy', 'overview');
+      expect(screen.getByTestId('transcript-feed').style.gap).toBe('13px');
+      cleanup();
+      atDensity('compact', 'grid');
+      expect(screen.getByTestId('transcript-feed').style.gap).toBe('3px');
+    });
+
+    // `default` still means each view keeps its own tuning rather than
+    // collapsing to one number.
+    it('leaves every feed on its own tuning at the default', () => {
+      render(
+        <SettingsContext.Provider value={DEFAULT_SETTINGS}>
+          <TranscriptFeed lines={LINES} size="overview" />
+        </SettingsContext.Provider>,
+      );
+      expect(screen.getByTestId('transcript-feed').style.gap).toBe('8px');
+    });
   });
 
   it('fades each line by its age so the newest reads as current', () => {

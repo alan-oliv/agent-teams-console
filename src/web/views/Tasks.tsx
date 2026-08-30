@@ -39,7 +39,7 @@ const COLUMN_HEAD: CSSProperties = {
   display: 'flex',
   gap: '10px',
   padding: '10px 16px 8px',
-  color: 'var(--color-neutral-700)',
+  color: 'var(--color-neutral-600)',
   fontSize: '10.5px',
   letterSpacing: '.12em',
   borderBottom: '1px solid var(--color-neutral-900)',
@@ -50,7 +50,7 @@ const COLUMN_HEAD: CSSProperties = {
 // Same register as the rest of the chrome: `nothing waiting`, `no live teams`.
 const EMPTY: CSSProperties = {
   padding: '14px 16px',
-  color: 'var(--color-neutral-700)',
+  color: 'var(--color-neutral-600)',
   fontSize: '11px',
 };
 
@@ -76,7 +76,7 @@ const FOOTER: CSSProperties = {
   padding: '9px 16px',
   display: 'flex',
   gap: '14px',
-  color: 'var(--color-neutral-700)',
+  color: 'var(--color-neutral-600)',
   fontSize: '10.5px',
 };
 
@@ -253,13 +253,13 @@ export function Tasks({
                   data-testid="task-deps"
                   style={{
                     width: '76px',
-                    color: 'var(--color-neutral-700)',
+                    color: 'var(--color-neutral-600)',
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                   }}
                 >
-                  {task.blockedBy.length > 0 ? task.blockedBy.join(' ') : '—'}
+                  {task.blockedBy.length > 0 ? task.blockedBy.join(', ') : '—'}
                 </span>
               </div>
             );

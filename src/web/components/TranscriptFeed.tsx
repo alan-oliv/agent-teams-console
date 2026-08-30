@@ -421,11 +421,15 @@ export function TranscriptFeed({
   );
   // `default` means each view keeps its OWN tuning — the rail reads at 11px and
   // a wall column at 10, and flattening both to one number is a regression the
-  // control is not meant to cause. Only a deliberate compact/roomy overrides,
-  // and only in the views that show a transcript rather than a digest.
-  const density = appearance.density === 'default' || (size !== 'wall' && size !== 'rail')
+  // control is not meant to cause. Only a deliberate compact/roomy overrides.
+  // A condensed feed then runs 3px tighter than a full one, floored at 3, so
+  // the setting reaches every transcript rather than stopping at two of them.
+  const condensed = size !== 'wall' && size !== 'rail';
+  const density = appearance.density === 'default'
     ? s.rowGap
-    : DENSITY[appearance.density];
+    : condensed
+      ? Math.max(3, DENSITY[appearance.density] - 3)
+      : DENSITY[appearance.density];
   const container: CSSProperties = {
     flex: 1,
     minHeight: 0,
@@ -666,7 +670,7 @@ export function TranscriptFeed({
                 <span style={{ flex: 1 }} />
                 <span
                   data-testid="json-meta"
-                  style={{ color: 'var(--color-neutral-700)', fontSize: '10px', flex: 'none' }}
+                  style={{ color: 'var(--color-neutral-600)', fontSize: '10px', flex: 'none' }}
                 >
                   {`${meta.keys} keys · ${meta.lines} lines · ${meta.bytes} B`}
                 </span>
@@ -703,7 +707,7 @@ export function TranscriptFeed({
               )}
 
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                <span style={{ color: 'var(--color-neutral-700)', fontSize: '10px' }}>
+                <span style={{ color: 'var(--color-neutral-600)', fontSize: '10px' }}>
                   click the row again to collapse
                 </span>
                 <span style={{ flex: 1 }} />
@@ -825,7 +829,7 @@ export function TranscriptFeed({
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center', paddingLeft: '16px' }}>
                 <span
                   data-testid="transcript-drawer-count"
-                  style={{ color: 'var(--color-neutral-700)', fontSize: '10px' }}
+                  style={{ color: 'var(--color-neutral-600)', fontSize: '10px' }}
                 >
                   {(() => {
                     const n = text.split('\n').length;
@@ -903,7 +907,7 @@ export function TranscriptFeed({
                 <span
                   data-testid="transcript-more"
                   aria-hidden
-                  style={{ color: 'var(--color-neutral-700)', flex: 'none', fontSize: '10px' }}
+                  style={{ color: 'var(--color-neutral-600)', flex: 'none', fontSize: '10px' }}
                 >
                   ▸
                 </span>
