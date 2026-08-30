@@ -121,7 +121,15 @@ export interface Task {
   owner?: string;            // bare agent name
   state: TaskState;
   blocks: string[];
+  /** Every declared blocker, resolved or not — DEPENDS ON draws the full list. */
   blockedBy: string[];
+  /**
+   * The blockers still open. `blockedBy` minus this is how many dependencies
+   * are done, which is the only honest progress figure a task carries. A
+   * server-side derivation: absent means none has been resolved yet, so read
+   * it as equal to `blockedBy`.
+   */
+  openBlockedBy?: string[];
   metadata?: TaskMetadata;
 }
 

@@ -141,6 +141,18 @@ describe('Tasks — left pane', () => {
     expect(within(rows[1]).getByTestId('task-model').textContent).toBe('—');
   });
 
+  // A dependency that finished is still a dependency. Dropping its id made the
+  // cell read `—` for a task that plainly has one, and the prototype keeps it.
+  it('keeps a blocker id in DEPENDS ON after the blocker completes', () => {
+    render(
+      <Tasks
+        tasks={[{ ...TASKS[1], blockedBy: ['1'], openBlockedBy: [] }]}
+        teamName="session-98b0b4a7"
+      />,
+    );
+    expect(screen.getByTestId('task-deps').textContent).toBe('1');
+  });
+
   it('shows the state glyph and label, and an em dash for no dependencies', () => {
     renderTasks();
     const rows = screen.getAllByTestId('task-row');

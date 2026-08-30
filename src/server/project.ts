@@ -481,8 +481,10 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
   const tasks: Task[] = [...tasksRaw.values()].map((t) => {
     // blockedBy ids stay on a task after the blocker completes — deriveTaskState
     // must see only the ones still open, or a resolved dependency blocks its
-    // dependent forever.
-    const openBlockedBy = (t.blockedBy ?? []).filter((id) => tasksRaw.get(id)?.status !== 'completed');
+    // dependent forever. Both lists travel: the full one is the dependency the
+    // task declared, the open one is what is actually holding it up.
+    const blockedBy = t.blockedBy ?? [];
+    const openBlockedBy = blockedBy.filter((id) => tasksRaw.get(id)?.status !== 'completed');
     return {
       id: t.id,
       subject: t.subject,
@@ -491,7 +493,8 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
       owner: t.owner,
       state: deriveTaskState(t.status, { owner: t.owner, blockedBy: openBlockedBy }, agents),
       blocks: t.blocks ?? [],
-      blockedBy: openBlockedBy,
+      blockedBy,
+      openBlockedBy,
       metadata: t.metadata,
     };
   });
