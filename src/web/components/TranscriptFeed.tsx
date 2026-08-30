@@ -97,6 +97,33 @@ const NEUTRAL_ACTION: CSSProperties = {
   color: 'var(--color-neutral-500)',
 };
 
+/**
+ * Who sent a delivered message. Stripping the envelope off a teammate frame was
+ * right; dropping the attribution with it left 121 of 121 real deliveries
+ * anonymous. A filled pill rather than an outlined one because the row it sits
+ * on can be at 0.38 down the fade ladder, where a hairline border dissolves;
+ * `flex: none` because the row is nowrap and the body, not the name, is what
+ * should give way when the column is narrow.
+ */
+function Sender({ name, size }: { name: string; size: string }) {
+  return (
+    <span
+      data-testid="transcript-sender"
+      style={{
+        background: 'var(--color-accent-900)',
+        color: 'var(--color-accent-300)',
+        borderRadius: 'var(--radius-sm)',
+        padding: '0 5px',
+        fontSize: size,
+        whiteSpace: 'nowrap',
+        flex: 'none',
+      }}
+    >
+      {name}
+    </span>
+  );
+}
+
 function Spans({ spans }: { spans: Inline[] }) {
   return (
     <>
@@ -184,10 +211,15 @@ function Prose({ text }: { text: string }) {
   );
 }
 
+// A fenced block reads from the same palette as a payload — it already took
+// its string colour from there — so `number` follows `--json-number` rather
+// than staying pinned to the amber that means "wants attention". `comment`
+// keeps neutral-700: a ramp step is per-theme already and carries no meaning
+// of its own beyond "quiet", which is what a comment is.
 const CODE_COLOR: Record<CodeTokenKind, string> = {
   comment: 'var(--color-neutral-700)',
   string: 'var(--json-string)',
-  number: 'var(--warn)',
+  number: 'var(--json-number)',
   keyword: 'var(--color-accent-400)',
   plain: 'var(--color-neutral-300)',
 };
@@ -213,7 +245,9 @@ function CodeBlock({ lang, lines }: { lang: string; lines: string[] }) {
       {lang && (
         <div
           data-testid="code-lang"
-          style={{ color: 'var(--color-neutral-700)', fontSize: '9.5px', marginBottom: '4px' }}
+          // Not 9.5px at neutral-700 (2.69-2.80:1): that register is
+          // neutral-600 at 10px everywhere in the console.
+          style={{ color: 'var(--color-neutral-600)', fontSize: '10px', marginBottom: '4px' }}
         >
           {lang}
         </div>
@@ -231,12 +265,16 @@ function CodeBlock({ lang, lines }: { lang: string; lines: string[] }) {
   );
 }
 
+// All four value roles resolve through the JSON palette. `--warn` and `--fail`
+// are semantic tokens — a number is not a warning, null is not a failure — and
+// borrowing them meant a theme could not retune its amber without retinting
+// every number in every payload. Keys and punctuation carry no such meaning.
 const JSON_COLOR: Record<JsonTokenKind, string> = {
   key: 'var(--color-accent-400)',
   string: 'var(--json-string)',
-  number: 'var(--warn)',
+  number: 'var(--json-number)',
   boolean: 'var(--json-boolean)',
-  null: 'var(--fail)',
+  null: 'var(--json-null)',
   punct: 'var(--color-neutral-600)',
 };
 
@@ -585,6 +623,7 @@ export function TranscriptFeed({
                 >
                   {line.marker}
                 </span>
+                {line.sender && <Sender name={line.sender} size={s.markerSize} />}
                 <span
                   data-testid="transcript-text"
                   style={{
@@ -718,6 +757,7 @@ export function TranscriptFeed({
                 >
                   {line.marker}
                 </span>
+                {line.sender && <Sender name={line.sender} size={s.markerSize} />}
                 <span
                   data-testid="transcript-text"
                   style={{
@@ -822,6 +862,7 @@ export function TranscriptFeed({
             >
               {line.marker}
             </span>
+            {line.sender && <Sender name={line.sender} size={s.markerSize} />}
             <span
               data-testid="transcript-text"
               style={{

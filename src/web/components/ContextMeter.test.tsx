@@ -51,3 +51,33 @@ it('takes explicit bar and text sizes for the grid pane', () => {
   expect(screen.getByTestId('context-bar').style.fontSize).toBe('10.5px');
   expect(screen.getByText('78%').style.fontSize).toBe('10px');
 });
+
+// The second half of the design's context warning. Unlike the wall column, a
+// grid pane's meter is a fragment inside the pane's own row, so the note sits
+// on that row — as the one item that yields, so it can never wrap it.
+it('adds the compaction note once the trigger is close, keeping the warn glyph', () => {
+  render(<ContextMeter contextTokens={160_000} contextLimit={200_000} compactAt={167_000} />);
+  expect(screen.getByTestId('context-warn').textContent).toBe('!');
+  const note = screen.getByTestId('context-compaction');
+  expect(note.textContent).toBe('compaction in ~7k tokens');
+  expect(note.style.color).toBe('var(--warn)');
+  expect(note.title).toBe('compaction in ~7k tokens');
+});
+
+it('leaves the note out while the warn glyph alone is warranted', () => {
+  render(<ContextMeter contextTokens={130_000} contextLimit={200_000} compactAt={167_000} />);
+  expect(screen.getByTestId('context-warn').textContent).toBe('!');
+  expect(screen.queryByTestId('context-compaction')).toBeNull();
+});
+
+it('never lets the note wrap or squeeze the row it shares', () => {
+  render(<ContextMeter contextTokens={160_000} contextLimit={200_000} compactAt={167_000} />);
+  const note = screen.getByTestId('context-compaction');
+  expect(note.style.whiteSpace).toBe('nowrap');
+  expect(note.style.overflow).toBe('hidden');
+  expect(note.style.textOverflow).toBe('ellipsis');
+  expect(note.style.flex).toBe('0 1 auto');
+  // Everything else holds its size, so the note is the only thing that gives.
+  expect(screen.getByTestId('context-bar').style.flex).toBe('0 0 auto');
+  expect(screen.getByTestId('context-warn').style.flex).toBe('0 0 auto');
+});

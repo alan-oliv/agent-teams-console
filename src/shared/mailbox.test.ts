@@ -4,6 +4,7 @@ import {
   mergeMail,
   parseInboxEntry,
   parseTeammateFrames,
+  splitTeammateDelivery,
   unwrapTeammateFrames,
   type InboxEntry,
 } from './mailbox';
@@ -135,6 +136,51 @@ describe('unwrapTeammateFrames', () => {
 
   it('leaves text carrying no frame alone', () => {
     expect(unwrapTeammateFrames('just a sentence')).toBe('just a sentence');
+  });
+});
+
+describe('splitTeammateDelivery', () => {
+  // A record is not a message: the real lead delivery at 15:12:17.951Z carries
+  // six frames from three teammates, because a lead's queued mail all drains at
+  // one turn boundary. Attribution therefore belongs to the part, not the row
+  // the record used to collapse into.
+  it('separates each delivered message from the prose around it', () => {
+    const text = `Another Claude session sent a message:\n${frames[0]}\n\n${frames[1]}\n\nover to you.`;
+    expect(splitTeammateDelivery(text)).toEqual([
+      { text: 'Another Claude session sent a message:\n' },
+      {
+        from: 'probe-charlie',
+        text: 'probe-charlie reporting: running on a different model so the console can prove per-agent model resolution.',
+      },
+      { text: '\n\n' },
+      { from: 'probe-alpha', text: 'probe-alpha reporting: I claimed task 1. This is spike traffic.' },
+      { text: '\n\nover to you.' },
+    ]);
+  });
+
+  it('attributes every frame of the real six-frame delivery', () => {
+    const parts = splitTeammateDelivery(`mail:\n${frames.join('\n\n')}`);
+    expect(parts.filter((p) => p.from !== undefined).map((p) => p.from)).toEqual([
+      'probe-charlie', 'probe-alpha', 'probe-charlie', 'probe-bravo', 'probe-alpha', 'probe-bravo',
+    ]);
+  });
+
+  it('reports a bare frame as one attributed part, with no prose around it', () => {
+    expect(splitTeammateDelivery(frames[0])).toEqual([
+      {
+        from: 'probe-charlie',
+        text: 'probe-charlie reporting: running on a different model so the console can prove per-agent model resolution.',
+      },
+    ]);
+  });
+
+  it('reports text carrying no frame as a single unattributed part', () => {
+    expect(splitTeammateDelivery('just a sentence')).toEqual([{ text: 'just a sentence' }]);
+  });
+
+  it('rejoins to exactly what unwrapTeammateFrames produces', () => {
+    const text = `preamble\n${frames[2]}\n\n${frames[3]}\ntail`;
+    expect(splitTeammateDelivery(text).map((p) => p.text).join('')).toBe(unwrapTeammateFrames(text));
   });
 });
 

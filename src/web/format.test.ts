@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   briefAge,
   clockLabel,
+  compactionNote,
   contextBar,
   costLabel,
   ctxLabel,
@@ -105,6 +106,47 @@ describe('warnMark', () => {
     expect(warnMark(53_100, 967_000)).toBe('');
     expect(warnMark(34_469, 967_000)).toBe('');
     expect(warnMark(23_639, 167_000)).toBe('');
+  });
+});
+
+describe('compactionNote', () => {
+  // The note is the second half of the design's context warning: `!` says the
+  // 75% threshold is behind you, the note says how much room is left in front
+  // of the trigger. It starts halfway from that threshold to the trigger.
+  it('stays quiet until halfway from the warn threshold to the trigger', () => {
+    expect(compactionNote(146_124, 167_000)).toBe('');
+    expect(compactionNote(146_125, 167_000)).toBe('compaction in ~21k tokens');
+  });
+
+  it('says nothing while the warn glyph itself is still off', () => {
+    expect(compactionNote(34_469, 967_000)).toBe('');
+    expect(compactionNote(23_639, 167_000)).toBe('');
+  });
+
+  it('is quiet for a while after the warn glyph lights, so the two read as stages', () => {
+    expect(warnMark(130_000, 167_000)).toBe('!');
+    expect(compactionNote(130_000, 167_000)).toBe('');
+  });
+
+  it('counts down the headroom in whole thousands', () => {
+    expect(compactionNote(159_000, 167_000)).toBe('compaction in ~8k tokens');
+    expect(compactionNote(166_500, 167_000)).toBe('compaction in ~1k tokens');
+    expect(compactionNote(166_600, 167_000)).toBe('compaction in ~0k tokens');
+  });
+
+  it('never counts below zero once the trigger is behind the agent', () => {
+    expect(compactionNote(167_000, 167_000)).toBe('compaction in ~0k tokens');
+    expect(compactionNote(199_000, 167_000)).toBe('compaction in ~0k tokens');
+  });
+
+  it('says nothing when there is no trigger to count towards', () => {
+    expect(compactionNote(156_000, 0)).toBe('');
+  });
+
+  it('scales with compactAt rather than a fixed token distance', () => {
+    // A 1M window's trigger is 967_000; halfway is 846_125, not 146_125.
+    expect(compactionNote(146_125, 967_000)).toBe('');
+    expect(compactionNote(900_000, 967_000)).toBe('compaction in ~67k tokens');
   });
 });
 

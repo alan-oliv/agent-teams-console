@@ -529,3 +529,14 @@ describe('fencedSink', () => {
     expect(teams).toEqual(['session-b5129c7b']);
   });
 });
+
+describe('--session', () => {
+  it('carries the session a console was pointed at', () => {
+    expect(parseArgs(['--session', 'abc-123']).session).toBe('abc-123');
+    expect(parseArgs(['--session=abc-123']).session).toBe('abc-123');
+  });
+
+  it('is absent when nothing named one', () => {
+    expect(parseArgs([]).session).toBeUndefined();
+  });
+});

@@ -7,22 +7,25 @@ what is waiting on you.
 
 ![The wall view: the lead pinned on the left, one scrolling transcript column per teammate](docs/console-wall.png)
 
-You never start it. The plugin's `PreToolUse`/`PostToolUse` hooks on the `Agent` tool
-watch for the moment a real team comes into existence and start the server
-themselves, then print the URL into the session once — before the teammate spawns
-when possible, falling back to just after it:
+You never start it. The plugin's `PreToolUse`/`PostToolUse` hooks on the `Agent`
+and `Workflow` tools watch for the moment a real team, or a workflow, comes into
+existence and start the server themselves, then print the URL into the session
+once — before the teammate spawns when possible, falling back to just after it:
 
 ```
 Agent teams console → http://127.0.0.1:4823/?team=session-98b0b4a7
 ```
 
-## Five views
+## Six views
+
+These are team mode's. A second mode, for a dynamic workflow, hasn't landed.
 
 | | |
 |---|---|
 | **wall** | one transcript column per teammate, lead pinned on the left |
 | **overview** | one tile per agent with a context-occupancy bar |
-| **tasks** | the shared task list plus the mailbox traffic behind it |
+| **comms** | an `everyone` room carrying the whole team's traffic, with per-pair inbox threads below it |
+| **tasks** | the shared task list |
 | **rail** | a keyboard-navigable agent list with one big transcript |
 | **grid** | six panes at once for a wide monitor |
 
@@ -75,18 +78,20 @@ Check it any time with the `/console` slash command (`/agent-teams-console:conso
 if another plugin already owns that name). It reports whether the console is
 running, prints its URL, and starts it if a team is live but the server is down.
 
-## It only wakes for a real team
+## It only wakes for a real team, or a workflow
 
-The launcher runs on **every** `Agent` tool call, so it is written to be cheap and
-to do nothing almost every time. It reads `~/.claude/teams/<team>/config.json` and
-gives up unless that file lists **two or more members**.
+The launcher runs on **every** `Agent` or `Workflow` tool call, so it is written
+to be cheap and to do nothing almost every time. For an `Agent` call it reads
+`~/.claude/teams/<team>/config.json` and gives up unless that file lists **two
+or more members**. A `Workflow` call has no such gate — a run forms no team, so
+every one wakes the console and points it at the session that ran it instead.
 
 Ordinary subagents, `Explore`, workflow fan-outs and parallel search agents never
 appear in `members[]` — verified during the capture spike, where six workflow
 subagents were live and `members[]` still held only the lead. So they cost one
 short-lived shell process and nothing else: no server, no window, no message.
 
-Only teammates spawned onto a team count.
+Only teammates spawned onto a team, or a workflow's own top-level call, count.
 
 ## What it reads and writes
 

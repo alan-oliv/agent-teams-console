@@ -97,12 +97,58 @@ export function parseTeammateFrames(text: string, deliveredAt: number, to: strin
 
 /**
  * The same text with each frame replaced by the message inside it. A delivery
- * is never a bare frame: it opens with a preamble line, carries as many frames
- * as were queued, and the prose around them is the recipient's own context.
+ * carries as many frames as drained at that turn boundary, from as many
+ * senders, and any prose around them is the recipient's own context.
+ *
+ * It does NOT reliably open with a preamble line, and it is NOT reliably more
+ * than a bare frame — this comment used to claim both, and the fixtures
+ * disprove each. `probe-bravo` record 22 is one frame with nothing around it
+ * and is an ordinary delivery; `probe-alpha` record 0 is one frame with nothing
+ * around it and is a spawn prompt. Identical shape, opposite meaning. So shape
+ * cannot tell a delivery from a prompt, and nothing here should try: what
+ * discriminates is AUTHORSHIP, and only the envelope carries it. Content that
+ * arrives with no frame at all is the operator's own typing; a frame is another
+ * agent's message, whoever that agent is. See `deliveryDrafts` in
+ * shared/transcript.ts, which is where that rule lives.
  */
 export function unwrapTeammateFrames(text: string): string {
   FRAME_RE.lastIndex = 0;
   return text.replace(FRAME_RE, (_frame, _attrs: string, body: string) => body);
+}
+
+/** One delivered message, or a run of the recipient's own prose between two. */
+export interface DeliveryPart {
+  /** The teammate that sent this part. Absent on the surrounding prose. */
+  from?: string;
+  text: string;
+}
+
+/**
+ * The same unwrapping, but keeping who sent what. A record is not a message:
+ * the real lead delivery in the corpus carries six frames from three teammates,
+ * because a lead's queued mail all drains at one turn boundary. Concatenating
+ * the parts' text reproduces {@link unwrapTeammateFrames} exactly, so the two
+ * cannot drift.
+ */
+export function splitTeammateDelivery(text: string): DeliveryPart[] {
+  const parts: DeliveryPart[] = [];
+  FRAME_RE.lastIndex = 0;
+  let at = 0;
+  let frame: RegExpExecArray | null;
+  while ((frame = FRAME_RE.exec(text)) !== null) {
+    const attrs: Record<string, string> = {};
+    ATTR_RE.lastIndex = 0;
+    let attr: RegExpExecArray | null;
+    while ((attr = ATTR_RE.exec(frame[1])) !== null) attrs[attr[1]] = attr[2];
+
+    if (frame.index > at) parts.push({ text: text.slice(at, frame.index) });
+    // An unattributable frame still has to contribute its body, or the parts
+    // stop rejoining to the unwrapped text.
+    parts.push(attrs.teammate_id ? { from: attrs.teammate_id, text: frame[2] } : { text: frame[2] });
+    at = frame.index + frame[0].length;
+  }
+  if (at < text.length) parts.push({ text: text.slice(at) });
+  return parts.length > 0 ? parts : [{ text }];
 }
 
 function contentKey(m: MailMessage): string {

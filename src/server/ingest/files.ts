@@ -9,6 +9,7 @@ import { tokensOf, totalCost, usageRecordsOf, type UsageRecord } from '../../sha
 import type { TeamConfig, Sidecar } from '../../shared/roster';
 import type { InboxEntry } from '../../shared/mailbox';
 import { logError } from '../log';
+import { leanRun, parseWorkflowJournal, parseWorkflowRun } from '../workflow';
 
 export const DEFAULT_SWEEP_MS = 5000;
 /**
@@ -158,6 +159,72 @@ export function agentOfTranscript(
   return claimOfTranscript(file, leadSessionId, leadName)?.agent ?? null;
 }
 
+/** Which of a workflow run's two files this is, and the run it belongs to. */
+export interface WorkflowClaim {
+  kind: 'snapshot' | 'journal';
+  runId: string;
+  sessionId: string;
+}
+
+const RUN_ID = /^wf_.+$/;
+
+/**
+ * Routing only: is this file SHAPED like one of a run's two files, whoever it
+ * belongs to. Deliberately chain-free, because routing has to happen before the
+ * lead session is known — `workflowClaimOf` is what applies the scope, and a
+ * path that gets here and fails that check is simply held or dropped, never
+ * handed on to the team-mode handlers that would misread it.
+ */
+export function isWorkflowPath(file: string): boolean {
+  const base = path.basename(file);
+  const dir = path.dirname(file);
+  if (base === 'journal.jsonl') return path.basename(path.dirname(dir)) === 'workflows';
+  return (
+    base.endsWith('.json') &&
+    path.basename(dir) === 'workflows' &&
+    RUN_ID.test(base.slice(0, -'.json'.length))
+  );
+}
+
+/**
+ * The OTHER half of the scope rule. `claimOfTranscript` above rejects these
+ * paths and must keep doing so — a workflow subagent is not a team member. But
+ * "not a teammate" is not "not interesting", and the two files below are the
+ * whole of what a run leaves on disk:
+ *
+ *   <slug>/<sessionId>/workflows/wf_<runId>.json                 the snapshot
+ *   <slug>/<sessionId>/subagents/workflows/wf_<runId>/journal.jsonl   live
+ *
+ * They sit in two DIFFERENT subtrees of one session, which is why a sweep of
+ * `subagents/workflows/` alone never saw the snapshot. Both are matched from
+ * the path alone, before anything is read.
+ */
+export function workflowClaimOf(file: string, leadSessionId: LeadChain): WorkflowClaim | null {
+  const base = path.basename(file);
+  const dir = path.dirname(file);
+  const up = (n: number) => {
+    let at = dir;
+    for (let i = 0; i < n; i++) at = path.dirname(at);
+    return path.basename(at);
+  };
+
+  if (base === 'journal.jsonl' && up(1) === 'workflows' && up(2) === 'subagents') {
+    const runId = path.basename(dir);
+    if (!RUN_ID.test(runId)) return null;
+    const sessionId = up(3);
+    return chainHas(leadSessionId, sessionId) ? { kind: 'journal', runId, sessionId } : null;
+  }
+
+  if (base.endsWith('.json') && path.basename(dir) === 'workflows' && up(1) !== 'subagents') {
+    const runId = base.slice(0, -'.json'.length);
+    if (!RUN_ID.test(runId)) return null;
+    const sessionId = up(1);
+    return chainHas(leadSessionId, sessionId) ? { kind: 'snapshot', runId, sessionId } : null;
+  }
+
+  return null;
+}
+
 async function walk(root: string): Promise<string[]> {
   const out: string[] = [];
   const stack = [root];
@@ -247,6 +314,7 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
   // Sidecars read while the team was still unknown, held until config.json can
   // judge them. See handleProjectsJson.
   const unresolvedSidecars = new Map<string, Sidecar>();
+  const unresolvedWorkflows = new Set<string>();
   // Every transcript this ingest has attributed to an agent, so the tail poll
   // and drainAgent can reach a file without walking the tree to find it. A
   // respawn under one name has two, and pumping only the last one seen reverts
@@ -561,6 +629,7 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
       }
       for (const [f, meta] of unresolvedSidecars) acceptSidecar(f, meta);
       unresolvedSidecars.clear();
+      for (const f of [...unresolvedWorkflows]) await handleWorkflowFile(f);
       // The inbox reader below fails closed while the team is unknown, and the
       // mtime gate would never offer those files again, so claim our own now
       // that we can tell which they are.
@@ -706,14 +775,50 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
     store.append('statusline', { branch, sessionName: ours ? sessionName : undefined }, leadName);
   };
 
+  /**
+   * A run's two files, whichever arrived. Held rather than dropped when the
+   * lead session is not known yet: the sweep's mtime gate would never offer the
+   * file a second time, so a console that starts before it has resolved its
+   * session would otherwise miss every run that already existed.
+   */
+  const handleWorkflowFile = async (file: string): Promise<void> => {
+    if (!chainKnown(chain)) {
+      unresolvedWorkflows.add(file);
+      return;
+    }
+    const claim = workflowClaimOf(file, chain);
+    if (!claim) return;
+    unresolvedWorkflows.delete(file);
+
+    if (claim.kind === 'snapshot') {
+      const run = parseWorkflowRun(await readJsonSafe(file));
+      if (run) store.append('workflow', leanRun(run));
+      return;
+    }
+    let text: string;
+    try {
+      text = await fs.readFile(file, 'utf8');
+    } catch {
+      return; // the run directory can vanish under us; the sweep will retry
+    }
+    store.append('workflow', parseWorkflowJournal(claim.runId, text.split('\n')));
+  };
+
   const dispatchJson = async (file: string, root: string) => {
     if (root === paths.teams) await handleTeamsJson(file);
-    else if (root === paths.projects) await handleProjectsJson(file);
+    else if (root === paths.projects) {
+      if (isWorkflowPath(file)) await handleWorkflowFile(file);
+      else await handleProjectsJson(file);
+    }
     else if (root === paths.tasks) await handleTaskJson(file);
     else if (root === paths.sessions) await handleSessionJson(file);
   };
 
   const transcripts = watchAppendOnly(paths.projects, (file, lines, fromStart) => {
+    if (isWorkflowPath(file)) {
+      void handleWorkflowFile(file).catch((err: unknown) => logError(`ingest ${file}`, err));
+      return;
+    }
     try {
       handleLines(file, lines, fromStart);
     } catch (err) {
@@ -728,6 +833,10 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
   });
 
   const sweepTranscript = async (file: string) => {
+    if (isWorkflowPath(file)) {
+      await handleWorkflowFile(file);
+      return;
+    }
     const claim = claimOfTranscript(file, chain, leadName);
     if (!claim || disowned.has(file)) return;
     notePath(sidecars.get(file)?.name ?? claim.agent, file);
@@ -834,7 +943,10 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
   const watchers = [
     transcripts,
     watchJsonTree(paths.projects, (file) => {
-      void settle(file)(handleProjectsJson(file));
+      // Routed here as well as in the sweep, and not only for latency: `settle`
+      // records the file's mtime, so a snapshot the live watcher saw first
+      // would be gated out of every later sweep and never reach the run model.
+      void settle(file)(isWorkflowPath(file) ? handleWorkflowFile(file) : handleProjectsJson(file));
     }),
     watchJsonTree(paths.teams, (file) => {
       void settle(file)(handleTeamsJson(file));

@@ -23,7 +23,13 @@ of hands, not an owner — and the lead becomes the bottleneck it was trying to 
    task has to carry, and the model each one is worth.
 4. **Decide how many teammates.** Count tracks, not tasks.
 5. **Dispatch**, using the contract below. Assign the owner with `TaskUpdate`.
-6. **Stay free.** Review diffs, answer questions, relay results.
+6. **Verify the roster before they get deep.** Every teammate you dispatched has
+   to appear in `~/.claude/teams/<team>/config.json`:
+   `jq -r '.members[].name' ~/.claude/teams/<team>/config.json`. A name missing
+   there is not a teammate, whatever the spawn result said — respawn it. Do this
+   immediately; a wrong roster is cheap to fix in the first minute and expensive
+   once six agents have edited files.
+7. **Stay free.** Review diffs, answer questions, relay results.
 
 ## Step 2: Settle the Terminal Deliverable
 
@@ -55,7 +61,26 @@ of tasks.
 | A task nothing else touches | Its own teammate, dispatched now |
 | A task that is small and easy | Still a teammate. Never keep it for yourself |
 
-Give every parallel writer `isolation: "worktree"`.
+### Teammates share one checkout
+
+**Never pass `isolation: "worktree"` when spawning a teammate.** It routes the
+`Agent` call down the ordinary-subagent path, and what comes back is not a
+teammate at all: it never enters `members[]`, gets no `TaskGet`/`TaskUpdate`, has
+no mailbox, and never appears in the console. Nothing errors. You find out when a
+"teammate" messages you saying it cannot read the task list.
+
+There is no per-teammate worktree to reach for. Isolation comes from **disjoint
+file ownership**, and the dispatch prompt is where you create it:
+
+- Name the files each teammate owns, and name the ones it must not touch.
+- Each stages its own paths **by name**. Never `git add -A` or `git add .` — it
+  sweeps up a neighbour's half-finished edit.
+- One shared branch for the batch. They share a checkout, so they share HEAD: a
+  teammate running `git checkout -b` moves everyone. Create the branch yourself
+  before dispatching.
+- A test failure in a file a teammate does not own means a neighbour was
+  mid-edit. Re-run once, then report it — never fix another teammate's file.
+- A commit can fail on an index lock. Wait, retry.
 
 ## The Dispatch Contract
 
@@ -88,6 +113,7 @@ ones that get dropped.
 | Calling `TaskUpdate` on a teammate's behalf | Part 1 makes it theirs. Yours is the owner assignment |
 | One teammate per task, mechanically | Count tracks. Two teammates in one file is a merge conflict |
 | Dispatching before `TaskCreate` | The list is how the work stays visible when a teammate dies |
+| `isolation: "worktree"` to keep parallel writers apart | It silently spawns a subagent, not a teammate. Isolate by file ownership |
 | A prompt with no part 3 | Teammates default to improvising. Name the skills |
 
 ## Red Flags
@@ -96,3 +122,5 @@ ones that get dropped.
 - Two live teammates whose scopes name the same file
 - You are editing files instead of reviewing them
 - A finished teammate whose task is still `pending`
+- A "teammate" that cannot call `TaskGet` — it is a subagent; check `members[]`
+- More agents in your spawn log than names in `members[]`

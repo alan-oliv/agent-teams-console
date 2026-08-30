@@ -67,7 +67,10 @@ describe('Overview', () => {
     const alpha = within(screen.getAllByTestId('overview-tile')[1]);
     const footer = alpha.getByTestId('overview-footer');
     expect(footer.style.padding).toBe('6px 10px');
-    expect(footer.style.fontSize).toBe('9.5px');
+    // No 9.5px text at neutral-700 (2.69-2.80:1); that register is
+    // neutral-600 at 10px everywhere in the console.
+    expect(footer.style.fontSize).toBe('10px');
+    expect(footer.style.color).toBe('var(--color-neutral-600)');
     expect(alpha.getByTestId('overview-elapsed').textContent).toBe('0m 42s');
     expect(alpha.getByTestId('overview-cost').textContent).toBe('≈$0.46');
   });

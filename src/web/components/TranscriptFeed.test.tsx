@@ -384,9 +384,12 @@ describe('a row carrying a JSON payload opens formatted', () => {
       tokens.find((t) => t.dataset.jsonToken === kind)!.style.color;
     expect(colorOf('key')).toBe('var(--color-accent-400)');
     expect(colorOf('string')).toBe('var(--json-string)');
-    expect(colorOf('number')).toBe('var(--warn)');
+    // All four value roles resolve through the JSON palette. --warn and --fail
+    // are semantic tokens, and a number is not a warning nor null a failure, so
+    // a theme has to be able to retune one without moving the other.
+    expect(colorOf('number')).toBe('var(--json-number)');
     expect(colorOf('boolean')).toBe('var(--json-boolean)');
-    expect(colorOf('null')).toBe('var(--fail)');
+    expect(colorOf('null')).toBe('var(--json-null)');
     expect(colorOf('punct')).toBe('var(--color-neutral-600)');
   });
 
@@ -574,7 +577,12 @@ describe('code in an expanded row', () => {
     fireEvent.click(screen.getByTestId('transcript-more'));
 
     const block = screen.getByTestId('code-block');
-    expect(within(block).getByTestId('code-lang').textContent).toBe('js');
+    const lang = within(block).getByTestId('code-lang');
+    expect(lang.textContent).toBe('js');
+    // No 9.5px text at neutral-700 (2.69-2.80:1): that register is
+    // neutral-600 at 10px everywhere in the console.
+    expect(lang.style.fontSize).toBe('10px');
+    expect(lang.style.color).toBe('var(--color-neutral-600)');
     expect(block.textContent).toContain('const a = 1;');
     // Markdown is rendered, not shown as source.
     expect(screen.getByTestId('transcript-drawer-body').textContent).not.toContain('**');
@@ -641,5 +649,71 @@ describe('a row carrying a diff payload', () => {
   it('does nothing on click when no diff store is provided', () => {
     render(<TranscriptFeed lines={DIFF_LINES} size="wall" />);
     expect(() => fireEvent.click(rows()[1])).not.toThrow();
+  });
+});
+
+// "Received messages carry attribution" (design CHANGELOG): the envelope's
+// teammate_id on an accent-900 pill before the body, ✉ in the glyph column.
+// Stripping the envelope was right; dropping the attribution with it was not.
+describe('sender chip', () => {
+  const DELIVERED: TranscriptLine[] = [
+    { id: 'lead-0', marker: '❯', text: 'Another Claude session sent a message:', ts: 1787843537951 },
+    {
+      id: 'lead-1',
+      marker: '✉',
+      text: 'probe-charlie reporting: running on a different model.',
+      ts: 1787843537951,
+      sender: 'probe-charlie',
+    },
+    {
+      id: 'lead-2',
+      marker: '✉',
+      text: 'probe-alpha reporting: I claimed task 1.',
+      ts: 1787843537951,
+      sender: 'probe-alpha',
+    },
+  ];
+
+  it('names the sender of every delivered row, and only those', () => {
+    render(<TranscriptFeed lines={DELIVERED} size="wall" />);
+    const chips = screen.getAllByTestId('transcript-sender');
+    expect(chips.map((c) => c.textContent)).toEqual(['probe-charlie', 'probe-alpha']);
+  });
+
+  it('draws the ✉ marker in the glyph column beside the chip', () => {
+    render(<TranscriptFeed lines={DELIVERED} size="wall" />);
+    const rows = screen.getAllByTestId('transcript-row');
+    expect(within(rows[1]).getByTestId('transcript-marker').textContent).toBe('✉');
+    expect(within(rows[0]).queryByTestId('transcript-sender')).toBeNull();
+  });
+
+  it('puts the chip before the body, not after it', () => {
+    render(<TranscriptFeed lines={DELIVERED} size="wall" />);
+    const row = screen.getAllByTestId('transcript-row')[1];
+    const chip = within(row).getByTestId('transcript-sender');
+    const text = within(row).getByTestId('transcript-text');
+    expect(chip.compareDocumentPosition(text) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  // The row is `white-space: nowrap` with the body ellipsised, and the ladder
+  // can put it at 0.38. A filled pill still reads at that strength where a
+  // hairline border would dissolve, and `flex: none` keeps the name whole while
+  // the body is what gives way.
+  it('survives the nowrap row and the opacity ladder', () => {
+    render(<TranscriptFeed lines={DELIVERED} size="wall" />);
+    const chip = screen.getAllByTestId('transcript-sender')[0];
+    expect(chip.style.background).toBe('var(--color-accent-900)');
+    expect(chip.style.color).toBe('var(--color-accent-300)');
+    expect(chip.style.flex).toBe('0 0 auto');
+    expect(chip.style.whiteSpace).toBe('nowrap');
+  });
+
+  it('keeps the chip when the row is expanded to read', () => {
+    const long: TranscriptLine[] = [
+      { ...DELIVERED[1], text: 'probe-charlie reporting:\nthe long body it sent', },
+    ];
+    render(<TranscriptFeed lines={long} size="wall" />);
+    fireEvent.click(screen.getByTestId('transcript-row'));
+    expect(screen.getByTestId('transcript-sender').textContent).toBe('probe-charlie');
   });
 });

@@ -29,7 +29,8 @@ export type EventKind =
   | 'statusline'
   | 'substatus'
   | 'needsyou'
-  | 'needsyou-resolved';
+  | 'needsyou-resolved'
+  | 'workflow';
 
 export interface StoredEvent {
   seq: number;
@@ -78,6 +79,12 @@ export const KIND_RETENTION: Partial<Record<EventKind, number>> = {
   // and safe regardless: trim() always drops a resolution's matching
   // `needsyou` create alongside it, so nothing here is ever left dangling.
   'needsyou-resolved': 500,
+  // One row per run per re-read, folded last-wins per runId, so this caps
+  // re-reads and not runs. A LIVE run is re-appended on every journal append —
+  // the only kind here whose row count grows with a run's length rather than
+  // with how many there are — and 16 runs was the whole of a heavy week on the
+  // capture machine. Rows are ~9 KB each with the script stripped (leanRun).
+  workflow: 500,
 };
 
 /**

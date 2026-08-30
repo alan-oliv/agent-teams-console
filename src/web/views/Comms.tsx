@@ -40,6 +40,12 @@ const FOOT_NOTE: CSSProperties = {
 const PORTRAIT_PX = 20;
 const OVERLAP_PX = 14;
 
+// The design's two docs disagree here (78% in the older two-sided spec, 64% in
+// the newer group-chat pass) — the newer number wins, since it also has to hold
+// up in the everyone room, where a narrower bubble is what makes a run of
+// messages read as a run rather than one wide column.
+const BUBBLE_MAX_WIDTH = '64%';
+
 /** Portraits key off the roster; a departed agent config no longer lists still has mail. */
 function agentFor(name: string, agents: Agent[]): { name: string; agentType: string; isLead: boolean } {
   return agents.find((a) => a.name === name) ?? { name, agentType: '', isLead: false };
@@ -107,7 +113,7 @@ function RoomBubble({ line, agents, now }: { line: RoomLine; agents: Agent[]; no
           flexDirection: mine ? 'row-reverse' : 'row',
           gap: '9px',
           alignItems: 'flex-end',
-          maxWidth: '78%',
+          maxWidth: BUBBLE_MAX_WIDTH,
         }}
       >
         {/* The operator has no portrait: they are not a team member. */}
@@ -194,7 +200,7 @@ function Bubble({
           flexDirection: mine ? 'row-reverse' : 'row',
           gap: '9px',
           alignItems: 'flex-end',
-          maxWidth: '78%',
+          maxWidth: BUBBLE_MAX_WIDTH,
         }}
       >
         <div style={{ marginBottom: '2px' }}>

@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { PortraitId } from './domain';
-import { PORTRAIT_IDS, portraitFor, portraitSvg, SKIN_PAIRS, SPRITE_COLORS, SPRITES } from './portrait';
+import {
+  PORTRAIT_IDS,
+  portraitFor,
+  portraitSvg,
+  SKIN_PAIRS,
+  SPRITE_COLORS,
+  SPRITES,
+  TERMINAL_SPRITE,
+  TERMINAL_SPRITE_SVG,
+} from './portrait';
 
 const countPaths = (svg: string): number => (svg.match(/<path /g) ?? []).length;
 
@@ -39,6 +48,28 @@ describe('sprite data', () => {
 
   it('bakes the failure rose into the repro shirt', () => {
     expect(SPRITES.repro[9]).toBe('..eeeeeeee..');
+  });
+});
+
+describe('terminal sprite', () => {
+  it('is 17 rows of 24 characters, the not-watching screen size', () => {
+    expect(TERMINAL_SPRITE).toHaveLength(17);
+    for (const row of TERMINAL_SPRITE) expect(row).toHaveLength(24);
+  });
+
+  it('renders crisp 24x17 inline SVG', () => {
+    expect(TERMINAL_SPRITE_SVG.startsWith('<svg ')).toBe(true);
+    expect(TERMINAL_SPRITE_SVG.endsWith('</svg>')).toBe(true);
+    expect(TERMINAL_SPRITE_SVG).toContain('viewBox="0 0 24 17"');
+    expect(TERMINAL_SPRITE_SVG).toContain('shape-rendering="crispEdges"');
+  });
+
+  it('paints the frame, screen, dim output and lit prompt as four distinct colours', () => {
+    expect(countPaths(TERMINAL_SPRITE_SVG)).toBe(4);
+    expect(TERMINAL_SPRITE_SVG).toContain('var(--color-neutral-700)'); // frame + stand
+    expect(TERMINAL_SPRITE_SVG).toContain('var(--color-neutral-900)'); // screen ground
+    expect(TERMINAL_SPRITE_SVG).toContain('var(--color-neutral-600)'); // dim output lines
+    expect(TERMINAL_SPRITE_SVG).toContain('var(--color-accent-400)'); // lit prompt
   });
 });
 

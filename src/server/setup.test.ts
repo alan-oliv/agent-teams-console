@@ -41,10 +41,13 @@ describe('hookBlock', () => {
     expect(Object.keys(block.hooks)).toEqual([...HOOK_EVENTS]);
     for (const event of HOOK_EVENTS) {
       const entries = block.hooks[event] as HookEntry[];
-      // Both Agent arms carry one extra entry: the command-hook launcher.
+      // Both tool arms carry two extra entries: the command-hook launcher on
+      // the Agent tool, and the same launcher on Workflow — a different tool,
+      // which the Agent matcher can never see.
       const carriesLauncher = event === 'PreToolUse' || event === 'PostToolUse';
-      expect(entries).toHaveLength(carriesLauncher ? 2 : 1);
+      expect(entries).toHaveLength(carriesLauncher ? 3 : 1);
       expect(entries.filter((e) => e.matcher === 'Agent')).toHaveLength(carriesLauncher ? 1 : 0);
+      expect(entries.filter((e) => e.matcher === 'Workflow')).toHaveLength(carriesLauncher ? 1 : 0);
       expect(entries[0].hooks).toHaveLength(1);
       // A command hook, not an http one: Claude Code renders an http hook's
       // connection refusal as a "<event> hook error" on EVERY tool call while
@@ -153,7 +156,10 @@ describe("the plugin's own hooks.json", () => {
     const normalise = (entries: HookEntry[]) =>
       JSON.stringify(
         entries.map((e) =>
-          e.matcher === 'Agent'
+          // Both launcher arms — Agent and Workflow — legitimately differ:
+          // absolute path in the generated block, ${CLAUDE_PLUGIN_ROOT} in the
+          // shipped one. Everything else must match byte for byte.
+          e.matcher === 'Agent' || e.matcher === 'Workflow'
             ? { ...e, hooks: [{ ...e.hooks[0], command: '<launcher>' }] }
             : {
                 ...e,
@@ -179,9 +185,21 @@ describe("the plugin's own hooks.json", () => {
     );
   });
 
+  it('registers the launcher against the Workflow tool as well as Agent', () => {
+    for (const event of ['PreToolUse', 'PostToolUse'] as const) {
+      const entry = shipped.hooks[event].find((e) => e.matcher === 'Workflow');
+      expect(entry, `${event} has no Workflow matcher`).toBeDefined();
+      expect((entry!.hooks[0] as unknown as { command: string }).command).toContain(
+        'console-launch.sh',
+      );
+    }
+  });
+
   it('resolves the restarter through the plugin root too', () => {
     for (const event of HOOK_EVENTS) {
-      const observation = shipped.hooks[event].find((e) => e.matcher !== 'Agent');
+      const observation = shipped.hooks[event].find(
+        (e) => e.matcher !== 'Agent' && e.matcher !== 'Workflow',
+      );
       const command = (observation!.hooks[0] as unknown as { command: string }).command;
       expect(command).toContain('"${CLAUDE_PLUGIN_ROOT}/bin/console-restart.sh"');
     }
@@ -396,4 +414,23 @@ describe('runSetup', () => {
     const written = JSON.parse(await fs.readFile(settingsPath, 'utf8')) as { hooks: Record<string, HookEntry[]> };
     expect(written.hooks.PreToolUse[0].hooks[0].command).toContain('http://127.0.0.1:4400/hook');
   });
+});
+
+describe('the workflow launcher', () => {
+  // A workflow is a different TOOL, so the Agent matcher never sees one. The
+  // spike found the launcher's `tool_input.name` gate was not merely failing
+  // for workflow fan-outs — it was never reached at all.
+  it('is registered against the Workflow tool on both arms', () => {
+    const block = hookBlock(4823);
+    for (const event of ['PreToolUse', 'PostToolUse'] as const) {
+      const entry = (block.hooks[event] as unknown as HookEntry[]).find(
+        (e) => e.matcher === 'Workflow',
+      );
+      expect(entry, `${event} has no Workflow matcher`).toBeDefined();
+      expect((entry!.hooks[0] as unknown as { command: string }).command).toContain(
+        'console-launch.sh',
+      );
+    }
+  });
+
 });

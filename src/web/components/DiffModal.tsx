@@ -33,7 +33,9 @@ const GUTTER: CSSProperties = {
   flex: 'none',
   textAlign: 'right',
   paddingRight: '9px',
-  color: 'var(--color-neutral-700)',
+  // Not -700: measured 1.53–2.35:1 against the gutter's own add/delete tint,
+  // which is a legibility defect rather than the restraint it looked like.
+  color: 'var(--color-neutral-500)',
   fontSize: '10px',
 };
 
@@ -117,6 +119,11 @@ function changeRuns(hunks: DiffHunk[]): number[] {
   return starts;
 }
 
+/** Changed rows that survived the caps — what the toolbar chip counts. */
+function shownChangedLines(diff: Diff): number {
+  return diff.hunks.reduce((n, h) => n + h.lines.filter((l) => l.sign !== ' ').length, 0);
+}
+
 /**
  * The patch as `git apply` would take it. A truncated payload is short by
  * however many lines the caps dropped and cannot apply, so it says so on a
@@ -126,8 +133,7 @@ function changeRuns(hunks: DiffHunk[]): number[] {
 function unifiedPatch(diff: Diff): string {
   const out: string[] = [];
   if (diff.truncated) {
-    const shown = diff.hunks.reduce((n, h) => n + h.lines.filter((l) => l.sign !== ' ').length, 0);
-    out.push(`# truncated: ${shown} of ${diff.added + diff.removed} changed lines — incomplete, will not apply`);
+    out.push(`# truncated: ${shownChangedLines(diff)} of ${diff.added + diff.removed} changed lines — incomplete, will not apply`);
   }
   out.push(`--- a/${diff.path}`, `+++ b/${diff.path}`);
   for (const hunk of diff.hunks) {
@@ -304,14 +310,43 @@ export function DiffModal({ diff, onClose }: { diff: Diff | null; onClose(): voi
               tracks a `diffSplit` flag and derives a column width from it, but
               nothing reads either — a side-by-side view would be a screen the
               design never specifies. The pair changed only their own highlight,
-              and a control that does not change the render is worse than none. */}
-          <span style={{ flex: 1 }} />
+              and a control that does not change the render is worse than none.
+
+              Removing them, and `open in editor` with them, left the row empty
+              on its left. It is rebalanced around what is left: what the patch
+              IS on the left, the one thing you can DO with it on the right. */}
           <span
             data-testid="diff-hunk-count"
             style={{ color: 'var(--color-neutral-600)', fontSize: '10px', flex: 'none', whiteSpace: 'nowrap' }}
           >
             {hunkLabel(diff.hunks.length)}
           </span>
+          {/* The hunks come from the Edit tool's own old_string/new_string,
+              which carry no position in the file, so the numbers start at 1 and
+              count the snippet. Unsaid, they read as file lines and are wrong. */}
+          <span
+            data-testid="diff-relative-note"
+            style={{ color: 'var(--color-neutral-600)', fontSize: '10px', flex: 'none', whiteSpace: 'nowrap' }}
+          >
+            line numbers are snippet-relative
+          </span>
+          {diff.truncated && (
+            <span
+              data-testid="diff-truncation"
+              style={{
+                color: 'var(--warn)',
+                border: '1px solid var(--warn-edge)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '0 6px',
+                fontSize: '10px',
+                flex: 'none',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {`${shownChangedLines(diff)} of ${diff.added + diff.removed} changed lines shown`}
+            </span>
+          )}
+          <span style={{ flex: 1 }} />
           {/* No "open in editor" beside it: the server exposes select,
               shutdown, agent message/interrupt/stop/respawn, plans, permits
               and history, and none of them can reach an editor. A control that
@@ -381,6 +416,16 @@ export function DiffModal({ diff, onClose }: { diff: Diff | null; onClose(): voi
         >
           <span style={{ flex: 'none', whiteSpace: 'nowrap' }}>esc close</span>
           <span style={{ flex: 'none', whiteSpace: 'nowrap' }}>j/k next change</span>
+          {/* The chip above says the patch is short; this says what that costs
+              you, at the one moment it matters — the button that copies it. */}
+          {diff.truncated && (
+            <span
+              data-testid="diff-truncated-note"
+              style={{ color: 'var(--warn)', flex: 'none', whiteSpace: 'nowrap' }}
+            >
+              the copied patch is incomplete — it will not apply
+            </span>
+          )}
           <span style={{ flex: 1 }} />
           <span style={{ flex: 'none', whiteSpace: 'nowrap' }}>
             the transcript keeps its one line — the patch lives here

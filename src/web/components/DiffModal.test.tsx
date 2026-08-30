@@ -21,6 +21,40 @@ const DIFF: Diff = {
   ],
 };
 
+// Two changed rows survived a 300-line cap on a patch of 350.
+const TRUNCATED: Diff = {
+  ...DIFF,
+  added: 210,
+  removed: 140,
+  truncated: true,
+  hunks: [
+    {
+      header: '@@ -1,10 +1,24 @@',
+      lines: [
+        { sign: ' ', oldLineNo: 1, newLineNo: 1, text: 'const a = 1;' },
+        { sign: '-', oldLineNo: 2, newLineNo: null, text: 'const b = 2;' },
+        { sign: '+', oldLineNo: null, newLineNo: 2, text: 'const b = 3;' },
+      ],
+    },
+  ],
+};
+
+// `flexibleChild` is the one item allowed to shrink below its content —
+// diff-path, which ellipsises instead. Every other non-spacer child must
+// refuse to shrink at all.
+function assertUnshrinkable(testId: string, flexibleChild?: string) {
+  const row = screen.getByTestId(testId);
+  expect(row.style.flexWrap).toBe('');
+  const spacers = [...row.children].filter((c) => (c as HTMLElement).style.flex === '1 1 0%');
+  expect(spacers).toHaveLength(1);
+  for (const child of row.children) {
+    const el = child as HTMLElement;
+    if (el === spacers[0]) continue;
+    if (flexibleChild && el.dataset.testid === flexibleChild) continue;
+    expect([el.textContent, el.style.flex]).toEqual([el.textContent, '0 0 auto']);
+  }
+}
+
 describe('DiffModal', () => {
   it('renders nothing when no diff is open', () => {
     const { container } = render(<DiffModal diff={null} onClose={() => {}} />);
@@ -91,22 +125,6 @@ describe('DiffModal', () => {
   // Every child but the spacer must be unshrinkable; jsdom does no layout, so
   // this is the CSS-level guarantee rather than a measured screenshot.
   describe('header, toolbar and footer never wrap', () => {
-    // `flexibleChild` is the one item allowed to shrink below its content —
-    // diff-path, which ellipsises instead (already covered by its own test
-    // above). Every other non-spacer child must refuse to shrink at all.
-    function assertUnshrinkable(testId: string, flexibleChild?: string) {
-      const row = screen.getByTestId(testId);
-      expect(row.style.flexWrap).toBe('');
-      const spacers = [...row.children].filter((c) => (c as HTMLElement).style.flex === '1 1 0%');
-      expect(spacers).toHaveLength(1);
-      for (const child of row.children) {
-        const el = child as HTMLElement;
-        if (el === spacers[0]) continue;
-        if (flexibleChild && el.dataset.testid === flexibleChild) continue;
-        expect([el.textContent, el.style.flex]).toEqual([el.textContent, '0 0 auto']);
-      }
-    }
-
     it('holds the header to one line', () => {
       render(<DiffModal diff={DIFF} onClose={() => {}} />);
       assertUnshrinkable('diff-header', 'diff-path');
@@ -159,6 +177,71 @@ describe('DiffModal', () => {
       render(<DiffModal diff={DIFF} onClose={() => {}} />);
       expect(screen.queryByTestId('diff-open-editor')).toBeNull();
       expect(screen.getByTestId('diff-toolbar').textContent).not.toContain('open in editor');
+    });
+
+    // With the toggle and `open in editor` gone the row was left with nothing
+    // on its left at all. The design rebalances it: what the patch IS on the
+    // left, the one thing you can DO with it on the right.
+    it('reads left to right: what the patch is, then what you can do with it', () => {
+      render(<DiffModal diff={TRUNCATED} onClose={() => {}} />);
+      const toolbar = screen.getByTestId('diff-toolbar');
+      const ids = [...toolbar.children].map((c) => (c as HTMLElement).dataset.testid);
+      expect(ids).toEqual([
+        'diff-hunk-count',
+        'diff-relative-note',
+        'diff-truncation',
+        undefined, // the spacer
+        'diff-copy',
+      ]);
+    });
+
+    // The numbers come from the Edit tool's own old_string/new_string, which
+    // carry no file position, so they start at 1 and count the snippet. Saying
+    // so is the difference between a number and a wrong number.
+    it('says the line numbers are relative to the snippet', () => {
+      render(<DiffModal diff={DIFF} onClose={() => {}} />);
+      expect(screen.getByTestId('diff-relative-note').textContent).toBe(
+        'line numbers are snippet-relative',
+      );
+    });
+  });
+
+  // Until now `truncated` reached only the copy path: the patch you pasted
+  // announced itself as partial, but nothing on screen did, so the rows just
+  // stopped and `+210 −140` above them looked like a miscount.
+  describe('truncation', () => {
+    it('says nothing at all about truncation on a whole patch', () => {
+      render(<DiffModal diff={DIFF} onClose={() => {}} />);
+      expect(screen.queryByTestId('diff-truncation')).toBeNull();
+      expect(screen.getByTestId('diff-footer').textContent).not.toContain('will not apply');
+    });
+
+    it('counts the shown lines against the whole patch, in the warn colour', () => {
+      render(<DiffModal diff={TRUNCATED} onClose={() => {}} />);
+      const chip = screen.getByTestId('diff-truncation');
+      expect(chip.textContent).toBe('2 of 350 changed lines shown');
+      expect(chip.style.color).toBe('var(--warn)');
+      expect(chip.style.border).toBe('1px solid var(--warn-edge)');
+    });
+
+    // The header stat counts the patch, not the rows, so it can legitimately
+    // exceed what is below it — the chip is what explains the gap.
+    it('leaves the header stat counting the whole patch', () => {
+      render(<DiffModal diff={TRUNCATED} onClose={() => {}} />);
+      expect(screen.getByTestId('diff-stat').textContent).toBe('+210 −140');
+    });
+
+    it('warns in the footer that the copied patch will not apply', () => {
+      render(<DiffModal diff={TRUNCATED} onClose={() => {}} />);
+      const note = screen.getByTestId('diff-truncated-note');
+      expect(note.textContent).toBe('the copied patch is incomplete — it will not apply');
+      expect(note.style.color).toBe('var(--warn)');
+    });
+
+    it('still holds the toolbar and footer to one line when truncated', () => {
+      render(<DiffModal diff={TRUNCATED} onClose={() => {}} />);
+      assertUnshrinkable('diff-toolbar');
+      assertUnshrinkable('diff-footer');
     });
   });
 
@@ -273,7 +356,8 @@ describe('DiffModal', () => {
         expect(gutter.style.textAlign).toBe('right');
         expect(gutter.style.paddingRight).toBe('9px');
         expect(gutter.style.fontSize).toBe('10px');
-        expect(gutter.style.color).toBe('var(--color-neutral-700)');
+        // -700 measured 1.53–2.35:1 against its own gutter tint: a real defect.
+        expect(gutter.style.color).toBe('var(--color-neutral-500)');
         expect(gutter.style.flex).toBe('0 0 auto'); // `flex: none`, as jsdom serialises it
       }
       expect(sign.style.width).toBe('16px');

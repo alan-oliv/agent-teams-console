@@ -16,7 +16,7 @@ import { Portrait } from '../components/Portrait';
 import { StatusGlyph } from '../components/StatusGlyph';
 import { StopControlButton } from '../components/StopButton';
 import { TranscriptFeed } from '../components/TranscriptFeed';
-import { contextBar, costLabel, ctxLabel, pctLabel, warnMark } from '../format';
+import { compactionNote, contextBar, costLabel, ctxLabel, pctLabel, warnMark } from '../format';
 import { COLUMN_WIDTH } from '../state/useTeamState';
 
 // Matches the --terminal-ground token (theme.css); kept literal so the tint
@@ -79,6 +79,19 @@ const Column = memo(function Column({
   isFocused: boolean;
   isTinted: boolean;
   isDragging: boolean;
+  /**
+   * The operator's width, and only the operator's: focus never touches it.
+   *
+   * The design README asks for "a click-to-focus that widens a column", but the
+   * design's own prototype resolved that in favour of the grip — its column is
+   * `widths[name] || 366` and its click handler only sets the selection, with
+   * the same 7px grip, the same 232..720 clamp and the same 366 reset this wall
+   * has. Widening on focus would put two mechanisms on one property: focus is
+   * shared state, set by h/l and ↑/↓ as well as by `?agent=` and by clicking
+   * through from another view, so a keyboard scan would resize every column it
+   * passed and overwrite a width that is persisted per agent. Focus already
+   * reads three ways — the accent inset, the tint, and aria-current.
+   */
   width: number;
   readOnly: boolean;
   teamLive: boolean;
@@ -97,6 +110,7 @@ const Column = memo(function Column({
 }) {
   const status = AGENT_STATUS[agent.status];
   const isLeadColumn = agent.isLead;
+  const compaction = compactionNote(agent.contextTokens, agent.compactAt);
 
   const shadows: string[] = [];
   if (isLeadColumn) shadows.push('1px 0 0 var(--color-neutral-800)', '8px 0 18px rgba(0,0,0,.5)');
@@ -229,6 +243,31 @@ const Column = memo(function Column({
               {costLabel(agent.costUsd)}
             </span>
           </div>
+
+          {/*
+            The other half of the design's context warning, and the only header
+            row that is conditional. It cannot join the meter above it: the bar,
+            percent, token pair and cost already leave barely 30px spare in a
+            default 366px column, so the note would wrap that row onto a second
+            line — and the column drags down to COLUMN_MIN. On its own row it
+            fits at every width, and ellipsises rather than wrapping if it ever
+            does not.
+          */}
+          {compaction && (
+            <div
+              data-testid="wall-compaction"
+              title={compaction}
+              style={{
+                color: 'var(--warn)',
+                fontSize: '10.5px',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {compaction}
+            </div>
+          )}
         </div>
       </div>
 
@@ -353,6 +392,16 @@ export function Wall({
   // real team, so anything ordered after a finished teammate is off-screen. Join
   // order is preserved WITHIN each group — sorting by recency instead would make
   // columns swap places under the operator's cursor every time an agent acted.
+  //
+  // Ordered, never dropped. The design README asks for idle rows to collapse 30s
+  // after the whole team goes idle, but its prototype has no such timer — the
+  // only trace is a line of copy inside a mocked transcript — and the rule as
+  // written empties the wall exactly when the team is idle, taking the lead
+  // column's composer, the console's only send control, off screen at the moment
+  // the operator wants to wake someone. The wall is also where a finished run is
+  // read back. Dimming is the reversible form of the same idea and the one this
+  // console took (DORMANT_OPACITY). The `N idle agents` chip from the same
+  // paragraph IS built — in the footer panel, where the prototype puts it too.
   const ordered = [
     ...(lead ? [lead] : []),
     ...rest.filter((a) => a.status !== 'departed'),

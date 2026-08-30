@@ -2,6 +2,7 @@
 import { cleanup, createEvent, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { FIXTURE_NOW, sampleTeams } from '../test/state-fixture';
+import { WatchContext, type WatchState } from '../state/useWatch';
 import { TeamSelect } from './TeamSelect';
 
 // This suite renders once per `it`; without explicit cleanup the un-unmounted
@@ -38,13 +39,22 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function renderSelect(props: Partial<Parameters<typeof TeamSelect>[0]> = {}) {
+function renderSelect(props: Partial<Parameters<typeof TeamSelect>[0]> = {}, watch: Partial<WatchState> = {}) {
   const onOpenChange = vi.fn();
   const all = { current: 'session-98b0b4a7', open: true, onOpenChange, now: FIXTURE_NOW, ...props };
-  const view = render(<TeamSelect {...all} />);
+  const watchValue: WatchState = { dismissed: false, requestStopWatching: vi.fn(), watchAgain: vi.fn(), ...watch };
+  const view = render(
+    <WatchContext.Provider value={watchValue}>
+      <TeamSelect {...all} />
+    </WatchContext.Provider>,
+  );
   const rerender = (next: Partial<typeof all> = {}) =>
-    view.rerender(<TeamSelect {...all} {...next} />);
-  return { onOpenChange, rerender };
+    view.rerender(
+      <WatchContext.Provider value={watchValue}>
+        <TeamSelect {...all} {...next} />
+      </WatchContext.Provider>,
+    );
+  return { onOpenChange, rerender, watch: watchValue };
 }
 
 const SWITCH_TO_B5 = [
@@ -227,6 +237,58 @@ it('marks the row gone when the team vanished before the click', async () => {
 });
 
 
+it('goes dashed and reads "no session selected" on the trigger once dismissed', () => {
+  renderSelect({ open: false }, { dismissed: true });
+  const trigger = screen.getByTestId('team-trigger');
+  expect(trigger.style.border).toContain('dashed');
+  expect(screen.getByTestId('team-trigger-name').textContent).toBe('no session selected');
+});
+
+it('keeps the normal trigger label and solid border while watching', () => {
+  renderSelect({ open: false });
+  const trigger = screen.getByTestId('team-trigger');
+  expect(trigger.style.border).toContain('solid');
+  expect(screen.getByTestId('team-trigger-name').textContent).toBe('session-98b0b4a7');
+});
+
+it('marks the dismissed session running · not watching instead of live, and drops its checkmark', async () => {
+  renderSelect({}, { dismissed: true });
+  const rows = await screen.findAllByRole('option');
+  expect(within(rows[0]).getByTestId('team-meta').textContent).toContain('running · not watching');
+  expect(within(rows[0]).queryByTestId('team-mark')).toBeNull();
+});
+
+it('offers "stop watching" only on the current row, and only while still watching', async () => {
+  renderSelect();
+  const rows = await screen.findAllByRole('option');
+  expect(within(rows[0]).getByTestId('row-stop-watching')).toBeTruthy();
+  expect(within(rows[1]).queryByTestId('row-stop-watching')).toBeNull();
+});
+
+it('does not offer "stop watching" again once already dismissed', async () => {
+  renderSelect({}, { dismissed: true });
+  const rows = await screen.findAllByRole('option');
+  expect(within(rows[0]).queryByTestId('row-stop-watching')).toBeNull();
+});
+
+it('requests the stop-watching confirmation without switching or closing', async () => {
+  const requestStopWatching = vi.fn();
+  const { onOpenChange } = renderSelect({}, { requestStopWatching });
+  const rows = await screen.findAllByRole('option');
+  fireEvent.click(within(rows[0]).getByTestId('row-stop-watching'));
+  expect(requestStopWatching).toHaveBeenCalled();
+  expect(onOpenChange).not.toHaveBeenCalled();
+});
+
+it('clicking the dismissed current row resumes watching it, instead of a no-op close', async () => {
+  const watchAgain = vi.fn();
+  const { onOpenChange } = renderSelect({}, { dismissed: true, watchAgain });
+  const rows = await screen.findAllByRole('option');
+  fireEvent.click(rows[0]);
+  expect(watchAgain).toHaveBeenCalled();
+  expect(onOpenChange).toHaveBeenCalledWith(false);
+});
+
 it('hides a team whose session has ended — it is history, not a session on this machine', async () => {
   const done = { current: 'session-98b0b4a7', teams: sampleTeams() };
   fetchMock = vi.fn(() => Promise.resolve(new Response(JSON.stringify(done), { status: 200 })));
@@ -237,6 +299,83 @@ it('hides a team whose session has ended — it is history, not a session on thi
   expect(rows).toHaveLength(1);
   expect(within(rows[0]).getByText('session-98b0b4a7')).toBeTruthy();
   expect(screen.getByText('SESSIONS ON THIS MACHINE · 1')).toBeTruthy();
+});
+
+it('opens the sessions menu on ⌘K when it is closed', () => {
+  const { onOpenChange } = renderSelect({ open: false });
+  fireEvent.keyDown(window, { key: 'k', metaKey: true });
+  expect(onOpenChange).toHaveBeenCalledWith(true);
+});
+
+it('focuses the search input once the menu is open', async () => {
+  renderSelect();
+  await screen.findAllByRole('option');
+  expect(document.activeElement).toBe(screen.getByTestId('team-search'));
+});
+
+it('refocuses the search input on ⌘K when the menu is already open', async () => {
+  renderSelect();
+  await screen.findAllByRole('option');
+  const search = screen.getByTestId('team-search');
+  search.blur();
+  expect(document.activeElement).not.toBe(search);
+
+  fireEvent.keyDown(window, { key: 'k', metaKey: true });
+  expect(document.activeElement).toBe(search);
+});
+
+it('filters rows by name, goal, and branch as the operator types', async () => {
+  renderSelect();
+  await screen.findAllByRole('option');
+  const search = screen.getByTestId('team-search');
+
+  fireEvent.change(search, { target: { value: 'main' } });
+  expect(screen.getAllByRole('option').map((r) => r.id)).toEqual(['team-option-session-b5129c7b']);
+
+  fireEvent.change(search, { target: { value: 'console' } });
+  expect(screen.getAllByRole('option').map((r) => r.id)).toEqual(['team-option-session-98b0b4a7']);
+
+  fireEvent.change(search, { target: { value: 'engine' } });
+  expect(screen.getAllByRole('option').map((r) => r.id)).toEqual(['team-option-session-98b0b4a7']);
+});
+
+it('moves the cursor within the filtered rows, not the full list', async () => {
+  renderSelect();
+  await screen.findAllByRole('option');
+  const list = screen.getByRole('listbox', { name: 'teams' });
+  const search = screen.getByTestId('team-search');
+
+  fireEvent.change(search, { target: { value: 'session-b5' } });
+  expect(list.getAttribute('aria-activedescendant')).toBe('team-option-session-b5129c7b');
+
+  // Only one row matches, so the cursor cannot move past it.
+  fireEvent.keyDown(list, { key: 'ArrowDown' });
+  expect(list.getAttribute('aria-activedescendant')).toBe('team-option-session-b5129c7b');
+});
+
+it('says so when the filter matches nothing', async () => {
+  renderSelect();
+  await screen.findAllByRole('option');
+  fireEvent.change(screen.getByTestId('team-search'), { target: { value: 'nonexistent-zzz' } });
+  expect(await screen.findByText('no matches')).toBeTruthy();
+});
+
+it('clears the filter on escape before closing the menu', async () => {
+  const { onOpenChange } = renderSelect();
+  await screen.findAllByRole('option');
+  const list = screen.getByRole('listbox', { name: 'teams' });
+  const search = screen.getByTestId('team-search') as HTMLInputElement;
+
+  fireEvent.change(search, { target: { value: 'main' } });
+  expect(screen.getAllByRole('option')).toHaveLength(1);
+
+  fireEvent.keyDown(list, { key: 'Escape' });
+  expect(onOpenChange).not.toHaveBeenCalled();
+  expect(search.value).toBe('');
+  expect(await screen.findAllByRole('option')).toHaveLength(2);
+
+  fireEvent.keyDown(list, { key: 'Escape' });
+  expect(onOpenChange).toHaveBeenCalledWith(false);
 });
 
 it('keeps the ended team that is being VIEWED, so the picker cannot contradict the wall', async () => {

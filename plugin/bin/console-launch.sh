@@ -38,6 +38,21 @@ session=$(printf '%s' "$payload" \
   | head -1)
 [ -n "$session" ] || bail
 
+# A workflow is NOT the Agent tool — it is a tool called `Workflow` — so the
+# Agent matcher below never fires for one and its `tool_input.name` gate is
+# never even reached. A run also creates no team, so the member-count gate
+# would refuse it too. Both gates are therefore skipped for a workflow, and
+# the console is pointed at the SESSION instead of at a team.
+tool=$(printf '%s' "$payload" \
+  | sed -n 's/.*"tool_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+  | head -1)
+workflow=0
+if [ "$tool" = "Workflow" ]; then
+  case "$event" in
+    PreToolUse | PostToolUse) workflow=1 ;;
+  esac
+fi
+
 # Resolve the team this session belongs to, in order of preference:
 #   1. A team whose config.json already names this session as leadSessionId.
 #   2. `/branch` gives the forked session a brand new id but never touches
@@ -150,6 +165,7 @@ if [ -z "$team" ] && [ -f "$CLAUDE_DIR/teams/session-$short/config.json" ]; then
 fi
 [ -n "$team" ] || team=$(find_team_by_cwd || true)
 
+if [ "$workflow" = 0 ]; then
 case "$event" in
   PreToolUse)
     # tool_input is a nested object whose description/prompt fields can hold
@@ -184,6 +200,7 @@ case "$event" in
     bail
     ;;
 esac
+fi
 
 # Start the server if it is not already answering.
 if ! curl -sf -m 1 "$HEALTH" >/dev/null 2>&1; then
@@ -195,6 +212,9 @@ if ! curl -sf -m 1 "$HEALTH" >/dev/null 2>&1; then
     # no team discovers it and follows the real one as it appears.
     set -- --port "$PORT"
     [ -n "$team" ] && set -- "$@" --team "$team"
+    # A session that only ran workflows has no config.json to discover, so
+    # this is the only thing that scopes its runs. Harmless alongside --team.
+    [ "$workflow" = 1 ] && set -- "$@" --session "$session"
     if [ -f "$ROOT/dist/server/index.js" ]; then
       nohup node "$ROOT/dist/server/index.js" "$@" \
         >>"$CLAUDE_DIR/agent-teams-console.log" 2>&1 &
@@ -231,6 +251,8 @@ mkdir -p "$markerdir" 2>/dev/null
 # console itself rather than to `?team=` a name we made up.
 if [ -n "$team" ]; then
   printf '{"systemMessage":"Agent teams console → http://127.0.0.1:%s/?team=%s"}\n' "$PORT" "$team"
+elif [ "$workflow" = 1 ]; then
+  printf '{"systemMessage":"Workflow console → http://127.0.0.1:%s/"}\n' "$PORT"
 else
   printf '{"systemMessage":"Agent teams console → http://127.0.0.1:%s/"}\n' "$PORT"
 fi

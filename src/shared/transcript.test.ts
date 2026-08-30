@@ -80,10 +80,15 @@ describe('parseLine', () => {
 });
 
 describe('toTranscriptLines', () => {
-  it('maps the spawn prompt to a ❯ line with the teammate-message wrapper stripped', () => {
+  // The marker draws authorship, not shape: `❯` is what the operator typed and
+  // reaches the projection bare, `✉` is what another agent sent. A spawn prompt
+  // arrives in the same envelope as any other message, so it is attributed to
+  // whoever spawned the agent rather than left an anonymous prompt.
+  it('maps the spawn prompt to an attributed ✉ line with the wrapper stripped', () => {
     const lines = toTranscriptLines(records[0]);
     expect(lines).toHaveLength(1);
-    expect(lines[0].marker).toBe('❯');
+    expect(lines[0].marker).toBe('✉');
+    expect(lines[0].sender).toBe('team-lead');
     expect(lines[0].id).toBe('d2908088-b2ed-4344-bb3c-ee08e9366306#0');
     expect(lines[0].ts).toBe(1787843382986);
     expect(lines[0].text.startsWith('You are a throwaway probe for a 2-minute data-capture spike.')).toBe(true);
@@ -192,6 +197,7 @@ describe('toTranscriptLines', () => {
     };
     expect(frames[2].includes('idle_notification')).toBe(true);
     expect(toTranscriptLines(idle)[0].marker).toBe('○');
+    expect(toTranscriptLines(idle)[0].sender).toBe('probe-charlie');
     expect(toTranscriptLines(idle)[0].ts).toBe(1787843537951);
 
     const plan: TranscriptRecord = {
@@ -205,11 +211,14 @@ describe('toTranscriptLines', () => {
       },
     };
     expect(toTranscriptLines(plan)[0].marker).toBe('▲');
+    expect(toTranscriptLines(plan)[0].sender).toBe('probe-alpha');
   });
 
   // Every real delivery opens with a preamble line and carries several frames,
   // so an anchored strip matches neither end and the tags render as body text.
-  it('unwraps teammate frames that arrive inside surrounding prose', () => {
+  // The frames are also from DIFFERENT teammates, which is why each one takes a
+  // row of its own: a single row could not say who any of it came from.
+  it('gives each frame arriving inside surrounding prose its own attributed row', () => {
     const rec: TranscriptRecord = {
       type: 'user',
       uuid: 'e1',
@@ -219,12 +228,65 @@ describe('toTranscriptLines', () => {
         content: `Another Claude session sent a message:\n${frames[0]}\n\n${frames[1]}\n\nReply when you have read this.`,
       },
     };
-    const { text } = toTranscriptLines(rec)[0];
-    expect(text).not.toMatch(/teammate-message/);
-    expect(text.startsWith('Another Claude session sent a message:')).toBe(true);
-    expect(text.endsWith('Reply when you have read this.')).toBe(true);
-    expect(text).toContain('probe-charlie reporting: running on a different model');
-    expect(text).toContain('probe-alpha reporting: I claimed task 1.');
+    const lines = toTranscriptLines(rec);
+    for (const line of lines) expect(line.text).not.toMatch(/teammate-message/);
+    expect(lines.map((l) => [l.marker, l.sender])).toEqual([
+      ['❯', undefined],
+      ['✉', 'probe-charlie'],
+      ['✉', 'probe-alpha'],
+      ['❯', undefined],
+    ]);
+    expect(lines[0].text).toBe('Another Claude session sent a message:');
+    expect(lines[1].text).toBe(
+      'probe-charlie reporting: running on a different model so the console can prove per-agent model resolution.',
+    );
+    expect(lines[2].text).toBe('probe-alpha reporting: I claimed task 1. This is spike traffic.');
+    expect(lines[3].text).toBe('Reply when you have read this.');
+  });
+
+  it('attributes all six messages of the real batched delivery', () => {
+    const rec: TranscriptRecord = {
+      type: 'user',
+      uuid: 'e3',
+      timestamp: '2026-08-27T15:12:17.951Z',
+      message: { role: 'user', content: `Another Claude session sent a message:\n${frames.join('\n\n')}` },
+    };
+    const delivered = toTranscriptLines(rec).filter((l) => l.sender !== undefined);
+    expect(delivered.map((l) => l.sender)).toEqual([
+      'probe-charlie', 'probe-alpha', 'probe-charlie', 'probe-bravo', 'probe-alpha', 'probe-bravo',
+    ]);
+    // Ids stay unique and ordered within the record, so the expansion path can
+    // still address a row by its index.
+    expect(new Set(toTranscriptLines(rec).map((l) => l.id)).size).toBe(toTranscriptLines(rec).length);
+  });
+
+  // The other half of the same rule: content that arrives with no envelope is
+  // the operator's own typing, and it stays an unattributed prompt.
+  it('leaves unenveloped content an unattributed prompt', () => {
+    const rec: TranscriptRecord = {
+      type: 'user',
+      uuid: 'e5',
+      timestamp: '2026-08-27T15:12:17.951Z',
+      message: { role: 'user', content: 'run the capture spike' },
+    };
+    expect(toTranscriptLines(rec)).toEqual([
+      { id: 'e5#0', marker: '❯', text: 'run the capture spike', ts: 1787843537951 },
+    ]);
+  });
+
+  // Inside a delivery a protocol frame keeps the marker that says what it wants
+  // from the operator; ✉ only replaces the ❯ an ordinary message would get.
+  it('keeps a protocol frame\'s own marker inside a delivery, but attributes it', () => {
+    const rec: TranscriptRecord = {
+      type: 'user',
+      uuid: 'e4',
+      timestamp: '2026-08-27T15:12:17.951Z',
+      message: { role: 'user', content: `mail:\n${frames[2]}\n\n${frames[3]}` },
+    };
+    expect(frames[2].includes('idle_notification')).toBe(true);
+    const lines = toTranscriptLines(rec);
+    expect(lines[1]).toMatchObject({ marker: '○', sender: 'probe-charlie' });
+    expect(lines[2]).toMatchObject({ marker: '✉', sender: 'probe-bravo' });
   });
 
   // A teammate reporting a type indents it rather than fencing it, and the
@@ -250,7 +312,10 @@ describe('toTranscriptLines', () => {
         ].join('\n'),
       },
     };
-    const { text } = toTranscriptLines(rec)[0];
+    // Row 0 is the preamble prose; row 1 is the message the teammate sent.
+    const line = toTranscriptLines(rec)[1];
+    expect(line.sender).toBe('domain');
+    const { text } = line;
     expect(text).toContain('\n  export interface Diff {\n');
     expect(text).toContain('\n    path: string;\n');
 
@@ -264,11 +329,16 @@ describe('toTranscriptLines', () => {
     });
   });
 
-  it('maps a delivered task_assignment frame to ❯', () => {
+  // Two frames, two senders, no prose between them: the row this used to
+  // collapse into named neither teammate.
+  it('splits a real two-sender delivery into two attributed rows', () => {
     const lines = toTranscriptLines(records[22]);
-    expect(lines).toHaveLength(1);
-    expect(lines[0].marker).toBe('❯');
+    expect(lines).toHaveLength(2);
+    expect(lines[0].marker).toBe('✉');
+    expect(lines[0].sender).toBe('probe-alpha');
     expect(lines[0].text.startsWith('{"type":"task_assignment"')).toBe(true);
+    expect(lines[1].marker).toBe('✉');
+    expect(lines[1].sender).toBe('probe-bravo');
   });
 
   it('emits nothing for attachments and empty thinking blocks', () => {
