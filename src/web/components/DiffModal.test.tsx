@@ -87,27 +87,18 @@ describe('DiffModal', () => {
   });
 
   describe('toolbar', () => {
-    it('starts on unified, styled as the active segment', () => {
+    // The prototype tracks `diffSplit` and computes a width from it, but no
+    // markup ever reads it — there is no side-by-side layout to build against,
+    // and inventing one is a screen the design does not specify. The toggle
+    // changed only its own highlight, which the design rates as worse than
+    // absent. It comes back with a real spec or not at all.
+    it('offers no layout toggle, having only one layout', () => {
       render(<DiffModal diff={DIFF} onClose={() => {}} />);
-      const unified = screen.getByTestId('diff-layout-unified');
-      const split = screen.getByTestId('diff-layout-split');
-      expect(unified.style.color).toBe('var(--color-accent-300)');
-      expect(unified.style.background).toBe('var(--color-accent-900)');
-      expect(split.style.color).toBe('var(--color-neutral-500)');
-      expect(split.style.background).toBe('transparent');
-      for (const seg of [unified, split]) {
-        expect(seg.style.boxShadow).toBe('inset 0 0 0 1px var(--color-neutral-800)');
-      }
-    });
-
-    it('holds its own active segment on click, without rendering anything different', () => {
-      render(<DiffModal diff={DIFF} onClose={() => {}} />);
-      const before = screen.getByTestId('diff-body').innerHTML;
-      fireEvent.click(screen.getByTestId('diff-layout-split'));
-      expect(screen.getByTestId('diff-layout-split').style.color).toBe('var(--color-accent-300)');
-      expect(screen.getByTestId('diff-layout-unified').style.color).toBe('var(--color-neutral-500)');
-      // The segment is still cosmetic: task #8 decides what split renders.
-      expect(screen.getByTestId('diff-body').innerHTML).toBe(before);
+      expect(screen.queryByTestId('diff-layout-unified')).toBeNull();
+      expect(screen.queryByTestId('diff-layout-split')).toBeNull();
+      const toolbar = screen.getByTestId('diff-toolbar');
+      expect(toolbar.textContent).not.toContain('unified');
+      expect(toolbar.textContent).not.toContain('split');
     });
 
     it('counts the hunks, pluralising past one', () => {

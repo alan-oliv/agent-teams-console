@@ -2,8 +2,6 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSPr
 import type { Diff, DiffHunk, DiffLine } from '../../shared/domain';
 import { clockLabel, diffStat } from '../format';
 
-type Layout = 'unified' | 'split';
-
 const GUTTER_W = 44;
 const SIGN_W = 16;
 
@@ -86,15 +84,6 @@ function HunkRow({ line }: { line: DiffLine }) {
   );
 }
 
-const SEGMENT: CSSProperties = {
-  cursor: 'pointer',
-  fontSize: '10.5px',
-  padding: '2px 9px',
-  borderRadius: 'var(--radius-sm)',
-  boxShadow: 'inset 0 0 0 1px var(--color-neutral-800)',
-  border: 'none',
-};
-
 const OUTLINE_ACTION: CSSProperties = {
   borderRadius: 'var(--radius-sm)',
   padding: '1px 8px',
@@ -167,7 +156,6 @@ function metaLabel(diff: Diff): string {
  * tint colours.
  */
 export function DiffModal({ diff, onClose }: { diff: Diff | null; onClose(): void }) {
-  const [layout, setLayout] = useState<Layout>('unified');
   const [closeHover, setCloseHover] = useState(false);
   const body = useRef<HTMLDivElement>(null);
   const runs = useMemo(() => (diff ? changeRuns(diff.hunks) : []), [diff]);
@@ -312,32 +300,11 @@ export function DiffModal({ diff, onClose }: { diff: Diff | null; onClose(): voi
             flex: 'none',
           }}
         >
-          <button
-            type="button"
-            data-testid="diff-layout-unified"
-            aria-pressed={layout === 'unified'}
-            onClick={() => setLayout('unified')}
-            style={{
-              ...SEGMENT,
-              color: layout === 'unified' ? 'var(--color-accent-300)' : 'var(--color-neutral-500)',
-              background: layout === 'unified' ? 'var(--color-accent-900)' : 'transparent',
-            }}
-          >
-            unified
-          </button>
-          <button
-            type="button"
-            data-testid="diff-layout-split"
-            aria-pressed={layout === 'split'}
-            onClick={() => setLayout('split')}
-            style={{
-              ...SEGMENT,
-              color: layout === 'split' ? 'var(--color-accent-300)' : 'var(--color-neutral-500)',
-              background: layout === 'split' ? 'var(--color-accent-900)' : 'transparent',
-            }}
-          >
-            split
-          </button>
+          {/* No unified/split segments: there is one layout. The prototype
+              tracks a `diffSplit` flag and derives a column width from it, but
+              nothing reads either — a side-by-side view would be a screen the
+              design never specifies. The pair changed only their own highlight,
+              and a control that does not change the render is worse than none. */}
           <span style={{ flex: 1 }} />
           <span data-testid="diff-hunk-count" style={{ color: 'var(--color-neutral-600)', fontSize: '10px' }}>
             {hunkLabel(diff.hunks.length)}
