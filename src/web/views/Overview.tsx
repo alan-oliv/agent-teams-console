@@ -1,6 +1,8 @@
 import { memo, useCallback, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import type { Agent } from '../../shared/domain';
+import { wallOrder } from '../../shared/roster';
 import { AGENT_STATUS, DORMANT_OPACITY, isDormant } from '../../shared/status';
+import { useCast } from '../state/useCast';
 import { Elapsed, NowContext } from '../components/Elapsed';
 import { Portrait } from '../components/Portrait';
 import { StatusGlyph } from '../components/StatusGlyph';
@@ -38,6 +40,9 @@ const Tile = memo(function Tile({
     cursor: 'pointer',
     opacity: isDormant(agent.status) ? DORMANT_OPACITY : 1,
   };
+
+  // Display only — focus still carries the real name.
+  const display = useCast().asChar(agent.name).display;
 
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     if (e.target !== e.currentTarget) return;
@@ -77,7 +82,7 @@ const Tile = memo(function Tile({
                 data-testid="overview-name"
                 style={{ color: 'var(--color-text)', fontWeight: 500, fontSize: '12px' }}
               >
-                {agent.name}
+                {display}
               </span>
             </div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
@@ -99,7 +104,7 @@ const Tile = memo(function Tile({
                 data-testid="overview-model"
                 style={{
                   flex: 'none',
-                  color: 'var(--color-neutral-700)',
+                  color: 'var(--color-neutral-600)',
                   fontSize: '10.5px',
                   whiteSpace: 'nowrap',
                 }}
@@ -184,8 +189,9 @@ export function Overview({
       data-testid="overview"
       style={{ flex: 1, display: 'flex', gap: '1px', background: 'var(--color-neutral-900)', minHeight: 0 }}
     >
+      {/* The overview is the wall condensed, so it walks the same roster order. */}
       <NowContext value={now}>
-        {agents.map((agent) => (
+        {wallOrder(agents).map((agent) => (
           <Tile
             key={agent.name}
             agent={agent}

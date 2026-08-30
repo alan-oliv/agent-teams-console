@@ -334,7 +334,9 @@ it('asks before stopping, and sends nothing until the operator confirms', () => 
   fireEvent.click(stopButtons()[ALPHA]);
 
   expect(screen.getByTestId('stop-confirm')).toBeTruthy();
-  expect(screen.getByTestId('stop-confirm-go').textContent).toBe('stop probe-alpha');
+  // probe-alpha is idle in this fixture, so #31's idle-last order seats
+  // probe-bravo (the only working teammate) in the second column instead.
+  expect(screen.getByTestId('stop-confirm-go').textContent).toBe('stop probe-bravo');
   expect(fetchMock).not.toHaveBeenCalled();
 });
 
@@ -346,7 +348,7 @@ it('sends the stop only for the confirmed teammate', () => {
   fireEvent.click(stopButtons()[ALPHA]);
   fireEvent.click(screen.getByTestId('stop-confirm-go'));
 
-  expect(fetchMock.mock.calls.map((c) => c[0])).toEqual(['/api/agents/probe-alpha/stop']);
+  expect(fetchMock.mock.calls.map((c) => c[0])).toEqual(['/api/agents/probe-bravo/stop']);
   expect(screen.queryByTestId('stop-confirm')).toBeNull();
 });
 
@@ -392,7 +394,8 @@ it('x opens the same confirmation rather than stopping outright', () => {
   fireEvent.click(screen.getAllByTestId('wall-column')[ALPHA]);
   fireEvent.keyDown(window, { key: 'x' });
 
-  expect(screen.getByTestId('stop-confirm-go').textContent).toBe('stop probe-alpha');
+  // probe-alpha is idle in this fixture, so #31 seats probe-bravo here instead.
+  expect(screen.getByTestId('stop-confirm-go').textContent).toBe('stop probe-bravo');
   expect(fetchMock).not.toHaveBeenCalled();
 });
 
@@ -550,7 +553,9 @@ it('lists the other live sessions on the machine and switches to one on click', 
               current: 'session-98b0b4a7',
               teams: [
                 sampleTeams()[0],
-                { ...sampleTeams()[1], state: 'idle' as const, current: false },
+                // A real team: the ELSEWHERE list offers only what the picker
+                // would let you switch to, and a lead-only session is not that.
+                { ...sampleTeams()[1], members: 3, state: 'idle' as const, current: false },
               ],
             }),
             { status: 200 },
@@ -599,9 +604,13 @@ it('draws workflow mode instead of the team shell when the frame says so', () =>
     }),
   );
 
-  expect(screen.getByTestId('wf-wordmark').textContent).toBe('RUN');
+  expect(screen.getByTestId('bar-wordmark').textContent).toBe('RUN');
   expect(screen.getByTestId('workflow-run')).toBeTruthy();
   expect(screen.queryByText('NEEDS YOU · 0')).toBeNull();
+  // The shell is the shared one, so the way out of a run and the way to the
+  // theme are both still on screen.
+  expect(screen.getByTestId('team-trigger')).toBeTruthy();
+  expect(screen.getByTestId('config-trigger')).toBeTruthy();
 });
 
 // A roster always wins, so nothing about workflow mode can regress team mode.
@@ -611,8 +620,87 @@ it('stays in the team shell when a roster exists, runs or not', () => {
     MockEventSource.last().emit('snapshot', { ...sampleTeamState(), mode: 'team', workflows: [] }),
   );
 
-  expect(screen.queryByTestId('wf-wordmark')).toBeNull();
+  expect(screen.getByTestId('bar-wordmark').textContent).toBe('TEAM');
   expect(screen.getByText('NEEDS YOU · 0')).toBeTruthy();
+});
+
+const RUNS = [
+  {
+    runId: 'wf_newer',
+    name: 'team-selector',
+    status: 'completed' as const,
+    live: false,
+    startedAt: 1_000_000,
+    durationMs: 60_000,
+    logs: [],
+    phases: [{ index: 1, title: 'Build' }],
+    agents: [{ agentId: 'a1', label: 'impl:task-9', phaseIndex: 1, state: 'done' as const }],
+  },
+  {
+    runId: 'wf_older',
+    name: 'first-pass',
+    status: 'failed' as const,
+    live: false,
+    startedAt: 500_000,
+    durationMs: 30_000,
+    logs: [],
+    phases: [],
+    agents: [],
+  },
+];
+
+// modeOf gives a team the mode whenever there is one, so a workflow launched
+// beside a live team was ingested and held on the frame and never drawable. The
+// selection is the client's override of that.
+it('draws the run named in the URL even when the frame says team', () => {
+  window.history.replaceState(null, '', '/?view=wall&run=wf_older');
+  render(<App />);
+  act(() =>
+    MockEventSource.last().emit('snapshot', {
+      ...sampleTeamState(),
+      mode: 'team',
+      workflows: RUNS,
+    }),
+  );
+
+  expect(screen.getByTestId('bar-wordmark').textContent).toBe('RUN');
+  expect(screen.getByTestId('wf-identity').textContent).toContain('first-pass');
+});
+
+it('goes back to the team the run was running beside', () => {
+  window.history.replaceState(null, '', '/?view=wall&run=wf_older');
+  render(<App />);
+  act(() =>
+    MockEventSource.last().emit('snapshot', {
+      ...sampleTeamState(),
+      mode: 'team',
+      workflows: RUNS,
+    }),
+  );
+
+  fireEvent.click(screen.getByTestId('run-trigger'));
+  fireEvent.click(screen.getByTestId('run-back-to-team'));
+  expect(screen.getByTestId('bar-wordmark').textContent).toBe('TEAM');
+  expect(window.location.search).not.toContain('run=');
+});
+
+it('opens the newest run from the team bar, and switches runs from the run bar', () => {
+  render(<App />);
+  act(() =>
+    MockEventSource.last().emit('snapshot', {
+      ...sampleTeamState(),
+      mode: 'team',
+      workflows: RUNS,
+    }),
+  );
+
+  fireEvent.click(screen.getByTestId('runs-chip'));
+  expect(screen.getByTestId('wf-identity').textContent).toContain('team-selector');
+
+  fireEvent.click(screen.getByTestId('run-trigger'));
+  fireEvent.click(screen.getAllByTestId('run-option')[1]);
+  expect(screen.getByTestId('wf-identity').textContent).toContain('first-pass');
+  expect(window.location.search).toContain('run=wf_older');
 });
 
 async function openAndHideCurrent() {
@@ -667,4 +755,64 @@ it('remembers hidden sessions across a reload, per browser', async () => {
   render(<App />);
   act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
   expect(screen.getByTestId('no-sessions')).toBeTruthy();
+});
+
+/** current + one real team, one lead-only session, one finished team. */
+function stubMixedFetch() {
+  const [current, other] = sampleTeams();
+  const teams = [
+    current,
+    { ...other, name: 'session-real0002', members: 3, state: 'live' as const, live: true },
+    { ...other, name: 'session-solo0003', members: 1, state: 'live' as const, live: true },
+    { ...other, name: 'session-done0004', members: 3, state: 'done' as const, live: false },
+  ];
+  const fetchMock = vi.fn((path: string) =>
+    path === '/api/teams'
+      ? Promise.resolve(
+          new Response(JSON.stringify({ current: 'session-98b0b4a7', teams }), { status: 200 }),
+        )
+      : Promise.resolve(new Response('{}', { status: 200 })),
+  );
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
+}
+
+// The reveal used to live inside the picker, so this screen could only count
+// the ✕-hidden rows — and hiding the last one was a one-way door.
+it('counts the lead-only sessions the picker drops as well as the hidden one', async () => {
+  stubTeamsFetch();
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+  await openAndHideCurrent();
+
+  // The session just hidden, plus the lead-only one the picker never offers.
+  expect(await screen.findByText('2 not shown')).toBeTruthy();
+});
+
+// One filter, or the two screens contradict each other: hidden and lead-only
+// sessions were one-click destinations on one and absent on the other.
+it('offers the same sessions on both empty screens — no hidden, no lead-only', async () => {
+  stubMixedFetch();
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+  await openAndStopWatching();
+
+  const rows = await screen.findAllByTestId('left-session-elsewhere-row');
+  const named = rows.map((r) => r.textContent ?? '');
+  expect(named.some((t) => t.includes('session-solo0003'))).toBe(false);
+  expect(named.some((t) => t.includes('session-real0002'))).toBe(true);
+});
+
+// Paging back into a session that has finished is what the picker is for, so
+// the screens that list sessions must not quietly drop the finished ones.
+it('keeps a finished session in the list you can page back into', async () => {
+  stubMixedFetch();
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+  await openAndStopWatching();
+
+  const rows = await screen.findAllByTestId('left-session-elsewhere-row');
+  expect(rows.map((r) => r.textContent ?? '').some((t) => t.includes('session-done0004'))).toBe(
+    true,
+  );
 });

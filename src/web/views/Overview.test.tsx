@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { FIXTURE_NOW, fixtureAgents, padAgents } from '../agents.fixture';
 import { Overview } from './Overview';
+import { buildCast } from '../../shared/cast';
+import { CastContext } from '../state/useCast';
 
 afterEach(cleanup);
 
@@ -45,7 +47,7 @@ describe('Overview', () => {
     expect(alpha.getByTestId('overview-type').textContent).toBe('general-purpose');
     expect(alpha.getByTestId('overview-model').textContent).toBe('claude-opus-5');
     expect(alpha.getByTestId('overview-model').style.fontSize).toBe('10.5px');
-    expect(alpha.getByTestId('overview-model').style.color).toBe('var(--color-neutral-700)');
+    expect(alpha.getByTestId('overview-model').style.color).toBe('var(--color-neutral-600)');
     expect(alpha.getByTestId('overview-pct').textContent).toBe('3%');
     expect(alpha.getByTestId('overview-status').style.fontSize).toBe('');
     expect(alpha.getByTestId('overview-status-row').style.justifyContent).toBe('space-between');
@@ -113,6 +115,21 @@ describe('Overview', () => {
     const alpha = tiles.find((t) => within(t).getByTestId('overview-name').textContent === 'probe-alpha')!;
     expect(alpha.style.opacity).toBe('1');
   });
+
+  it('pins the lead leftmost and puts departed agents last, same as the wall', () => {
+    const [lead, alpha, bravo, charlie] = four;
+    const withDepartedMidRoster = [
+      { ...alpha, status: 'departed' as const },
+      bravo,
+      lead,
+      charlie,
+    ];
+    render(<Overview agents={withDepartedMidRoster} focused={null} onFocus={vi.fn()} now={FIXTURE_NOW} />);
+    const names = screen
+      .getAllByTestId('overview-tile')
+      .map((t) => within(t).getByTestId('overview-name').textContent);
+    expect(names).toEqual(['team-lead', 'probe-bravo', 'probe-charlie', 'probe-alpha']);
+  });
 });
 
 describe('Overview tile memoisation', () => {
@@ -148,4 +165,19 @@ describe('Overview tile memoisation', () => {
     rerender(<Overview agents={changed} focused={null} onFocus={onFocus} now={FIXTURE_NOW} />);
     expect(feed.renders).toBe(1);
   });
+});
+
+// One cast feeds every view: the same agent is the same character here as on
+// the wall, and the tile still routes by the real name.
+it('draws the character on a themed tile, and focuses the real name', () => {
+  const onFocus = vi.fn();
+  const agents = fixtureAgents();
+  render(
+    <CastContext.Provider value={buildCast(agents, 'inception')}>
+      <Overview agents={agents} focused={null} onFocus={onFocus} now={FIXTURE_NOW} />
+    </CastContext.Provider>,
+  );
+  expect(screen.getAllByTestId('overview-name')[0].textContent).toBe('Cobb');
+  fireEvent.click(screen.getAllByTestId('overview-tile')[0]);
+  expect(onFocus).toHaveBeenCalledWith('team-lead');
 });

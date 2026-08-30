@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { TeamSummary, TeamsResponse } from '../../shared/domain';
 import { postJson } from '../api';
-import { formatElapsed } from '../format';
+import { diffStat, formatElapsed } from '../format';
+import { useCast } from '../state/useCast';
+import { isEmptySession, isNotShown } from '../state/useHiddenSessions';
 import { useWatch } from '../state/useWatch';
 
 // Derived, not chosen: 2 border + 12 padding + 120.03 ("session-" + 8 hex at the
@@ -9,7 +11,9 @@ import { useWatch } from '../state/useWatch';
 // of shoving the view switcher sideways on the operator's own click.
 const TRIGGER_WIDTH = '146px';
 
-const PANEL_WIDTH = '432px';
+// Ruling 14. The reconcile turned each row into two lines — name over id,
+// branch and diffstat — and that anatomy was sized for 520; 432 predates it.
+const PANEL_WIDTH = '520px';
 
 // `●` live / `○` idle / `✓` ended, per the handoff.
 const STATE_GLYPH = { live: '\u25cf', idle: '\u25cb', done: '\u2713' } as const;
@@ -61,6 +65,9 @@ export interface TeamSelectProps {
 }
 
 export function TeamSelect({ current, sessionName, open, onOpenChange, now }: TeamSelectProps) {
+  // The in-world team name, and the only place it appears: the session id below
+  // it, the listing, the URL and every select call stay real.
+  const inWorld = useCast().theme.team;
   const watch = useWatch();
   const [teams, setTeams] = useState<TeamSummary[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -68,9 +75,6 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
   const [cursor, setCursor] = useState(0);
   const [mark, setMark] = useState<Mark | null>(null);
   const [query, setQuery] = useState('');
-  // Reveals the rows filtered out for having no team. Local and per-open rather
-  // than persisted: unlike hiding, this is not a preference the operator set.
-  const [revealed, setRevealed] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const wrapper = useRef<HTMLDivElement>(null);
@@ -175,14 +179,19 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
   // what makes a team — the same bar the launcher uses to decide whether to
   // start at all — so anything under it is listed as not-shown rather than
   // offered as somewhere to switch to.
-  const isLeadOnly = (t: TeamSummary) => t.members < 2;
+  //
+  // Except when a workflow is what that session is doing. A workflow's agents
+  // never enter members[], so the session running one has a roster of one and
+  // is indistinguishable from an empty window on every other field — and
+  // switching to it is exactly how the console gets into workflow mode. Only
+  // the run makes the difference, so only `isEmptySession` filters.
+  const runOf = (t: TeamSummary) => (t.members < 2 ? t.workflow : undefined);
   const listed = (teams ?? []).filter((t) => t.state !== 'done' || t.current);
   // No `|| t.current` exception here, unlike the `done` filter above: this is a
   // TEAM picker, so a lead-only session is not a row in it even when it is the
   // one on screen. There is no wall to contradict in that case — the body is the
   // empty state — and the trigger still names where you are.
-  const filteredOut = (t: TeamSummary) =>
-    watch.hidden.has(t.name) || (!revealed && isLeadOnly(t));
+  const filteredOut = (t: TeamSummary) => isNotShown(t, watch.hidden, watch.revealed);
   const rows = listed.filter((t) => !filteredOut(t));
   const notShown = listed.filter(filteredOut);
   const hiddenCount = notShown.length;
@@ -194,10 +203,11 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
    * thing revealing them was meant to explain, not to hand you a way back into.
    * So they render, and the keyboard cursor and Enter skip them entirely.
    *
-   * The header count follows the same line: it says TEAMS, so it counts teams.
+   * The header count follows the same line: it says TEAMS, so it counts teams
+   * — and a workflow session, being somewhere you can go, counts with them.
    */
-  const selectable = filteredRows.filter((t) => !isLeadOnly(t));
-  const teamCount = rows.filter((t) => !isLeadOnly(t)).length;
+  const selectable = filteredRows.filter((t) => !isEmptySession(t));
+  const teamCount = rows.filter((t) => !isEmptySession(t)).length;
   const cursorTeam = selectable[Math.min(cursor, selectable.length - 1)];
 
   function onListKeyDown(e: KeyboardEvent<HTMLDivElement>) {
@@ -247,7 +257,11 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
           display: 'flex',
           alignItems: 'baseline',
           gap: 7,
-          width: TRIGGER_WIDTH,
+          // The chip is added width, so the trigger grows by it and the bar
+          // sheds a metric to pay — measured in the longest team-name state,
+          // because the alternative is the session id being squeezed out by
+          // decoration.
+          ...(inWorld ? { minWidth: TRIGGER_WIDTH } : { width: TRIGGER_WIDTH }),
           flex: 'none',
           whiteSpace: 'nowrap',
           padding: '3px 8px',
@@ -268,6 +282,22 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
         >
           {watch.dismissed ? 'no session selected' : (sessionName ?? current)}
         </span>
+        {inWorld && !watch.dismissed && (
+          <span
+            data-testid="team-chip"
+            style={{
+              color: 'var(--color-accent-300)',
+              fontSize: 10,
+              border: '1px solid var(--color-accent-700)',
+              borderRadius: 8,
+              padding: '0 7px',
+              whiteSpace: 'nowrap',
+              flex: 'none',
+            }}
+          >
+            {inWorld}
+          </span>
+        )}
         <span aria-hidden="true" style={{ color: 'var(--color-accent-400)', fontSize: 10 }}>
           ▾
         </span>
@@ -292,6 +322,9 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
             zIndex: 10,
             width: PANEL_WIDTH,
             background: 'var(--color-bg)',
+            // The panel floats on the same ground as the bar behind it, so the
+            // shadow alone leaves its top edge indistinguishable.
+            border: '1px solid var(--color-neutral-800)',
             borderRadius: 'var(--radius-md)',
             boxShadow: 'var(--shadow-md)',
             outline: 'none',
@@ -352,7 +385,8 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
               // watching" text sitting right below it. Drop the mark instead.
               const notWatching = isCurrent && watch.dismissed;
               // Revealed for awareness, not offered as a destination.
-              const soloOnly = isLeadOnly(team);
+              const soloOnly = isEmptySession(team);
+              const run = runOf(team);
               const rowMark = mark?.team === team.name ? mark.kind : isCurrent && !notWatching ? 'current' : null;
               const state = team.state ?? (team.live ? 'live' : 'done');
               return (
@@ -456,7 +490,7 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
                       style={{
                         fontSize: '11px',
                         lineHeight: 1,
-                        color: 'var(--color-neutral-700)',
+                        color: 'var(--color-neutral-600)',
                         background: 'transparent',
                         border: 'none',
                         padding: '0 2px',
@@ -484,6 +518,25 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
                         {team.name}
                       </span>
                     )}
+                    {/* The run's own name lands with its snapshot, which is
+                        written at termination — so a live run has only its id,
+                        and that is what the row says rather than a placeholder
+                        that would read like a name. */}
+                    {run && (
+                      <span
+                        data-testid="team-run"
+                        style={{
+                          color: 'var(--color-neutral-600)',
+                          fontSize: '10.5px',
+                          minWidth: 0,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {run.name ?? run.runId}
+                      </span>
+                    )}
                     {team.branch && (
                       <span
                         data-testid="team-branch"
@@ -499,10 +552,28 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
                         {team.branch}
                       </span>
                     )}
+                    {/* The design pairs this with the branch. It reads the
+                        narrowest thing a local console can know for certain —
+                        which is not self-evident from `+14 −2`, so the row says
+                        so rather than leaving it to be assumed. */}
+                    {team.diffstat && (
+                      <span
+                        data-testid="team-diffstat"
+                        title="uncommitted in the working tree, against HEAD"
+                        style={{
+                          color: 'var(--color-neutral-600)',
+                          fontSize: '10.5px',
+                          whiteSpace: 'nowrap',
+                          flex: 'none',
+                        }}
+                      >
+                        {diffStat(team.diffstat.added, team.diffstat.removed)}
+                      </span>
+                    )}
                     <span style={{ flex: 1 }} />
                     <span
                       style={{
-                        color: 'var(--color-neutral-700)',
+                        color: 'var(--color-neutral-600)',
                         fontSize: '10px',
                         whiteSpace: 'nowrap',
                         flex: 'none',
@@ -522,7 +593,9 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
                         ? 'no team · not selectable'
                         : notWatching
                           ? 'running · not watching'
-                          : stateText(team, now)}
+                          : run
+                            ? `workflow · ${run.live ? 'running' : 'ended'}`
+                            : stateText(team, now)}
                     </span>
                   </div>
                 </div>
@@ -534,7 +607,7 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
                 style={{
                   padding: '6px 10px 4px',
                   fontSize: '11px',
-                  color: unreadable && !loading ? 'var(--fail)' : 'var(--color-neutral-700)',
+                  color: unreadable && !loading ? 'var(--fail)' : 'var(--color-neutral-600)',
                 }}
               >
                 {loading
@@ -558,7 +631,6 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
                 data-testid="show-hidden-rows"
                 onClick={() => {
                   watch.showHidden();
-                  setRevealed(true);
                   setCursor(0);
                 }}
                 style={{
@@ -582,11 +654,15 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
             style={{
               padding: '9px 16px',
               borderTop: '1px solid var(--color-neutral-900)',
-              color: 'var(--color-neutral-700)',
+              color: 'var(--color-neutral-600)',
               fontSize: '10.5px',
             }}
           >
-            ↑↓ select · ⏎ switch · esc close
+            {/* ⌘K opens the picker from anywhere and re-focuses the search
+                once it is open. It worked with nothing on screen naming it,
+                which for the one shortcut the design calls out is the same as
+                not having it. */}
+            ↑↓ select · ⏎ switch · ⌘K search · esc close
           </div>
         </div>
       )}

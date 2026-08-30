@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { Diff, DiffHunk, DiffLine } from '../../shared/domain';
 import { clockLabel, diffStat } from '../format';
+import { useCast } from '../state/useCast';
 
 const GUTTER_W = 44;
 const SIGN_W = 16;
@@ -149,8 +150,8 @@ function unifiedPatch(diff: Diff): string {
  * carried as a display string. An uncommitted edit has no sha, so it drops
  * out rather than rendering as "undefined".
  */
-function metaLabel(diff: Diff): string {
-  const parts = [diff.agent, clockLabel(diff.ts)];
+function metaLabel(diff: Diff, agent: string = diff.agent): string {
+  const parts = [agent, clockLabel(diff.ts)];
   if (diff.commit) parts.push(diff.commit);
   return parts.join(' · ');
 }
@@ -163,6 +164,7 @@ function metaLabel(diff: Diff): string {
  */
 export function DiffModal({ diff, onClose }: { diff: Diff | null; onClose(): void }) {
   const [closeHover, setCloseHover] = useState(false);
+  const { asChar } = useCast();
   const body = useRef<HTMLDivElement>(null);
   const runs = useMemo(() => (diff ? changeRuns(diff.hunks) : []), [diff]);
   // A ref, not state: which change you are on drives a scroll, and nothing on
@@ -271,7 +273,7 @@ export function DiffModal({ diff, onClose }: { diff: Diff | null; onClose(): voi
             data-testid="diff-meta"
             style={{ color: 'var(--color-neutral-600)', fontSize: '10.5px', whiteSpace: 'nowrap', flex: 'none' }}
           >
-            {metaLabel(diff)}
+            {metaLabel(diff, asChar(diff.agent).display)}
           </span>
           <button
             type="button"

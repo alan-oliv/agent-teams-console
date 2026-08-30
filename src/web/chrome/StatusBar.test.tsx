@@ -2,7 +2,10 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { FIXTURE_NOW, sampleTeamState } from '../test/state-fixture';
-import { StatusBar } from './StatusBar';
+import { MOVIE_THEMES } from '../../shared/cast';
+import { buildCast } from '../../shared/cast';
+import { CastContext } from '../state/useCast';
+import { METRIC_RANK, StatusBar } from './StatusBar';
 import { DEFAULT_SETTINGS } from '../state/useSettings';
 import { cssVarsFor, DENSITY } from '../themes';
 
@@ -29,6 +32,7 @@ function renderBar(view: Parameters<typeof StatusBar>[0]['view'] = 'wall') {
       now={FIXTURE_NOW}
       teamsOpen={false}
       onTeamsOpenChange={vi.fn()}
+      onSelectRun={vi.fn()}
       appearance={APPEARANCE}
     />,
   );
@@ -85,6 +89,7 @@ it('does not pin the meter full when the cumulative token count is large', () =>
       now={FIXTURE_NOW}
       teamsOpen={false}
       onTeamsOpenChange={vi.fn()}
+      onSelectRun={vi.fn()}
       appearance={APPEARANCE}
     />,
   );
@@ -93,8 +98,12 @@ it('does not pin the meter full when the cumulative token count is large', () =>
 
 it('renders the right-hand readouts from the fixture team', () => {
   renderBar();
-  expect(screen.getByText('tasks 1/2')).toBeTruthy();
-  expect(screen.getByText('4 windows')).toBeTruthy();
+  // Ruling 3: the count leads and the label follows, and context windows are
+  // `ctx` — the shortening was paid for by a measured overflow past 1180px.
+  expect(screen.getByText('1/2 tasks')).toBeTruthy();
+  expect(screen.getByText('4 ctx')).toBeTruthy();
+  expect(screen.queryByText('tasks 1/2')).toBeNull();
+  expect(screen.queryByText('4 windows')).toBeNull();
   expect(screen.getByText('829k')).toBeTruthy();
   // The meter is team context occupancy: sum(contextTokens) / sum(contextLimit).
   expect(screen.getByTestId('aggregate-meter').textContent).toBe('████░░░░░░░░░░░░');
@@ -116,6 +125,7 @@ it('shows the branch when the state carries one', () => {
       now={FIXTURE_NOW}
       teamsOpen={false}
       onTeamsOpenChange={vi.fn()}
+      onSelectRun={vi.fn()}
       appearance={APPEARANCE}
     />,
   );
@@ -134,6 +144,7 @@ it('renders no branch when the state has none', () => {
       now={FIXTURE_NOW}
       teamsOpen={false}
       onTeamsOpenChange={vi.fn()}
+      onSelectRun={vi.fn()}
       appearance={APPEARANCE}
     />,
   );
@@ -150,6 +161,7 @@ it('makes the team name the control that opens the team list', () => {
       now={FIXTURE_NOW}
       teamsOpen={false}
       onTeamsOpenChange={onTeamsOpenChange}
+      onSelectRun={vi.fn()}
       appearance={APPEARANCE}
     />,
   );
@@ -173,6 +185,7 @@ it('pins the trigger wide enough that switching teams cannot move the switcher',
       now={FIXTURE_NOW}
       teamsOpen={false}
       onTeamsOpenChange={vi.fn()}
+      onSelectRun={vi.fn()}
       appearance={APPEARANCE}
     />,
   );
@@ -189,6 +202,7 @@ it('pins the trigger wide enough that switching teams cannot move the switcher',
       now={FIXTURE_NOW}
       teamsOpen={false}
       onTeamsOpenChange={vi.fn()}
+      onSelectRun={vi.fn()}
       appearance={APPEARANCE}
     />,
   );
@@ -196,6 +210,62 @@ it('pins the trigger wide enough that switching teams cannot move the switcher',
   expect(screen.getByText('session-b5129c7b-with-a-very-long-name').style.textOverflow).toBe(
     'ellipsis',
   );
+});
+
+// jsdom reports every width as 0, so the fitting itself never runs here and the
+// order it sheds in was unverifiable. The rank IS the order, so pin the rank.
+it('sheds the extras first and the branch never, per the design order', () => {
+  const shedFirstToLast = Object.entries(METRIC_RANK)
+    .sort(([, a], [, b]) => b - a)
+    .map(([key]) => key);
+  // The design drops right-to-left: the diffstat-class extra first, then the
+  // token figure. Elapsed and spend are permanently one chip, so the merge step
+  // in between has already been paid. Branch outlives every one of them.
+  expect(shedFirstToLast).toEqual([
+    'limits',
+    'tokens',
+    'meter',
+    'spend',
+    'windows',
+    'tasks',
+    'branch',
+  ]);
+});
+
+// A team wins the mode, so a session running a workflow BESIDE a live team can
+// only reach that run by asking for it — and until it had somewhere to ask, the
+// console ingested those runs and drew the wall over them.
+it('offers a way into the runs the team is also running', () => {
+  const state = sampleTeamState();
+  state.workflows = [
+    { runId: 'wf_old', status: 'completed', live: false, startedAt: 1, phases: [], logs: [], agents: [] },
+    { runId: 'wf_now', status: 'running', live: true, phases: [], logs: [], agents: [] },
+  ];
+  const onSelectRun = vi.fn();
+  render(
+    <StatusBar
+      state={state}
+      view="wall"
+      onViewChange={vi.fn()}
+      now={FIXTURE_NOW}
+      teamsOpen={false}
+      onTeamsOpenChange={vi.fn()}
+      onSelectRun={onSelectRun}
+      appearance={APPEARANCE}
+    />,
+  );
+  const chip = screen.getByTestId('runs-chip');
+  expect(chip.textContent).toBe('2 runs');
+
+  // The live one, not the first on the frame: a run still going is the one the
+  // operator is looking for.
+  fireEvent.click(chip);
+  expect(onSelectRun).toHaveBeenCalledWith('wf_now');
+});
+
+it('spends no bar width on runs the session never had', () => {
+  renderBar();
+  expect(screen.queryByTestId('runs-chip')).toBeNull();
 });
 
 // The bar is one 40px line. A child that can shrink wraps, doubling its height —
@@ -240,4 +310,39 @@ it('spends no bar width on a diffstat', () => {
   renderBar();
   const bar = screen.getByText('TEAM').parentElement!;
   expect(bar.textContent).not.toMatch(/[+−-]\d+\s*[−-]\d+/);
+});
+
+// The design says to measure the bar in the LONGEST team-name state rather than
+// the default. jsdom reports every width as 0, so the fitting itself cannot run
+// here — what is pinnable is that the chip cannot make the bar wrap: it is
+// unshrinkable and nowrap like every other child, so overflow goes to
+// METRIC_RANK's shedding and never to a second line.
+it('carries the longest in-world team name without letting the bar wrap', () => {
+  const longest = MOVIE_THEMES.reduce((a, b) => (b.team.length > a.team.length ? b : a));
+  expect(longest.team).toBe('the fellowship');
+
+  render(
+    <CastContext.Provider value={buildCast([], longest.key)}>
+      <StatusBar
+        state={sampleTeamState()}
+        view="wall"
+        onViewChange={vi.fn()}
+        now={FIXTURE_NOW}
+        teamsOpen={false}
+        onTeamsOpenChange={vi.fn()}
+        onSelectRun={vi.fn()}
+        appearance={APPEARANCE}
+      />
+    </CastContext.Provider>,
+  );
+
+  const bar = screen.getByText('TEAM').parentElement!;
+  expect(bar.style.flexWrap).toBe('nowrap');
+  const chip = screen.getByTestId('team-chip');
+  expect(chip.textContent).toBe('the fellowship');
+  expect(chip.style.whiteSpace).toBe('nowrap');
+  expect(chip.style.flex).toBe('0 0 auto');
+  // The chip widens the trigger instead of evicting the session id from it.
+  expect(screen.getByTestId('team-trigger').style.minWidth).toBe('146px');
+  expect(screen.getByTestId('team-trigger-name').style.textOverflow).toBe('ellipsis');
 });

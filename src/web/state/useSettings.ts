@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import { MOVIE_THEMES } from '../../shared/cast';
 import {
   ACCENT_KEYS,
   DENSITY,
@@ -22,6 +23,8 @@ export interface Settings {
   motion: boolean;
   /** The gutter in an expanded JSON payload. */
   numbers: boolean;
+  /** The film the team is cast from; null is off, and off is the real names. */
+  movieTheme: string | null;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -32,6 +35,7 @@ export const DEFAULT_SETTINGS: Settings = {
   avatars: true,
   motion: true,
   numbers: true,
+  movieTheme: null,
 };
 
 // Appearance is a property of this machine, not of the team being watched — a
@@ -40,6 +44,10 @@ export const SETTINGS_KEY = 'console.appearance';
 
 const inList = <T,>(list: readonly T[], value: unknown): value is T =>
   list.includes(value as T);
+
+// The database's own `off` entry is the absence of a theme, and the setting
+// already spells that null — one value for off rather than two.
+const CAST_KEYS = MOVIE_THEMES.map((theme) => theme.key).filter((key) => key !== 'off');
 
 /**
  * Field by field, so a stored blob from an older build — or a hand-edited one —
@@ -66,6 +74,7 @@ export function parseSettings(raw: string | null): Settings {
     avatars: bool('avatars'),
     motion: bool('motion'),
     numbers: bool('numbers'),
+    movieTheme: inList(CAST_KEYS, s.movieTheme) ? s.movieTheme : DEFAULT_SETTINGS.movieTheme,
   };
 }
 

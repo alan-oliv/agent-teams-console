@@ -10,6 +10,14 @@ export interface TeamStateStore {
   agent: string | null;
   /** The team the launcher asked for, or null — see {@link isAnnouncedTeam}. */
   announcedTeam: string | null;
+  /**
+   * The workflow run the operator picked, or null for whatever the server's own
+   * mode implies. A team always wins the mode, so a session running a workflow
+   * beside a live team can only reach it by selecting it — which makes this the
+   * client's override of `TeamState.mode`, not a mirror of it.
+   */
+  run: string | null;
+  setRun(runId: string | null): void;
   setView(v: ViewId): void;
   setAgent(name: string | null): void;
   /** Wall column widths, keyed by agent name. Absent means {@link COLUMN_WIDTH}. */
@@ -75,18 +83,30 @@ export function readUrlState(search: string): {
   view: ViewId;
   agent: string | null;
   team: string | null;
+  run: string | null;
 } {
   const params = new URLSearchParams(search);
   const raw = params.get('view');
   const view = VIEW_IDS.find((v) => v === raw) ?? 'wall';
-  return { view, agent: params.get('agent'), team: params.get('team') };
+  return {
+    view,
+    agent: params.get('agent'),
+    team: params.get('team'),
+    run: params.get('run'),
+  };
 }
 
-export function writeUrlState(view: ViewId, agent: string | null, team: string | null): void {
+export function writeUrlState(
+  view: ViewId,
+  agent: string | null,
+  team: string | null,
+  run: string | null,
+): void {
   const params = new URLSearchParams();
   params.set('view', view);
   if (agent) params.set('agent', agent);
   if (team) params.set('team', team);
+  if (run) params.set('run', run);
   window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
 }
 
@@ -153,6 +173,7 @@ export function useTeamState(url = '/stream'): TeamStateStore {
   const [connected, setConnected] = useState(false);
   const [view, setView] = useState<ViewId>(initial.view);
   const [selected, setAgent] = useState<string | null>(initial.agent);
+  const [selectedRun, setRun] = useState<string | null>(initial.run);
   // Held here rather than in Wall so a width survives a trip through another
   // view — Wall unmounts on every switch.
   const [widths, setWidths] = useState<Record<string, number>>(readWidths);
@@ -188,6 +209,14 @@ export function useTeamState(url = '/stream'): TeamStateStore {
   // pure under StrictMode, the URL self-heals, and a deep-linked ?agent= survives
   // the connect window because `state` is null until the first frame.
   const agent = state && selected && !state.agents.some((a) => a.name === selected) ? null : selected;
+
+  // Same rule for the run, and for the same reason: the runs on the frame are
+  // the ones this session has, so a selection the new team never made is a dead
+  // deep link rather than a run waiting to appear.
+  const run =
+    state && selectedRun && !(state.workflows ?? []).some((r) => r.runId === selectedRun)
+      ? null
+      : selectedRun;
 
   // Always the server's own answer, so the address bar can never disagree with the
   // header; before the first frame, the announcement it arrived with.
@@ -232,8 +261,8 @@ export function useTeamState(url = '/stream'): TeamStateStore {
   }, [url]);
 
   useEffect(() => {
-    writeUrlState(view, agent, team);
-  }, [view, agent, team]);
+    writeUrlState(view, agent, team, run);
+  }, [view, agent, team, run]);
 
   return {
     state,
@@ -241,6 +270,8 @@ export function useTeamState(url = '/stream'): TeamStateStore {
     view,
     agent,
     announcedTeam: initial.announced ? initial.team : null,
+    run,
+    setRun,
     setView,
     setAgent,
     widths,

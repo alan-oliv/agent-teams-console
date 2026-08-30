@@ -7,8 +7,14 @@ const STATE_WORD: Record<WorkflowAgentState, string> = {
   run: 'running',
   cache: 'cached',
   null: 'returned null',
-  wait: 'waiting',
+  // `queued`, not `waiting` — CONSOLE-DECISIONS ruling 11.
+  wait: 'queued',
+  fail: 'failed',
+  block: 'blocked',
 };
+
+/** Only a failure is coloured. Dimming the row that wants a human is backwards. */
+const STATE_COLOR: Partial<Record<WorkflowAgentState, string>> = { fail: 'var(--fail)' };
 
 const HEAD: CSSProperties = {
   flex: 'none',
@@ -52,6 +58,8 @@ export function WorkflowAgents({ agents }: { agents: WorkflowAgent[] }) {
         <span style={{ width: NUM_W, flex: 'none' }}>TOKENS</span>
         <span style={{ width: NUM_W, flex: 'none' }}>TOOLS</span>
         <span style={{ flex: 1, minWidth: 0 }}>PROMPT</span>
+        <span style={{ width: NUM_W, flex: 'none' }}>DURATION</span>
+        <span style={{ width: NUM_W, flex: 'none' }}>ATTEMPT</span>
       </div>
 
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
@@ -81,7 +89,10 @@ export function WorkflowAgents({ agents }: { agents: WorkflowAgent[] }) {
             <span data-testid="wf-agent-model" style={{ width: MODEL_W, flex: 'none', color: 'var(--color-neutral-600)' }}>
               {agent.model ?? '—'}
             </span>
-            <span data-testid="wf-agent-state" style={{ width: STATE_W, flex: 'none', color: 'var(--color-neutral-500)' }}>
+            <span
+              data-testid="wf-agent-state"
+              style={{ width: STATE_W, flex: 'none', color: STATE_COLOR[agent.state] ?? 'var(--color-neutral-500)' }}
+            >
               {STATE_WORD[agent.state]}
             </span>
             <span
@@ -110,8 +121,17 @@ export function WorkflowAgents({ agents }: { agents: WorkflowAgent[] }) {
             >
               {agent.prompt ?? '—'}
             </span>
-            <span style={{ flex: 'none', color: 'var(--color-neutral-700)', fontSize: '10px' }}>
-              {agent.durationMs === undefined ? '' : formatElapsed(agent.durationMs)}
+            <span
+              data-testid="wf-agent-duration"
+              style={{ width: NUM_W, flex: 'none', color: 'var(--color-neutral-600)' }}
+            >
+              {dash(agent.durationMs, formatElapsed)}
+            </span>
+            <span
+              data-testid="wf-agent-attempt"
+              style={{ width: NUM_W, flex: 'none', color: 'var(--color-neutral-600)' }}
+            >
+              {dash(agent.attempt)}
             </span>
           </div>
         ))}

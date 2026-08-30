@@ -2,6 +2,7 @@ import { memo, useState } from 'react';
 import type { Agent } from '../../shared/domain';
 import { StatusGlyph } from '../components/StatusGlyph';
 import { formatPct } from '../format';
+import { useCast } from '../state/useCast';
 
 const IDLE_COLLAPSE_AT = 3;
 const LEGEND = '↑↓ select · ⏎ open · esc interrupt · x stop · ⌃T tasks · t teams';
@@ -17,6 +18,10 @@ const Chip = memo(function Chip({
   isFocused: boolean;
   onFocus: (name: string) => void;
 }) {
+  // Display only — the chip focuses on the real name, which is what the URL
+  // and the rail both key on.
+  const display = useCast().asChar(agent.name).display;
+
   return (
     <button
       type="button"
@@ -32,11 +37,27 @@ const Chip = memo(function Chip({
         gap: 5,
         alignItems: 'baseline',
         whiteSpace: 'nowrap',
+        // The row this sits in is overflow:hidden with no wrap, so a chip that
+        // does not fit is at the row's mercy, not its own — without a real
+        // minWidth a flex item never shrinks past its own content, and the
+        // row slices whatever is left mid-glyph instead. 56px keeps the glyph
+        // and a percent legible even once the name has nothing left to give.
+        minWidth: 56,
       }}
     >
       <StatusGlyph status={agent.status} size={10} />
-      <span style={{ color: 'var(--color-neutral-400)' }}>{agent.name}</span>
-      <span style={{ color: 'var(--color-neutral-700)' }}>
+      <span
+        style={{
+          color: 'var(--color-neutral-400)',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          minWidth: 0,
+        }}
+      >
+        {display}
+      </span>
+      <span style={{ color: 'var(--color-neutral-600)', flexShrink: 0 }}>
         {formatPct(agent.contextTokens / agent.contextLimit)}
       </span>
     </button>
@@ -59,8 +80,12 @@ export function Panel({ agents, focusedAgent, onFocusAgent }: PanelProps) {
   const departed = agents.filter((a) => a.status === 'departed');
 
   const idle = live.filter((a) => a.status === 'idle');
-  const collapsed = idle.length > IDLE_COLLAPSE_AT && !expanded;
-  const shown = collapsed ? live.filter((a) => a.status !== 'idle') : live;
+  // Only the surplus past the first three collapses — those three stay
+  // addressable as chips like any other agent.
+  const idleSurplus = expanded ? [] : idle.slice(IDLE_COLLAPSE_AT);
+  const collapsed = idleSurplus.length > 0;
+  const { asChar } = useCast();
+  const shown = collapsed ? live.filter((a) => !idleSurplus.includes(a)) : live;
 
   return (
     <div
@@ -74,7 +99,7 @@ export function Panel({ agents, focusedAgent, onFocusAgent }: PanelProps) {
         fontSize: 10.5,
       }}
     >
-      <span style={{ color: 'var(--color-neutral-700)', letterSpacing: '.12em' }}>PANEL</span>
+      <span style={{ color: 'var(--color-neutral-600)', letterSpacing: '.12em' }}>PANEL</span>
       <div style={{ display: 'flex', gap: 6, flex: 1, overflow: 'hidden' }}>
         {shown.map((a) => (
           <Chip
@@ -94,11 +119,11 @@ export function Panel({ agents, focusedAgent, onFocusAgent }: PanelProps) {
               border: '1px dashed var(--color-neutral-800)',
               borderRadius: 'var(--radius-sm)',
               padding: '2px 7px',
-              color: 'var(--color-neutral-700)',
+              color: 'var(--color-neutral-600)',
               whiteSpace: 'nowrap',
             }}
           >
-            {`${idle.length} idle agents`}
+            {idleSurplus.length === 1 ? '1 idle agent' : `${idleSurplus.length} idle agents`}
           </button>
         )}
         {departed.length > 0 && (
@@ -111,7 +136,7 @@ export function Panel({ agents, focusedAgent, onFocusAgent }: PanelProps) {
               border: '1px dashed var(--color-neutral-800)',
               borderRadius: 'var(--radius-sm)',
               padding: '2px 7px',
-              color: 'var(--color-neutral-700)',
+              color: 'var(--color-neutral-600)',
               whiteSpace: 'nowrap',
             }}
           >
@@ -125,11 +150,11 @@ export function Panel({ agents, focusedAgent, onFocusAgent }: PanelProps) {
               data-testid="departed-name"
               style={{ color: 'var(--color-neutral-800)', whiteSpace: 'nowrap' }}
             >
-              {a.name}
+              {asChar(a.name).display}
             </span>
           ))}
       </div>
-      <span style={{ color: 'var(--color-neutral-700)', whiteSpace: 'nowrap' }}>{LEGEND}</span>
+      <span style={{ color: 'var(--color-neutral-600)', whiteSpace: 'nowrap' }}>{LEGEND}</span>
     </div>
   );
 }

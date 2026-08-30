@@ -39,6 +39,16 @@ describe('WorkflowJournal', () => {
     expect(within(entries[2]).getByTestId('wf-journal-result').textContent).toBe('(empty)');
   });
 
+  // The runtime appends no result line for a throw either, so the journal reads
+  // null for it too — the entry's own `error` is where the two separate.
+  it('reads a thrown agent as null, with what threw beside it', () => {
+    render(<WorkflowJournal agents={[{ agentId: 'a4', state: 'fail', error: 'Error: ENOENT' }]} />);
+    const entry = screen.getAllByTestId('wf-journal-entry')[0];
+
+    expect(within(entry).getByTestId('wf-journal-result').textContent).toBe('null');
+    expect(within(entry).getByTestId('wf-journal-why').textContent).toBe('Error: ENOENT');
+  });
+
   it('foots with the warning the runtime itself gives', () => {
     render(<WorkflowJournal agents={AGENTS} />);
     expect(screen.getByTestId('wf-journal-footer').textContent).toMatch(

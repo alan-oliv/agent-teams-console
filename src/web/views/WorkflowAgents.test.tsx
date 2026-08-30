@@ -59,6 +59,55 @@ describe('WorkflowAgents', () => {
     expect(within(row).getByTestId('wf-agent-model').textContent).toBe('—');
   });
 
+  it('names a failure as failed and colours it, where a skip stays quiet', () => {
+    render(
+      <WorkflowAgents
+        agents={[
+          { agentId: 'a1', state: 'fail', error: 'Error: ENOENT' },
+          { agentId: 'a2', state: 'null', error: 'skipped by user' },
+          { agentId: 'a3', state: 'block' },
+        ]}
+      />,
+    );
+    const states = screen.getAllByTestId('wf-agent-state');
+
+    expect(states.map((s) => s.textContent)).toEqual(['failed', 'returned null', 'blocked']);
+    expect(states[0].style.color).toBe('var(--fail)');
+    expect(states[1].style.color).not.toBe('var(--fail)');
+  });
+
+  // Both are parsed off the snapshot and the design's roster names both, but
+  // duration was drawn as an unlabelled trailing span and attempt not at all.
+  it('heads the duration and attempt columns it draws', () => {
+    render(<WorkflowAgents agents={AGENTS} />);
+    const head = screen.getByTestId('wf-agents-head').textContent ?? '';
+
+    expect(head).toContain('DURATION');
+    expect(head).toContain('ATTEMPT');
+  });
+
+  it('shows a retry count and a duration, and an em dash where neither exists', () => {
+    render(
+      <WorkflowAgents
+        agents={[
+          { agentId: 'a1', state: 'done', attempt: 2, durationMs: 130902 },
+          { agentId: 'a2', state: 'run' },
+        ]}
+      />,
+    );
+    const attempts = screen.getAllByTestId('wf-agent-attempt').map((a) => a.textContent);
+    const durations = screen.getAllByTestId('wf-agent-duration').map((d) => d.textContent);
+
+    expect(attempts).toEqual(['2', '—']);
+    expect(durations[1]).toBe('—');
+  });
+
+  // CONSOLE-DECISIONS ruling 11: the `·` state is `queued`, not `waiting`.
+  it('calls an agent queued for a slot queued', () => {
+    render(<WorkflowAgents agents={[{ agentId: 'a1', state: 'wait' }]} />);
+    expect(screen.getByTestId('wf-agent-state').textContent).toBe('queued');
+  });
+
   it('says nothing here is addressable by name', () => {
     render(<WorkflowAgents agents={AGENTS} />);
     expect(screen.getByTestId('wf-agents-footer').textContent).toMatch(/not addressable/i);

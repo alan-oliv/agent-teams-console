@@ -1,0 +1,188 @@
+{
+  "$schema": "movie-themes",
+  "version": 1,
+  "about": [
+    "Movie themes for the agent-teams console. A theme renames agents and nothing else.",
+    "It never renames a state, a verb, a metric, a task id or a file path — those are readouts.",
+    "There is no UI for this file; it is the data the console reads. The picker lives in the",
+    "config panel (gear) as 'movie theme'."
+  ],
+  "rules": {
+    "castingIsByRoleSlot": "Map characters to role slots, never hashed from agent ids. The same role in the same film must always be the same character, so a theme is learnable.",
+    "typeBadgeStays": "The agent-type badge stays beside the character name. 'Ariadne' + an 'architect' badge costs no information; replacing the type makes the wall unreadable.",
+    "mentionMatchesEither": "@ filters on the character name AND the real slot name, and shows the slot name beside the character.",
+    "overflowKeepsRealNames": "A team with more agents than the theme has role slots leaves the extras under their real names. Draw from 'spare' only if you need more named agents; never invent characters.",
+    "oneMapping": "Feed every view from a single asChar(slot) mapping — wall, overview, rail, grid, panel chips, task owners, mailbox runs, comms thread pairs and bubbles, mention picker.",
+    "teamNameIsDecoration": "The in-world team name is a chip on the session-picker trigger only. The real session id is untouched everywhere else. Measure the status bar in the LONGEST team-name state, not the default.",
+    "noColours": "A theme sets names only, so any theme runs on any colour scheme. Per-film palettes are a separate feature."
+  },
+  "roleSlots": [
+    { "slot": "lead", "agentType": "team-lead" },
+    { "slot": "security", "agentType": "security-reviewer" },
+    { "slot": "perf", "agentType": "general-purpose" },
+    { "slot": "tests", "agentType": "test-runner" },
+    { "slot": "architect", "agentType": "architect" },
+    { "slot": "repro", "agentType": "general-purpose" }
+  ],
+  "legal": "Character names are protected IP. Fine for a personal or internal tool; not for anything shipped publicly.",
+  "themes": [
+    {
+      "key": "off",
+      "film": "No theme",
+      "team": "",
+      "note": "agents keep their real names",
+      "roles": {},
+      "spare": []
+    },
+    {
+      "key": "inception",
+      "film": "Inception",
+      "team": "the crew",
+      "note": "the dream heist — its cast is already named by function",
+      "roles": {
+        "lead": "Cobb",
+        "security": "Arthur",
+        "perf": "Yusuf",
+        "tests": "Eames",
+        "architect": "Ariadne",
+        "repro": "Fischer"
+      },
+      "spare": ["Saito", "Mal", "Miles", "Browning"]
+    },
+    {
+      "key": "stranger",
+      "film": "Stranger Things",
+      "team": "the party",
+      "note": "Hawkins, 1983",
+      "roles": {
+        "lead": "Mike",
+        "security": "Steve",
+        "perf": "Eleven",
+        "tests": "Lucas",
+        "architect": "Dustin",
+        "repro": "Will"
+      },
+      "spare": ["Max", "Nancy", "Jonathan", "Robin", "Hopper", "Joyce", "Erica"]
+    },
+    {
+      "key": "lotr",
+      "film": "The Lord of the Rings",
+      "team": "the fellowship",
+      "note": "nine walkers",
+      "roles": {
+        "lead": "Gandalf",
+        "security": "Aragorn",
+        "perf": "Legolas",
+        "tests": "Sam",
+        "architect": "Gimli",
+        "repro": "Frodo"
+      },
+      "spare": ["Merry", "Pippin", "Boromir", "Éowyn", "Faramir", "Elrond", "Galadriel"]
+    },
+    {
+      "key": "starwars",
+      "film": "Star Wars",
+      "team": "the rebellion",
+      "note": "command, pilots and droids",
+      "roles": {
+        "lead": "Leia",
+        "security": "Chewbacca",
+        "perf": "Han",
+        "tests": "C-3PO",
+        "architect": "R2-D2",
+        "repro": "Luke"
+      },
+      "spare": ["Lando", "Obi-Wan", "Yoda", "Wedge", "Ackbar", "Rey", "Poe"]
+    },
+    {
+      "key": "bttf",
+      "film": "Back to the Future",
+      "team": "the garage",
+      "note": "Hill Valley, 1985",
+      "roles": {
+        "lead": "Doc",
+        "security": "Strickland",
+        "perf": "Marty",
+        "tests": "Einstein",
+        "architect": "Jules",
+        "repro": "Biff"
+      },
+      "spare": ["Lorraine", "George", "Clara", "Verne", "Needles"]
+    },
+    {
+      "key": "pulp",
+      "film": "Pulp Fiction",
+      "team": "the outfit",
+      "note": "out of order on purpose",
+      "roles": {
+        "lead": "Marsellus",
+        "security": "The Wolf",
+        "perf": "Jules",
+        "tests": "Vincent",
+        "architect": "Lance",
+        "repro": "Pumpkin"
+      },
+      "spare": ["Mia", "Butch", "Jimmie", "Fabienne", "Honey Bunny"]
+    },
+    {
+      "key": "godfather",
+      "film": "The Godfather",
+      "team": "the family",
+      "note": "consigliere, enforcer, heir",
+      "roles": {
+        "lead": "Vito",
+        "security": "Luca Brasi",
+        "perf": "Sonny",
+        "tests": "Tom Hagen",
+        "architect": "Michael",
+        "repro": "Fredo"
+      },
+      "spare": ["Clemenza", "Tessio", "Connie", "Kay", "Carlo"]
+    },
+    {
+      "key": "dogs",
+      "film": "Reservoir Dogs",
+      "team": "the job",
+      "note": "the cast is a colour list — names and accents are the same set",
+      "roles": {
+        "lead": "Joe",
+        "security": "Mr. White",
+        "perf": "Mr. Pink",
+        "tests": "Mr. Orange",
+        "architect": "Nice Guy Eddie",
+        "repro": "Mr. Blonde"
+      },
+      "spare": ["Mr. Blue", "Mr. Brown", "Marvin"]
+    },
+    {
+      "key": "matrix",
+      "film": "The Matrix",
+      "team": "the Neb",
+      "note": "crew of the Nebuchadnezzar",
+      "roles": {
+        "lead": "Morpheus",
+        "security": "Trinity",
+        "perf": "Neo",
+        "tests": "the Oracle",
+        "architect": "the Architect",
+        "repro": "Cypher"
+      },
+      "spare": ["Tank", "Dozer", "Switch", "Apoc", "Mouse", "Niobe"]
+    },
+    {
+      "key": "breakingbad",
+      "film": "Breaking Bad",
+      "team": "the lab",
+      "note": "the show colour-codes its cast on purpose",
+      "roles": {
+        "lead": "Heisenberg",
+        "security": "Mike",
+        "perf": "Jesse",
+        "tests": "Gale",
+        "architect": "Gus",
+        "repro": "Hank"
+      },
+      "spare": ["Saul", "Skyler", "Lydia", "Todd", "Huell", "Tuco"]
+    }
+  ]
+}

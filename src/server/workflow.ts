@@ -15,11 +15,28 @@ const num = (v: unknown): number | undefined =>
   typeof v === 'number' && Number.isFinite(v) ? v : undefined;
 const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 
+/**
+ * An agent launched with a schema returns an OBJECT, so the journal's `result`
+ * is as often a bag as a string and reading only strings dropped every
+ * structured return. A literal `null` stays undefined — absent is what the
+ * journal view's "returned null" path keys on.
+ */
+function resultText(v: unknown): string | undefined {
+  if (typeof v === 'string') return v;
+  if (v === null || v === undefined) return undefined;
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return undefined; // circular; nothing readable to show
+  }
+}
+
 const RUN_STATUS = new Set(['completed', 'killed', 'failed', 'running']);
 
 /**
- * The runtime's four states plus its flags, onto the design's five. `cached`
- * rides on a `done` record, so it has to be read before the state is.
+ * The runtime's four states plus its flags. Both `cached` and `skipped` ride on
+ * a record whose `state` says something else, so the flags have to be read
+ * before the state is.
  */
 function agentStateOf(rec: Bag): WorkflowAgentState {
   if (rec.cached === true) return 'cache';
@@ -32,6 +49,12 @@ function agentStateOf(rec: Bag): WorkflowAgentState {
     // spawned"; `startedAt` is the only thing that separates them.
     case 'start':
       return num(rec.startedAt) === undefined ? 'wait' : 'run';
+    // `error` is the runtime's one bucket for three different things: the
+    // operator skipped it, the classifier refused it, or it threw. Only the
+    // last is a failure, and it is the one the console must not bury.
+    case 'error':
+      if (rec.skipped === true) return 'null';
+      return rec.blocked === true ? 'block' : 'fail';
     default:
       return 'null';
   }
@@ -114,7 +137,7 @@ export function parseWorkflowJournal(runId: string, lines: readonly string[]): W
     // `result` already seen.
     const existing = byId.get(agentId);
     if (rec.type === 'result') {
-      byId.set(agentId, { agentId, state: 'done', ...opt('result', str(rec.result)) });
+      byId.set(agentId, { agentId, state: 'done', ...opt('result', resultText(rec.result)) });
     } else if (rec.type === 'started' && !existing) {
       byId.set(agentId, { agentId, state: 'run' });
     }

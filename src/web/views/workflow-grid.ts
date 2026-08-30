@@ -1,4 +1,5 @@
 import type { WorkflowAgent, WorkflowAgentState, WorkflowPhase, WorkflowRun } from '../../shared/domain';
+import { formatTokens } from '../format';
 
 /**
  * The identity column, MEASURED rather than estimated — the design says an
@@ -70,17 +71,152 @@ export function workflowGrid(run: WorkflowRun): WorkflowGrid {
 }
 
 /**
+ * Whether to OFFER the grid. The runtime has no work-item concept — the grid is
+ * derived from a `verb:key` naming convention the scripts follow — so a grid
+ * built unconditionally is right most of the time and wrong visibly. Each
+ * refusal below is one of the ways the design says it breaks, and the bias is
+ * deliberately toward refusing: the phase list is never wrong, only plainer.
+ */
+export function gridCooperates(run: WorkflowRun): boolean {
+  const { rows, unphased } = workflowGrid(run);
+  if (unphased.length > 0) return false; // a row with no column to sit in
+  if (rows.length < 2) return false;
+
+  const keysByPhase = new Map<number, Set<string>>();
+  for (const agent of run.agents) {
+    const colon = agent.label?.indexOf(':') ?? -1;
+    // Both halves, not just the separator: a label is a verb AND a key, and
+    // either half missing leaves the row or the column unnamed.
+    if (colon < 1 || colon === (agent.label?.length ?? 0) - 1) return false;
+    const key = itemKeyOf(agent.label);
+    const phase = agent.phaseIndex as number; // no unphased agents by now
+    const seen = keysByPhase.get(phase) ?? new Set<string>();
+    seen.add(key);
+    keysByPhase.set(phase, seen);
+  }
+
+  const ran = [...keysByPhase.values()];
+  if (ran.length < 2) return false;
+  // One namespace, not several. A phase whose keys NEST inside the widest one
+  // did fewer items, which the grid draws as a blank; a phase whose keys only
+  // partly overlap is a different vocabulary, and that grid closes nowhere.
+  const widest = ran.reduce((a, b) => (b.size > a.size ? b : a));
+  return ran.every((keys) => [...keys].every((key) => widest.has(key)));
+}
+
+/**
+ * A live run's only totals. `totalTokens`, `totalToolCalls` and `durationMs`
+ * reach disk in the snapshot and the snapshot is written once, at termination —
+ * so mid-flight these two counts are the entire budget, and drawing the absent
+ * ones as `0` would report a measurement where there is none.
+ *
+ * `started` counts the journal's `started` lines. A resumed run's journal omits
+ * every agent served from cache, so this is what the journal SAW, which is not
+ * always what the run dispatched.
+ */
+export function liveCounts(run: WorkflowRun): { started: number; returned: number } {
+  return {
+    started: run.agents.length,
+    returned: run.agents.filter((a) => a.state === 'done').length,
+  };
+}
+
+/**
+ * The run totals for the status bar — the design's "run totals on the right".
+ * Two different quantities behind one slot, because a live run and a finished
+ * run genuinely have different totals, and `undefined` rather than a zeroed
+ * string when a finished snapshot carried neither.
+ */
+export function runTotalsText(run: WorkflowRun): string | undefined {
+  if (run.live) {
+    const { started, returned } = liveCounts(run);
+    return `${started} started · ${returned} returned`;
+  }
+  const parts = [
+    run.totalTokens === undefined ? undefined : formatTokens(run.totalTokens),
+    run.totalToolCalls === undefined ? undefined : `${run.totalToolCalls} tools`,
+  ].filter((part): part is string => part !== undefined);
+  return parts.length > 0 ? parts.join(' · ') : undefined;
+}
+
+/**
+ * Agents a single `parallel()` call fanned out, identified by a byte-identical
+ * `queuedAt`. `together` says the cluster PROVES concurrency; false says only
+ * that nothing proved it — a run killed before its `parallel()` fanned out
+ * leaves singletons, so the absence of a cluster is never evidence of
+ * sequential dispatch.
+ */
+export interface DispatchCluster {
+  agents: WorkflowAgent[];
+  together: boolean;
+}
+
+export interface PhaseGroup {
+  phase: WorkflowPhase;
+  /** Empty for a declared phase the run never reached — not missing data. */
+  clusters: DispatchCluster[];
+}
+
+export interface PhaseList {
+  groups: PhaseGroup[];
+  /** As `workflowGrid`: handed back rather than filed under phase 1. */
+  unphased: WorkflowAgent[];
+}
+
+/** The default shape of the run view: phases in order, agents under them. */
+export function phaseList(run: WorkflowRun): PhaseList {
+  const declared = [...run.phases].sort((a, b) => a.index - b.index);
+  const mine = new Map<number, WorkflowAgent[]>(declared.map((p) => [p.index, []]));
+  const unphased: WorkflowAgent[] = [];
+
+  for (const agent of run.agents) {
+    const bucket = agent.phaseIndex === undefined ? undefined : mine.get(agent.phaseIndex);
+    if (bucket) bucket.push(agent);
+    else unphased.push(agent);
+  }
+
+  return {
+    groups: declared.map((phase) => ({ phase, clusters: clustersOf(mine.get(phase.index) ?? []) })),
+    unphased,
+  };
+}
+
+function clustersOf(agents: readonly WorkflowAgent[]): DispatchCluster[] {
+  const clusters: DispatchCluster[] = [];
+  const byQueuedAt = new Map<number, DispatchCluster>();
+
+  for (const agent of agents) {
+    const at = agent.queuedAt;
+    const open = at === undefined ? undefined : byQueuedAt.get(at);
+    if (open) {
+      open.agents.push(agent);
+      open.together = true;
+      continue;
+    }
+    const cluster: DispatchCluster = { agents: [agent], together: false };
+    // An agent with no recorded queuedAt — every agent on a live run — can
+    // never join a cluster, so it is not keyed.
+    if (at !== undefined) byQueuedAt.set(at, cluster);
+    clusters.push(cluster);
+  }
+
+  return clusters;
+}
+
+/**
  * The reader's word for each state. `null` is spelled out because "returned
- * null" is a RESULT — the agent was skipped or died after retries and the
- * script saw null — and the design is explicit that it is a state and not an
- * error row.
+ * null" is a RESULT — the operator skipped it and the script saw null — and the
+ * design is explicit that it is a state and not an error row. A count of
+ * `failed` is an error row, so it is read out before it.
  */
 const TALLY_ORDER: Array<[WorkflowAgentState, string]> = [
   ['done', 'returned'],
   ['run', 'running'],
   ['cache', 'cached'],
+  ['fail', 'failed'],
+  ['block', 'blocked'],
   ['null', 'returned null'],
-  ['wait', 'waiting'],
+  ['wait', 'queued'], // ruling 11, same word the agents view uses
 ];
 
 /**

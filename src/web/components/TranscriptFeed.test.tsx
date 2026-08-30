@@ -4,6 +4,9 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import type { Diff, TranscriptLine } from '../../shared/domain';
 import { TRANSCRIPT_TEXT_CAP } from '../../shared/transcript';
 import { DiffContext } from '../state/useTeamState';
+import { DEFAULT_SETTINGS, SettingsContext } from '../state/useSettings';
+import { buildCast } from '../../shared/cast';
+import { CastContext } from '../state/useCast';
 import { TranscriptFeed } from './TranscriptFeed';
 
 afterEach(cleanup);
@@ -35,6 +38,47 @@ describe('TranscriptFeed', () => {
     expect(screen.getByTestId('transcript-feed').style.gap).toBe('11px');
     rerender(<TranscriptFeed lines={LINES} size="overview" />);
     expect(screen.getByTestId('transcript-feed').style.gap).toBe('8px');
+  });
+
+  // The setting used to stop at the wall and the rail, so choosing compact left
+  // the overview and grid feeds untouched — a control that visibly does nothing
+  // in two of the four views that draw a transcript.
+  describe('line density reaches every feed', () => {
+    const atDensity = (density: 'compact' | 'roomy', size: 'wall' | 'overview' | 'grid') =>
+      render(
+        <SettingsContext.Provider value={{ ...DEFAULT_SETTINGS, density }}>
+          <TranscriptFeed lines={LINES} size={size} />
+        </SettingsContext.Provider>,
+      );
+
+    it('drives the wall and rail from the setting directly', () => {
+      atDensity('compact', 'wall');
+      expect(screen.getByTestId('transcript-feed').style.gap).toBe('5px');
+      cleanup();
+      atDensity('roomy', 'wall');
+      expect(screen.getByTestId('transcript-feed').style.gap).toBe('16px');
+    });
+
+    // A condensed pane runs 3px tighter than a full one at the same setting,
+    // floored at 3px so compact cannot close the rows up entirely.
+    it('gives the condensed feeds the tighter step of the same setting', () => {
+      atDensity('roomy', 'overview');
+      expect(screen.getByTestId('transcript-feed').style.gap).toBe('13px');
+      cleanup();
+      atDensity('compact', 'grid');
+      expect(screen.getByTestId('transcript-feed').style.gap).toBe('3px');
+    });
+
+    // `default` still means each view keeps its own tuning rather than
+    // collapsing to one number.
+    it('leaves every feed on its own tuning at the default', () => {
+      render(
+        <SettingsContext.Provider value={DEFAULT_SETTINGS}>
+          <TranscriptFeed lines={LINES} size="overview" />
+        </SettingsContext.Provider>,
+      );
+      expect(screen.getByTestId('transcript-feed').style.gap).toBe('8px');
+    });
   });
 
   it('fades each line by its age so the newest reads as current', () => {
@@ -197,6 +241,33 @@ describe('expanding a row that has more to show', () => {
     fireEvent.click(rows()[0]);
     expect(onParent).toHaveBeenCalledTimes(1);
   });
+
+  // A long one-liner has no newline to split a header from, so it needs its
+  // own length-based trigger — and its drawer must show the text once, not
+  // duplicate it into a "body" that is just the same line again.
+  describe('a long single-line row, with no newline at all', () => {
+    const long = 'x'.repeat(140);
+    const LONG: TranscriptLine[] = [{ id: 'long', marker: '⏺', text: long, ts: 3 }];
+
+    it('is expandable past the length threshold', () => {
+      render(<TranscriptFeed lines={LONG} size="wall" />);
+      expect(rows()[0].getAttribute('aria-expanded')).toBe('false');
+    });
+
+    it('opens to the full text with no separate drawer body', () => {
+      render(<TranscriptFeed lines={LONG} size="wall" />);
+      open();
+      const drawer = rows()[0];
+      expect(within(drawer).getByTestId('transcript-text').textContent).toBe(long);
+      expect(within(drawer).queryByTestId('transcript-drawer-body')).toBeNull();
+    });
+
+    it('counts it as "1 line", not "1 lines"', () => {
+      render(<TranscriptFeed lines={LONG} size="wall" />);
+      open();
+      expect(screen.getByTestId('transcript-drawer-count').textContent).toBe('1 line');
+    });
+  });
 });
 
 // jsdom gives every element zero layout, so the pane's scroll geometry is stubbed
@@ -234,14 +305,21 @@ describe('TranscriptFeed follow-on-append', () => {
     expect(screen.getByTestId('transcript-feed').scrollTop).toBe(900);
   });
 
-  it('follows new output when the operator is already within 64px of the bottom', () => {
+  it('follows a burst taller than 64px when the operator was already at the bottom', () => {
     const { rerender } = render(<TranscriptFeed lines={LINES} size="wall" />);
     const feed = screen.getByTestId('transcript-feed');
 
-    feed.scrollTop = 670; // 1000 - 300 - 670 = 30px of slack — still reading the tail
-    box.scrollHeight = 1000;
+    // Bottomed out BEFORE the burst lands — this is what the follow decision
+    // must be based on.
+    feed.scrollTop = 600; // 900 - 300 - 600 = 0px of slack
+    fireEvent.scroll(feed);
+
+    // The burst itself adds more than 64px in one commit. Measuring slack from
+    // post-append geometry (the bug) sees >64px of "slack" here and gives up on
+    // following, even though the operator never moved.
+    box.scrollHeight = 990;
     rerender(<TranscriptFeed lines={more} size="wall" />);
-    expect(feed.scrollTop).toBe(1000);
+    expect(feed.scrollTop).toBe(990);
   });
 
   it('leaves the position alone once the operator has scrolled up to read', () => {
@@ -249,9 +327,25 @@ describe('TranscriptFeed follow-on-append', () => {
     const feed = screen.getByTestId('transcript-feed');
 
     feed.scrollTop = 120; // 480px of slack — reading history
+    fireEvent.scroll(feed);
     box.scrollHeight = 1000;
     rerender(<TranscriptFeed lines={more} size="wall" />);
     expect(feed.scrollTop).toBe(120);
+  });
+
+  it('re-pins once the operator scrolls back within 64px, so the next append follows', () => {
+    const { rerender } = render(<TranscriptFeed lines={LINES} size="wall" />);
+    const feed = screen.getByTestId('transcript-feed');
+
+    feed.scrollTop = 120; // scrolled up to read — unpinned
+    fireEvent.scroll(feed);
+
+    feed.scrollTop = 560; // scrolled back down — 40px of slack, within 64px
+    fireEvent.scroll(feed);
+
+    box.scrollHeight = 1000;
+    rerender(<TranscriptFeed lines={more} size="wall" />);
+    expect(feed.scrollTop).toBe(1000);
   });
 });
 
@@ -673,6 +767,28 @@ describe('sender chip', () => {
       sender: 'probe-alpha',
     },
   ];
+
+  // The pill is an agent name, so a theme casts it. The row text itself is the
+  // agent's own words and is never rewritten.
+  it('casts the sender pill under a theme, and leaves the row text alone', () => {
+    const roster = [
+      { name: 'team-lead', agentType: 'team-lead', isLead: true },
+      { name: 'probe-charlie', agentType: 'general-purpose', isLead: false },
+      { name: 'probe-alpha', agentType: 'general-purpose', isLead: false },
+    ];
+    render(
+      <CastContext.Provider value={buildCast(roster, 'inception')}>
+        <TranscriptFeed lines={DELIVERED} size="wall" />
+      </CastContext.Provider>,
+    );
+    expect(screen.getAllByTestId('transcript-sender').map((c) => c.textContent)).toEqual([
+      'Saito',
+      'Mal',
+    ]);
+    expect(screen.getAllByTestId('transcript-row')[1].textContent).toContain(
+      'probe-charlie reporting',
+    );
+  });
 
   it('names the sender of every delivered row, and only those', () => {
     render(<TranscriptFeed lines={DELIVERED} size="wall" />);

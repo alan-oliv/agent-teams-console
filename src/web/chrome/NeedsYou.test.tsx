@@ -3,6 +3,8 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { NeedsYouItem } from '../../shared/domain';
 import { FIXTURE_NOW } from '../test/state-fixture';
+import { buildCast } from '../../shared/cast';
+import { CastContext } from '../state/useCast';
 import { NeedsYou } from './NeedsYou';
 
 // This suite renders once per `it`; without explicit cleanup the un-unmounted
@@ -123,4 +125,19 @@ it('stays mounted with an empty queue', () => {
   render(<NeedsYou items={[]} readOnly={false} now={FIXTURE_NOW} />);
   expect(screen.getByText('NEEDS YOU · 0')).toBeTruthy();
   expect(screen.getByText('nothing waiting')).toBeTruthy();
+});
+
+it('names the character on a card, and still answers on the real id', () => {
+  const agents = [
+    { name: 'team-lead', agentType: 'team-lead', isLead: true },
+    { name: 'probe-bravo', agentType: 'Explore', isLead: false },
+  ];
+  render(
+    <CastContext.Provider value={buildCast(agents, 'inception')}>
+      <NeedsYou items={[PLAN]} readOnly={false} now={FIXTURE_NOW} />
+    </CastContext.Provider>,
+  );
+  expect(screen.getByText('Saito · plan approval')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'approve' }));
+  expect(fetchMock).toHaveBeenCalledWith('/api/plans/req-7f3/approve', expect.anything());
 });

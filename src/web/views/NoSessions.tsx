@@ -19,8 +19,11 @@ const DOT_COLOR = {
 export interface NoSessionsProps {
   /** Sessions still in the picker — empty when every one has been hidden. */
   remaining: TeamSummary[];
-  /** How many the operator has hidden, so the way back is always countable. */
-  hiddenCount: number;
+  /**
+   * Rows the picker is not showing — the ✕-hidden ones AND the lead-only
+   * sessions it drops. One total, because one `show them` puts both back.
+   */
+  notShownCount: number;
   onShowHidden(): void;
   onSwitchTo(name: string): void;
 }
@@ -34,10 +37,12 @@ export interface NoSessionsProps {
  *
  * The load-bearing part is the way out. Hiding the last session would otherwise
  * be a one-way door: an empty picker, an empty body, and no control anywhere
- * that puts them back. So the hidden count and `show them` are stated whenever
- * anything is hidden, not tucked behind a menu.
+ * that puts them back. So the count and `show them` are stated whenever
+ * anything is missing from the picker, not tucked behind a menu — and the count
+ * is the picker's own total, lead-only rows included, or the two would disagree
+ * about how much this machine is holding.
  */
-export function NoSessions({ remaining, hiddenCount, onShowHidden, onSwitchTo }: NoSessionsProps) {
+export function NoSessions({ remaining, notShownCount, onShowHidden, onSwitchTo }: NoSessionsProps) {
   return (
     <div
       data-testid="no-sessions"
@@ -83,7 +88,7 @@ export function NoSessions({ remaining, hiddenCount, onShowHidden, onSwitchTo }:
           </div>
         </div>
 
-        {hiddenCount > 0 && (
+        {notShownCount > 0 && (
           <div
             style={{
               display: 'flex',
@@ -96,7 +101,7 @@ export function NoSessions({ remaining, hiddenCount, onShowHidden, onSwitchTo }:
             }}
           >
             <span style={{ color: 'var(--color-neutral-500)', fontSize: '11.5px' }}>
-              {`${hiddenCount} hidden`}
+              {`${notShownCount} not shown`}
             </span>
             <span style={{ flex: 1 }} />
             <button
@@ -124,7 +129,7 @@ export function NoSessions({ remaining, hiddenCount, onShowHidden, onSwitchTo }:
           <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
             <span
               style={{
-                color: 'var(--color-neutral-700)',
+                color: 'var(--color-neutral-600)',
                 fontSize: '10px',
                 letterSpacing: '.12em',
               }}
@@ -160,7 +165,7 @@ export function NoSessions({ remaining, hiddenCount, onShowHidden, onSwitchTo }:
                   </span>
                   <span style={{ flex: 1 }} />
                   <span
-                    style={{ color: 'var(--color-neutral-700)', fontSize: '10px', flex: 'none' }}
+                    style={{ color: 'var(--color-neutral-600)', fontSize: '10px', flex: 'none' }}
                   >
                     {`${t.members} agent${t.members === 1 ? '' : 's'}`}
                   </span>

@@ -9,6 +9,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react';
 import type { Agent } from '../../shared/domain';
+import { wallOrder } from '../../shared/roster';
 import { AGENT_STATUS, DORMANT_OPACITY, isDormant } from '../../shared/status';
 import { Composer, RosterContext } from '../components/Composer';
 import { Elapsed, NowContext } from '../components/Elapsed';
@@ -17,6 +18,7 @@ import { StatusGlyph } from '../components/StatusGlyph';
 import { StopControlButton } from '../components/StopButton';
 import { TranscriptFeed } from '../components/TranscriptFeed';
 import { compactionNote, contextBar, costLabel, ctxLabel, pctLabel, warnMark } from '../format';
+import { useCast } from '../state/useCast';
 import { COLUMN_WIDTH } from '../state/useTeamState';
 
 // Matches the --terminal-ground token (theme.css); kept literal so the tint
@@ -56,7 +58,7 @@ function InFlight({ agent, onOpen }: { agent: Agent; onOpen?: (name: string) => 
     <button
       type="button"
       data-testid="in-flight"
-      title="written to this inbox · read at its next turn boundary · click to read them"
+      title="written to this inbox · read at its next turn boundary"
       onClick={(e) => {
         e.stopPropagation();
         onOpen?.(agent.name);
@@ -122,7 +124,11 @@ const Column = memo(function Column({
 }) {
   const status = AGENT_STATUS[agent.status];
   const isLeadColumn = agent.isLead;
-  const compaction = compactionNote(agent.contextTokens, agent.compactAt);
+  const compaction = compactionNote(agent.contextTokens, agent.contextLimit, agent.compactAt);
+
+  // Display only: focus, drag, mail and every route below still carry the real
+  // name, which is the join key across the frame, the URL and the API.
+  const display = useCast().asChar(agent.name).display;
 
   const shadows: string[] = [];
   if (isLeadColumn) shadows.push('1px 0 0 var(--color-neutral-800)', '8px 0 18px rgba(0,0,0,.5)');
@@ -170,9 +176,23 @@ const Column = memo(function Column({
             <StatusGlyph status={agent.status} size={11} />
             <span
               data-testid="wall-name"
-              style={{ color: 'var(--color-text)', fontWeight: 500, fontSize: '13px' }}
+              // Hyphenated content wraps at the hyphen by default, and at the
+              // 232px floor that balloons this line to several physical ones
+              // and misaligns the header against its neighbours. The name is
+              // what gives — identity truncating reads better than the type
+              // or model vanishing — so it alone gets ellipsis; minWidth 0 is
+              // what lets a flex child shrink past its own content at all.
+              style={{
+                color: 'var(--color-text)',
+                fontWeight: 500,
+                fontSize: '13px',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                minWidth: 0,
+              }}
             >
-              {agent.name}
+              {display}
             </span>
             {agent.agentType && (
               <span
@@ -183,6 +203,8 @@ const Column = memo(function Column({
                   borderRadius: 'var(--radius-sm)',
                   padding: '0 5px',
                   fontSize: '9.5px',
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
                 }}
               >
                 {agent.agentType}
@@ -191,12 +213,15 @@ const Column = memo(function Column({
             <span style={{ flex: 1 }} />
             <span
               data-testid="wall-model"
-              style={{ color: 'var(--color-neutral-700)', fontSize: '10.5px' }}
+              style={{
+                color: 'var(--color-neutral-600)',
+                fontSize: '10.5px',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+              }}
             >
               {agent.model}
             </span>
-            <InFlight agent={agent} onOpen={onOpenMail} />
-            <StopControlButton agent={agent} />
           </div>
 
           <div style={LINE}>
@@ -216,10 +241,17 @@ const Column = memo(function Column({
             <span style={{ flex: 1 }} />
             <span
               data-testid="wall-elapsed"
-              style={{ color: 'var(--color-neutral-700)', fontSize: '10.5px' }}
+              style={{
+                color: 'var(--color-neutral-600)',
+                fontSize: '10.5px',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+              }}
             >
               <Elapsed startedAt={agent.startedAt} />
             </span>
+            <InFlight agent={agent} onOpen={onOpenMail} />
+            <StopControlButton agent={agent} />
           </div>
 
           <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
@@ -239,7 +271,7 @@ const Column = memo(function Column({
               data-testid="wall-warn"
               style={{ color: 'var(--warn)', fontSize: '10.5px', width: '7px' }}
             >
-              {warnMark(agent.contextTokens, agent.compactAt)}
+              {warnMark(agent.contextTokens, agent.contextLimit)}
             </span>
             <span
               data-testid="wall-ctx"
@@ -295,7 +327,7 @@ const Column = memo(function Column({
         style={{
           borderTop: '1px solid var(--color-neutral-900)',
           padding: '7px 12px',
-          color: 'var(--color-neutral-700)',
+          color: 'var(--color-neutral-600)',
           fontSize: '10.5px',
           whiteSpace: 'nowrap',
           overflow: 'hidden',
@@ -305,7 +337,10 @@ const Column = memo(function Column({
         {agent.currentTool ?? ''}
       </div>
 
-      {routed && (
+      {/* The console has one composer and it is the lead's, so every other
+          column says so — an absent composer on its own reads as a column that
+          somehow carries less, rather than as the routing rule it is. */}
+      {routed ? (
         <Composer
           agent={agent}
           routed
@@ -313,6 +348,22 @@ const Column = memo(function Column({
           readOnly={readOnly}
           teamLive={teamLive}
         />
+      ) : (
+        <div
+          data-testid="wall-read-only"
+          title="one composer, in the lead's column · @ addresses any teammate"
+          style={{
+            borderTop: '1px solid var(--color-neutral-900)',
+            padding: '8px 12px',
+            color: 'var(--color-neutral-600)',
+            fontSize: '10.5px',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          read-only
+        </div>
       )}
 
       <div
@@ -400,12 +451,8 @@ export function Wall({
     (name: string) => setHovered((h) => (h === name ? null : h)),
     [],
   );
-  const lead = agents.find((a) => a.isLead);
-  const rest = lead ? agents.filter((a) => a !== lead) : agents;
   // Live first: the columns are ~366px in a scroller that runs past 5000px on a
-  // real team, so anything ordered after a finished teammate is off-screen. Join
-  // order is preserved WITHIN each group — sorting by recency instead would make
-  // columns swap places under the operator's cursor every time an agent acted.
+  // real team, so anything ordered after a finished teammate is off-screen.
   //
   // Ordered, never dropped. The design README asks for idle rows to collapse 30s
   // after the whole team goes idle, but its prototype has no such timer — the
@@ -416,11 +463,7 @@ export function Wall({
   // read back. Dimming is the reversible form of the same idea and the one this
   // console took (DORMANT_OPACITY). The `N idle agents` chip from the same
   // paragraph IS built — in the footer panel, where the prototype puts it too.
-  const ordered = [
-    ...(lead ? [lead] : []),
-    ...rest.filter((a) => a.status !== 'departed'),
-    ...rest.filter((a) => a.status === 'departed'),
-  ];
+  const ordered = wallOrder(agents);
 
   // A teammate drains its own inbox; the LEAD's is drained by the team loop,
   // which stops with the last teammate. The composer says so rather than

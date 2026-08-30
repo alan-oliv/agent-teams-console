@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { FIXTURE_NOW, fixtureAgents } from '../agents.fixture';
 import { Rail } from './Rail';
+import { buildCast } from '../../shared/cast';
+import { CastContext } from '../state/useCast';
 
 afterEach(cleanup);
 
@@ -76,7 +78,7 @@ describe('Rail — left list', () => {
     expect(alpha.getByTestId('rail-type').textContent).toBe('general-purpose');
     expect(alpha.getByTestId('rail-model').textContent).toBe('claude-opus-5');
     expect(alpha.getByTestId('rail-model').style.fontSize).toBe('10.5px');
-    expect(alpha.getByTestId('rail-model').style.color).toBe('var(--color-neutral-700)');
+    expect(alpha.getByTestId('rail-model').style.color).toBe('var(--color-neutral-600)');
     expect(alpha.getByTestId('rail-elapsed').textContent).toBe('0m 42s');
     // 34_469 / 1_000_000 * 16 cells rounds to 1 filled cell, plus the forced compactAt tick at
     // floor(967_000 / 1_000_000 * 16) = index 15.
@@ -159,13 +161,29 @@ describe('Rail — attached pane', () => {
     expect(header.queryByTestId('context-warn')).toBeNull();
   });
 
-  it('renders the attached transcript at rail size and a rail composer', () => {
+  it('renders the attached transcript at rail size', () => {
     renderRail(vi.fn(), 'probe-charlie');
     expect(screen.getAllByTestId('transcript-marker')[0].style.width).toBe('10px');
+  });
+
+  // One composer, and it is the lead's. A composer under a teammate's
+  // transcript implies a channel that does not exist: every send is a direct
+  // inbox write, and a message to any agent enters the run through the lead.
+  it('ends a teammate pane read-only, with the tool it is running', () => {
+    renderRail(vi.fn(), 'probe-alpha');
+    const foot = screen.getByTestId('rail-read-only');
+    expect(within(foot).getByText("read-only · the composer lives in the lead's column")).toBeTruthy();
+    expect(within(foot).getByTestId('rail-current-tool').textContent).toBe('Bash(sleep 20)');
+    expect(screen.queryByTestId('composer-input')).toBeNull();
+  });
+
+  it('keeps the composer when the lead itself is attached', () => {
+    renderRail(vi.fn(), 'team-lead');
     expect(screen.getByTestId('composer-input')).toHaveProperty(
-      'placeholder', 'message probe-charlie directly',
+      'placeholder', 'message team-lead directly',
     );
     expect(screen.getByTestId('composer-caret')).toBeTruthy();
+    expect(screen.queryByTestId('rail-read-only')).toBeNull();
   });
 
   it('dims a departed agent row to opacity .55', () => {
@@ -257,4 +275,15 @@ describe('Rail attached-pane memoisation', () => {
     rerender(<Rail agents={changed} focused="probe-alpha" onFocus={onFocus} now={FIXTURE_NOW} />);
     expect(feed.renders).toBe(1);
   });
+});
+
+it('casts the roster row and the attached header together', () => {
+  const agents = fixtureAgents();
+  render(
+    <CastContext.Provider value={buildCast(agents, 'inception')}>
+      <Rail agents={agents} focused="team-lead" onFocus={vi.fn()} now={FIXTURE_NOW} />
+    </CastContext.Provider>,
+  );
+  expect(screen.getAllByTestId('rail-name')[0].textContent).toBe('Cobb');
+  expect(screen.getByTestId('rail-detail-name').textContent).toBe('Cobb');
 });

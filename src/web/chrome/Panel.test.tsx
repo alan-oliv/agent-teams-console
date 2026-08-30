@@ -2,6 +2,8 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Agent, AgentStatus } from '../../shared/domain';
+import { buildCast } from '../../shared/cast';
+import { CastContext } from '../state/useCast';
 import { Panel } from './Panel';
 
 // This suite renders once per `it`; without explicit cleanup the un-unmounted
@@ -58,7 +60,7 @@ it('shows one chip per agent while three or fewer are idle', () => {
   expect(screen.queryByTestId('idle-chip')).toBeNull();
 });
 
-it('collapses the surplus into a dashed chip once four agents are idle', () => {
+it('collapses only the idle surplus into a dashed chip once more than three are idle', () => {
   render(
     <Panel
       agents={[
@@ -71,9 +73,12 @@ it('collapses the surplus into a dashed chip once four agents are idle', () => {
       onFocusAgent={vi.fn()}
     />,
   );
-  expect(screen.queryAllByTestId('agent-chip')).toHaveLength(0);
+  // The first three idle agents stay visible as chips — only the surplus
+  // (the fourth) collapses.
+  expect(screen.getAllByTestId('agent-chip')).toHaveLength(3);
+  expect(screen.queryByText('probe-charlie')).toBeNull();
   const idleChip = screen.getByTestId('idle-chip');
-  expect(idleChip.textContent).toBe('4 idle agents');
+  expect(idleChip.textContent).toBe('1 idle agent');
   expect(idleChip.style.border).toBe('1px dashed var(--color-neutral-800)');
 
   fireEvent.click(idleChip);
@@ -81,7 +86,7 @@ it('collapses the surplus into a dashed chip once four agents are idle', () => {
   expect(screen.queryByTestId('idle-chip')).toBeNull();
 });
 
-it('keeps busy agents visible while the idle ones are collapsed', () => {
+it('keeps busy agents and the first three idle ones visible, collapsing only the surplus', () => {
   render(
     <Panel
       agents={[
@@ -95,8 +100,9 @@ it('keeps busy agents visible while the idle ones are collapsed', () => {
       onFocusAgent={vi.fn()}
     />,
   );
-  expect(screen.getAllByTestId('agent-chip')).toHaveLength(1);
-  expect(screen.getByTestId('idle-chip').textContent).toBe('4 idle agents');
+  expect(screen.getAllByTestId('agent-chip')).toHaveLength(4);
+  expect(screen.queryByText('probe-delta')).toBeNull();
+  expect(screen.getByTestId('idle-chip').textContent).toBe('1 idle agent');
 });
 
 it('shows the glyph, name and context percent on each chip and focuses on click', () => {
@@ -118,6 +124,37 @@ it('shows the glyph, name and context percent on each chip and focuses on click'
 
   fireEvent.click(chip);
   expect(onFocusAgent).toHaveBeenCalledWith('probe-alpha');
+});
+
+// The row that holds these chips is overflow:hidden with no wrap (Panel.tsx),
+// so a chip too wide for a narrow window is at the mercy of the browser's own
+// layout. Each chip has to be able to shrink and ellipsize its own name
+// legibly, rather than count on the row to never slice it mid-glyph.
+it('lets a squeezed chip ellipsize its name rather than clip raw text', () => {
+  render(
+    <Panel
+      agents={[agent('probe-alpha', 'working', 120_000)]}
+      focusedAgent={null}
+      onFocusAgent={vi.fn()}
+    />,
+  );
+  const chip = screen.getByTestId('agent-chip');
+  // A real minimum, not the browser default of "never shrink below my
+  // content" — that default is exactly what let the row's overflow:hidden
+  // slice a percent sign in half.
+  expect(chip.style.minWidth).not.toBe('');
+  expect(chip.style.minWidth).not.toBe('auto');
+
+  const name = screen.getByText('probe-alpha');
+  expect(name.style.overflow).toBe('hidden');
+  expect(name.style.textOverflow).toBe('ellipsis');
+  expect(name.style.whiteSpace).toBe('nowrap');
+  expect(name.style.minWidth).toBe('0');
+
+  // The percent is the one that got clipped in practice — it must never be
+  // the part that shrinks.
+  const pct = screen.getByText('12%');
+  expect(pct.style.flexShrink).toBe('0');
 });
 
 it('collapses departed agents into their own dashed chip, distinct from idle', () => {
@@ -151,7 +188,7 @@ it('collapses departed agents into their own dashed chip, distinct from idle', (
 it('renders the PANEL label and the key legend', () => {
   render(<Panel agents={[]} focusedAgent={null} onFocusAgent={vi.fn()} />);
   const label = screen.getByText('PANEL');
-  expect(label.style.color).toBe('var(--color-neutral-700)');
+  expect(label.style.color).toBe('var(--color-neutral-600)');
   expect(label.style.letterSpacing).toBe('.12em');
   expect(
     screen.getByText('↑↓ select · ⏎ open · esc interrupt · x stop · ⌃T tasks · t teams'),
@@ -203,4 +240,24 @@ describe('Panel chip memoisation', () => {
     rerender(<Panel agents={agents} focusedAgent="probe-bravo" onFocusAgent={onFocusAgent} />);
     expect(chip.renders).toBe(2);
   });
+});
+
+it('casts the chips and the departed list, and focuses the real name', () => {
+  const onFocusAgent = vi.fn();
+  const roster = [
+    agent('team-lead', 'working', 1_000),
+    agent('probe-alpha', 'idle', 1_000),
+    { ...agent('probe-bravo', 'departed', 1_000) },
+  ];
+  render(
+    <CastContext.Provider value={buildCast(roster, 'inception')}>
+      <Panel agents={roster} focusedAgent={null} onFocusAgent={onFocusAgent} />
+    </CastContext.Provider>,
+  );
+  const chips = screen.getAllByTestId('agent-chip').map((c) => c.textContent);
+  expect(chips.join(' ')).toContain('Cobb');
+  expect(chips.join(' ')).not.toContain('team-lead');
+
+  fireEvent.click(screen.getAllByTestId('agent-chip')[0]);
+  expect(onFocusAgent).toHaveBeenCalledWith('team-lead');
 });

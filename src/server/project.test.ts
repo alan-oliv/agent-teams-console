@@ -954,14 +954,30 @@ describe('task blocking', () => {
     expect(project(log, false).tasks.find((t) => t.id === '2')!.state).toBe('pending');
   });
 
-  it("exposes only the still-open blockers on the task, matching the tool's own contract", () => {
+  // The open set is what stops blocking; the full list is what DEPENDS ON draws
+  // and what the per-task stepper counts against. Sending only the open one
+  // discarded the denominator.
+  it('keeps every declared blocker and reports the open ones separately', () => {
     const log: StoredEvent[] = [
       { seq: 1, ts: 0, kind: 'roster', payload: { config: configWith(['worker']), sidecars: [] } },
       taskEvent(2, { id: '1', status: 'completed' }),
       taskEvent(3, { id: '2' }),
       taskEvent(4, { id: '3', owner: 'worker', blockedBy: ['1', '2'] }),
     ];
-    expect(project(log, false).tasks.find((t) => t.id === '3')!.blockedBy).toEqual(['2']);
+    const task = project(log, false).tasks.find((t) => t.id === '3')!;
+    expect(task.blockedBy).toEqual(['1', '2']);
+    expect(task.openBlockedBy).toEqual(['2']);
+  });
+
+  it('reports no open blockers once the last one completes, without dropping the id', () => {
+    const log: StoredEvent[] = [
+      { seq: 1, ts: 0, kind: 'roster', payload: { config: configWith(['worker']), sidecars: [] } },
+      taskEvent(2, { id: '1', status: 'completed' }),
+      taskEvent(3, { id: '2', owner: 'worker', blockedBy: ['1'] }),
+    ];
+    const task = project(log, false).tasks.find((t) => t.id === '2')!;
+    expect(task.blockedBy).toEqual(['1']);
+    expect(task.openBlockedBy).toEqual([]);
   });
 
   it('still blocks a dependent whose dependency is still open', () => {

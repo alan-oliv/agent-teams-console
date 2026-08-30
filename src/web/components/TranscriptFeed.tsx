@@ -14,6 +14,7 @@ import { TRANSCRIPT_TEXT_CAP } from '../../shared/transcript';
 import { diffStat } from '../format';
 import { DiffContext } from '../state/useTeamState';
 import { useAppearance } from '../state/useSettings';
+import { useCast } from '../state/useCast';
 import { DENSITY } from '../themes';
 import { codeTokens, segments, toolCodeLang, type CodeTokenKind } from '../../shared/code';
 import { blocks as mdBlocks, type Inline } from '../../shared/markdown';
@@ -68,6 +69,12 @@ const MARKER_COLOR = 'var(--color-accent-500)';
 // this bounds the merged list once scrollback has been pulled in.
 const RENDER_LIMIT = 1_200;
 
+// A row with no newline otherwise has no expandability trigger at all, so a
+// long one-liner just ellipsises with no way to read the rest. The wall
+// column's minimum width is 232px; a monospaced line comfortably overflows
+// that well before 120 characters.
+const LONG_LINE_CHARS = 120;
+
 /**
  * How strongly a line reads, by its distance back from the newest. The current
  * command has to look current; a flat colour down the whole ladder does not
@@ -106,6 +113,10 @@ const NEUTRAL_ACTION: CSSProperties = {
  * should give way when the column is narrow.
  */
 function Sender({ name, size }: { name: string; size: string }) {
+  // The pill is the only place a row carries a name of its own; the text is the
+  // agent's own words and is left exactly as it arrived.
+  const display = useCast().asChar(name).display;
+
   return (
     <span
       data-testid="transcript-sender"
@@ -119,7 +130,7 @@ function Sender({ name, size }: { name: string; size: string }) {
         flex: 'none',
       }}
     >
-      {name}
+      {display}
     </span>
   );
 }
@@ -415,11 +426,15 @@ export function TranscriptFeed({
   );
   // `default` means each view keeps its OWN tuning — the rail reads at 11px and
   // a wall column at 10, and flattening both to one number is a regression the
-  // control is not meant to cause. Only a deliberate compact/roomy overrides,
-  // and only in the views that show a transcript rather than a digest.
-  const density = appearance.density === 'default' || (size !== 'wall' && size !== 'rail')
+  // control is not meant to cause. Only a deliberate compact/roomy overrides.
+  // A condensed feed then runs 3px tighter than a full one, floored at 3, so
+  // the setting reaches every transcript rather than stopping at two of them.
+  const condensed = size !== 'wall' && size !== 'rail';
+  const density = appearance.density === 'default'
     ? s.rowGap
-    : DENSITY[appearance.density];
+    : condensed
+      ? Math.max(3, DENSITY[appearance.density] - 3)
+      : DENSITY[appearance.density];
   const container: CSSProperties = {
     flex: 1,
     minHeight: 0,
@@ -449,7 +464,12 @@ export function TranscriptFeed({
   }, [agent]);
 
   const pane = useRef<HTMLDivElement>(null);
-  const pinned = useRef(false);
+  // Whether the operator was within 64px of the bottom BEFORE the latest
+  // append, kept current by onScroll rather than recomputed here: geometry
+  // read after React has already committed new rows includes their height, so
+  // a burst taller than 64px would wrongly read as "scrolled away" even though
+  // the operator never moved. Starts true so a fresh pane opens at the tail.
+  const pinned = useRef(true);
   // Prepending history moves everything down by the height it added; without
   // this the operator is thrown back to the top the instant it lands.
   const anchor = useRef(0);
@@ -462,14 +482,11 @@ export function TranscriptFeed({
 
   useLayoutEffect(() => {
     const el = pane.current;
-    if (!el) return;
-    const slack = el.scrollHeight - el.clientHeight - el.scrollTop;
-    // Follow new output only when the operator is already at the bottom. If they
-    // have scrolled up to read, appending a line must not yank them back down.
-    if (!pinned.current || (slack > 0 && slack < 64)) {
-      el.scrollTop = el.scrollHeight;
-      pinned.current = true;
-    }
+    // Follow new output only when the operator was already at the bottom. If
+    // they have scrolled up to read, appending a line must not yank them back
+    // down.
+    if (!el || !pinned.current) return;
+    el.scrollTop = el.scrollHeight;
   }, [lines]);
 
   // The live tail wins: history is only what precedes its first line, so a line
@@ -495,7 +512,12 @@ export function TranscriptFeed({
 
   const onScroll = useCallback(
     (e: UIEvent<HTMLDivElement>) => {
-      if (e.currentTarget.scrollTop < 48) void loadOlder();
+      const el = e.currentTarget;
+      // Within 64px of the bottom: keep following. Further than that: hold
+      // position through the next append, until the operator scrolls back
+      // down close enough for this to re-pin.
+      pinned.current = el.scrollHeight - el.clientHeight - el.scrollTop <= 64;
+      if (el.scrollTop < 48) void loadOlder();
     },
     [loadOlder],
   );
@@ -519,7 +541,8 @@ export function TranscriptFeed({
         const more =
           text.includes('\n') ||
           payload !== undefined ||
-          (line.text.length === TRANSCRIPT_TEXT_CAP && line.text.endsWith('…'));
+          (line.text.length === TRANSCRIPT_TEXT_CAP && line.text.endsWith('…')) ||
+          text.length > LONG_LINE_CHARS;
         const isOpen = more && open.has(line.id);
         const opacity = appearance.fade
           ? (working ? 1 : RESTING) * fade(shown.length - 1 - i)
@@ -652,7 +675,7 @@ export function TranscriptFeed({
                 <span style={{ flex: 1 }} />
                 <span
                   data-testid="json-meta"
-                  style={{ color: 'var(--color-neutral-700)', fontSize: '10px', flex: 'none' }}
+                  style={{ color: 'var(--color-neutral-600)', fontSize: '10px', flex: 'none' }}
                 >
                   {`${meta.keys} keys · ${meta.lines} lines · ${meta.bytes} B`}
                 </span>
@@ -689,7 +712,7 @@ export function TranscriptFeed({
               )}
 
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                <span style={{ color: 'var(--color-neutral-700)', fontSize: '10px' }}>
+                <span style={{ color: 'var(--color-neutral-600)', fontSize: '10px' }}>
                   click the row again to collapse
                 </span>
                 <span style={{ flex: 1 }} />
@@ -778,36 +801,45 @@ export function TranscriptFeed({
                 </span>
               </div>
 
-              <div style={{ height: '1px', background: 'var(--color-neutral-900)' }} />
+              {/* A one-liner has no "rest" after the header — the header already
+                  shows it whole, so a body here would just repeat it. */}
+              {text.includes('\n') && (
+                <>
+                  <div style={{ height: '1px', background: 'var(--color-neutral-900)' }} />
 
-              <div
-                data-testid="transcript-drawer-body"
-                style={{ display: 'flex', flexDirection: 'column', gap: '11px', paddingLeft: '16px' }}
-              >
-                {/* The first line is the row's own header; the body is the rest. */}
-                {toolCodeLang(text.split('\n')[0]) !== undefined ? (
-                  // A tool row carries no prose to fence code off from — the
-                  // whole body is the command or the file.
-                  <CodeBlock
-                    lang={toolCodeLang(text.split('\n')[0])!}
-                    lines={text.slice(text.indexOf('\n') + 1).replace(/\s+$/, '').split('\n')}
-                  />
-                ) : (
-                segments(text.slice(text.indexOf('\n') + 1)).map((seg, b) =>
-                  seg.kind === 'code' ? (
-                    <CodeBlock key={b} lang={seg.lang} lines={seg.lines} />
-                  ) : (
-                    <Prose key={b} text={seg.text} />
-                  ),
-                ))}
-              </div>
+                  <div
+                    data-testid="transcript-drawer-body"
+                    style={{ display: 'flex', flexDirection: 'column', gap: '11px', paddingLeft: '16px' }}
+                  >
+                    {/* The first line is the row's own header; the body is the rest. */}
+                    {toolCodeLang(text.split('\n')[0]) !== undefined ? (
+                      // A tool row carries no prose to fence code off from — the
+                      // whole body is the command or the file.
+                      <CodeBlock
+                        lang={toolCodeLang(text.split('\n')[0])!}
+                        lines={text.slice(text.indexOf('\n') + 1).replace(/\s+$/, '').split('\n')}
+                      />
+                    ) : (
+                    segments(text.slice(text.indexOf('\n') + 1)).map((seg, b) =>
+                      seg.kind === 'code' ? (
+                        <CodeBlock key={b} lang={seg.lang} lines={seg.lines} />
+                      ) : (
+                        <Prose key={b} text={seg.text} />
+                      ),
+                    ))}
+                  </div>
+                </>
+              )}
 
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center', paddingLeft: '16px' }}>
                 <span
                   data-testid="transcript-drawer-count"
-                  style={{ color: 'var(--color-neutral-700)', fontSize: '10px' }}
+                  style={{ color: 'var(--color-neutral-600)', fontSize: '10px' }}
                 >
-                  {`${text.split('\n').length} lines`}
+                  {(() => {
+                    const n = text.split('\n').length;
+                    return `${n} line${n === 1 ? '' : 's'}`;
+                  })()}
                 </span>
                 <span style={{ flex: 1 }} />
                 <button
@@ -880,7 +912,7 @@ export function TranscriptFeed({
                 <span
                   data-testid="transcript-more"
                   aria-hidden
-                  style={{ color: 'var(--color-neutral-700)', flex: 'none', fontSize: '10px' }}
+                  style={{ color: 'var(--color-neutral-600)', flex: 'none', fontSize: '10px' }}
                 >
                   ▸
                 </span>

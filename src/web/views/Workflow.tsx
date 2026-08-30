@@ -1,42 +1,65 @@
-import { useState, type CSSProperties } from 'react';
+import { useState } from 'react';
 import type { WorkflowRun as Run } from '../../shared/domain';
+import { Bar, METRIC } from '../chrome/Bar';
+import { RunSelect } from '../chrome/RunSelect';
+import { TeamSelect } from '../chrome/TeamSelect';
 import { formatElapsed } from '../format';
+import type { SettingsStore } from '../state/useSettings';
 import { WorkflowAgents } from './WorkflowAgents';
 import { WorkflowJournal } from './WorkflowJournal';
 import { WorkflowRun } from './WorkflowRun';
 import { WorkflowScript } from './WorkflowScript';
+import { runTotalsText } from './workflow-grid';
 
 export const WORKFLOW_VIEW_IDS = ['run', 'agents', 'script', 'journal'] as const;
 export type WorkflowViewId = (typeof WORKFLOW_VIEW_IDS)[number];
 
 /**
- * The bar is one line, and a child that can shrink or wrap doubles its height.
- * The team bar sheds metrics to hold that; this one does not need to — four
- * pills and three metrics against six pills and seven — but every child still
- * carries the rule, so adding one later cannot quietly break the line.
+ * The order this bar's metrics are SHED in when it runs out of room. Lower
+ * survives longer, as on the team bar.
+ *
+ * The design never specified one for workflow mode, so this follows the team
+ * bar's precedent rather than inventing a principle: identity outlives figures.
+ * The task id is what says which piece of work this run belongs to — `branch`'s
+ * counterpart, and the one thing here that is not re-derivable from the run
+ * view below — so it goes last. Elapsed sits where the team bar puts its
+ * elapsed-and-spend chip. The totals are the pure readout, and the agents view
+ * carries them in full, so they go first. Recorded in CONSOLE-DECISIONS.md.
  */
-const METRIC: CSSProperties = { flex: 'none', whiteSpace: 'nowrap' };
-
-const BAR: CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  flexWrap: 'nowrap',
-  gap: 10,
-  padding: '9px 14px',
-  borderBottom: '1px solid var(--color-neutral-900)',
-  background: 'var(--color-bg)',
-  fontSize: 12.5,
+export const WORKFLOW_METRIC_RANK: Record<string, number> = {
+  taskId: 0,
+  elapsed: 1,
+  totals: 2,
 };
 
-const STATUS_COLOR: Record<Run['status'], string> = {
-  completed: 'var(--color-accent-400)',
-  running: 'var(--color-accent-500)',
-  killed: 'var(--color-neutral-600)',
-  failed: 'var(--color-neutral-500)',
-};
+export interface WorkflowProps {
+  run: Run;
+  /** Every run this session has — the run picker's list. */
+  runs: readonly Run[];
+  onSelectRun(runId: string | null): void;
+  /** The session's name when a team is running behind the run. See RunSelect. */
+  backToTeam?: string;
+  now: number;
+  /** The session the run belongs to — what the picker switches away from. */
+  teamName: string;
+  sessionName?: string;
+  teamsOpen: boolean;
+  onTeamsOpenChange(open: boolean): void;
+  appearance: SettingsStore;
+}
 
-export function Workflow({ run, now }: { run: Run; now: number }) {
+/**
+ * Workflow mode is a different shell, not a different view: no roster, no task
+ * list, no inboxes, no composer. What it keeps is the chrome — the same one-line
+ * bar, the same picker, the same gear — because a run the operator cannot leave,
+ * and a theme they cannot reach from it, is a mode with no way out.
+ */
+export function Workflow({
+  run, runs, onSelectRun, backToTeam, now, teamName, sessionName, teamsOpen, onTeamsOpenChange,
+  appearance,
+}: WorkflowProps) {
   const [view, setView] = useState<WorkflowViewId>('run');
+  const totals = runTotalsText(run);
 
   // A live run has no startedAt on disk — the snapshot that carries it does not
   // exist yet — so there is nothing to measure elapsed against.
@@ -48,87 +71,82 @@ export function Workflow({ run, now }: { run: Run; now: number }) {
         : '—';
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      <div data-testid="wf-bar" style={BAR}>
-        <span
-          data-testid="wf-wordmark"
-          style={{
-            color: 'var(--color-accent)',
-            letterSpacing: '.14em',
-            fontWeight: 700,
-            fontSize: 11,
-            ...METRIC,
-          }}
-        >
-          RUN
-        </span>
+    <>
+      <Bar
+        wordmark="RUN"
+        picker={
+          <>
+            <TeamSelect
+              current={teamName}
+              sessionName={sessionName}
+              open={teamsOpen}
+              onOpenChange={onTeamsOpenChange}
+              now={now}
+            />
+            <RunSelect
+              run={run}
+              runs={runs}
+              onSelect={onSelectRun}
+              backToTeam={backToTeam}
+            />
+          </>
+        }
+        views={WORKFLOW_VIEW_IDS}
+        view={view}
+        // Wrapped rather than passed bare: a setState function widens the bar's
+        // view type to `string`, which loses the pills their union.
+        onViewChange={(next) => setView(next)}
+        // An array rather than a fragment, and every entry keyed: the bar sheds
+        // by key, and two of these three are conditional, so a positional rule
+        // would drop whichever metric happened to sit at that index.
+        metrics={[
+          // No status word: the design asks the right side for the task id,
+          // the run totals and elapsed, and the run picker beside the wordmark
+          // already carries this run's state in its own colour.
+          ...(run.taskId !== undefined
+            ? [
+                <span
+                  key="taskId"
+                  data-testid="wf-task-id"
+                  style={{ color: 'var(--color-neutral-600)', ...METRIC }}
+                >
+                  {`task ${run.taskId}`}
+                </span>,
+              ]
+            : []),
+          ...(totals !== undefined
+            ? [
+                <span
+                  key="totals"
+                  data-testid="wf-run-totals"
+                  style={{ color: 'var(--color-neutral-600)', ...METRIC }}
+                >
+                  {totals}
+                </span>,
+              ]
+            : []),
+          <span
+            key="elapsed"
+            data-testid="wf-elapsed"
+            style={{ color: 'var(--color-neutral-500)', ...METRIC }}
+          >
+            {elapsed}
+          </span>,
+        ]}
+        metricRank={WORKFLOW_METRIC_RANK}
+        appearance={appearance}
+      />
 
-        <span data-testid="wf-identity" style={{ display: 'flex', gap: 8, alignItems: 'baseline', ...METRIC }}>
-          <span style={{ color: 'var(--color-text)' }}>{run.name ?? 'unnamed run'}</span>
-          <span style={{ color: 'var(--color-neutral-600)', fontSize: 11 }}>{run.runId}</span>
-        </span>
-
-        <div
-          role="tablist"
-          aria-label="view"
-          style={{ display: 'flex', gap: 2, marginLeft: 2, ...METRIC }}
-        >
-          {WORKFLOW_VIEW_IDS.map((id) => (
-            <button
-              key={id}
-              className="tab"
-              type="button"
-              role="tab"
-              aria-selected={id === view}
-              onClick={() => setView(id)}
-            >
-              {id}
-            </button>
-          ))}
-        </div>
-
-        <span data-testid="wf-spacer" style={{ flex: 1 }} />
-
-        <span data-testid="wf-status" style={{ color: STATUS_COLOR[run.status], ...METRIC }}>
-          {run.status}
-        </span>
-        {run.taskId !== undefined && (
-          <span data-testid="wf-task-id" style={{ color: 'var(--color-neutral-600)', ...METRIC }}>
-            {`task ${run.taskId}`}
-          </span>
-        )}
-        <span data-testid="wf-elapsed" style={{ color: 'var(--color-neutral-500)', ...METRIC }}>
-          {elapsed}
-        </span>
-      </div>
-
-      {view === 'run' &&
-        (run.live ? (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-            <div
-              data-testid="wf-live-note"
-              style={{
-                flex: 'none',
-                padding: '10px 16px',
-                borderBottom: '1px solid var(--color-neutral-900)',
-                color: 'var(--color-neutral-600)',
-                fontSize: '11px',
-                lineHeight: 1.5,
-              }}
-            >
-              this run is still going, so there is no grid to draw — the phases
-              and labels reach disk only in the snapshot, which is written once,
-              at termination. Until the run ends the journal knows which agents
-              started and which came back, and nothing else.
-            </div>
-            <WorkflowAgents agents={run.agents} />
-          </div>
-        ) : (
-          <WorkflowRun run={run} />
-        ))}
-      {view === 'agents' && <WorkflowAgents agents={run.agents} />}
-      {view === 'script' && <WorkflowScript run={run} />}
-      {view === 'journal' && <WorkflowJournal agents={run.agents} />}
-    </div>
+      <main className="console-body">
+        {/* Live or finished is the run view's own business: it draws the flat
+            list and the live note mid-flight, the phases once they land, and
+            the sidebar either way — which the spec never restricted to a
+            finished run. */}
+        {view === 'run' && <WorkflowRun run={run} />}
+        {view === 'agents' && <WorkflowAgents agents={run.agents} />}
+        {view === 'script' && <WorkflowScript run={run} />}
+        {view === 'journal' && <WorkflowJournal agents={run.agents} />}
+      </main>
+    </>
   );
 }

@@ -3,8 +3,8 @@ import { CONSOLE_SENDER, type Agent, type MailMessage, type Task } from '../../s
 import {
   composingIn,
   everyoneThread,
+  pairLabel,
   readTurnOf,
-  resolveDelivery,
   roomLines,
   roomRecipients,
   stateOf,
@@ -17,10 +17,11 @@ import {
 import { Composer } from '../components/Composer';
 import { Portrait } from '../components/Portrait';
 import { briefAge, clockLabel } from '../format';
+import { useCast } from '../state/useCast';
 
 const PANE_HEAD: CSSProperties = {
   padding: '10px 14px 8px',
-  color: 'var(--color-neutral-700)',
+  color: 'var(--color-neutral-600)',
   fontSize: '10.5px',
   letterSpacing: '.12em',
   borderBottom: '1px solid var(--color-neutral-900)',
@@ -30,7 +31,7 @@ const PANE_HEAD: CSSProperties = {
 const FOOT_NOTE: CSSProperties = {
   borderTop: '1px solid var(--color-neutral-900)',
   padding: '9px 14px',
-  color: 'var(--color-neutral-700)',
+  color: 'var(--color-neutral-600)',
   fontSize: '10px',
   lineHeight: 1.5,
 };
@@ -45,6 +46,45 @@ const OVERLAP_PX = 14;
 // up in the everyone room, where a narrower bubble is what makes a run of
 // messages read as a run rather than one wide column.
 const BUBBLE_MAX_WIDTH = '64%';
+
+// Consecutive messages from one sender are one turn of the conversation, so
+// they collapse into a run: the name is drawn once at the top of it, the face
+// once at the bottom, and the bubbles between sit tight. Both the room and the
+// pair thread read these, like BUBBLE_MAX_WIDTH, so the two cannot drift.
+/**
+ * One pair of grounds, consumed by both rooms so they cannot drift — the same
+ * reasoning as BUBBLE_MAX_WIDTH. `accent-900` under an inset `accent-500` is the
+ * SELECTED-ROW tint everywhere else in the console, so a bubble drawn on it
+ * reads as a selection rather than as a side of the conversation.
+ */
+const BUBBLE_GROUND = {
+  left: {
+    background: 'var(--color-neutral-900)',
+    border: '1px solid var(--color-neutral-800)',
+    color: 'var(--color-neutral-200)',
+  },
+  right: {
+    background: 'var(--color-accent-700)',
+    border: '1px solid var(--color-accent-600)',
+    color: 'var(--color-text)',
+  },
+} as const;
+
+const RUN_GAP = '10px';
+const IN_RUN_GAP = '3px';
+const FACE_PX = 22;
+
+/** The face's place, kept even when it holds nothing, so a run keeps one edge. */
+function Face({ show, agent }: { show: boolean; agent: { name: string; agentType: string; isLead: boolean } }) {
+  return (
+    <div
+      data-testid="face-slot"
+      style={{ width: `${FACE_PX}px`, height: `${FACE_PX}px`, flex: 'none', marginBottom: '2px' }}
+    >
+      {show && <Portrait agent={agent} size={FACE_PX} />}
+    </div>
+  );
+}
 
 /** Portraits key off the roster; a departed agent config no longer lists still has mail. */
 function agentFor(name: string, agents: Agent[]): { name: string; agentType: string; isLead: boolean } {
@@ -91,8 +131,18 @@ function Pair({ thread, agents }: { thread: Thread; agents: Agent[] }) {
  * under the text: the room is every direct message read end to end, so without
  * "who it went to" it would look like a group channel the team does not have.
  */
-function RoomBubble({ line, agents, now }: { line: RoomLine; agents: Agent[]; now: number }) {
+function RoomBubble({
+  line, agents, now, runStart, runEnd,
+}: {
+  line: RoomLine;
+  agents: Agent[];
+  now: number;
+  runStart: boolean;
+  runEnd: boolean;
+}) {
+  const cast = useCast();
   const mine = line.from === CONSOLE_SENDER;
+  const ground = BUBBLE_GROUND[mine ? 'right' : 'left'];
   const recipient = agents.find((a) => a.name === line.to[0]);
   const turn = line.read && line.to.length === 1
     ? readTurnOf(line.ts, recipient?.transcript ?? [])
@@ -102,11 +152,19 @@ function RoomBubble({ line, agents, now }: { line: RoomLine; agents: Agent[]; no
   return (
     <div
       data-testid="room-line"
-      style={{ display: 'flex', flexDirection: 'column', alignItems: mine ? 'flex-end' : 'flex-start', gap: '4px' }}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: mine ? 'flex-end' : 'flex-start',
+        gap: '4px',
+        marginTop: runStart ? RUN_GAP : IN_RUN_GAP,
+      }}
     >
-      <span data-testid="room-from" style={{ color: 'var(--color-neutral-600)', fontSize: '10px', padding: '0 32px' }}>
-        {mine ? 'you' : line.from}
-      </span>
+      {runStart && (
+        <span data-testid="room-from" style={{ color: 'var(--color-neutral-600)', fontSize: '10px', padding: '0 32px' }}>
+          {mine ? 'you' : cast.asChar(line.from).display}
+        </span>
+      )}
       <div
         style={{
           display: 'flex',
@@ -117,15 +175,11 @@ function RoomBubble({ line, agents, now }: { line: RoomLine; agents: Agent[]; no
         }}
       >
         {/* The operator has no portrait: they are not a team member. */}
-        {!mine && (
-          <div style={{ marginBottom: '2px' }}>
-            <Portrait agent={agentFor(line.from, agents)} size={22} />
-          </div>
-        )}
+        {!mine && <Face show={runEnd} agent={agentFor(line.from, agents)} />}
         <div
           style={{
-            background: mine ? 'var(--color-accent-700)' : 'var(--color-neutral-900)',
-            border: `1px solid ${mine ? 'var(--color-accent-600)' : 'var(--color-neutral-800)'}`,
+            background: ground.background,
+            border: ground.border,
             borderRadius: 'var(--radius-md)',
             padding: '8px 12px',
             minWidth: 0,
@@ -134,9 +188,9 @@ function RoomBubble({ line, agents, now }: { line: RoomLine; agents: Agent[]; no
           <span
             data-testid="room-body"
             style={{
-              color: mine ? 'var(--color-text)' : 'var(--color-neutral-300)',
+              color: ground.color,
               fontSize: '11.5px',
-              lineHeight: 1.55,
+              lineHeight: 1.6,
               textWrap: 'pretty',
             }}
           >
@@ -146,7 +200,7 @@ function RoomBubble({ line, agents, now }: { line: RoomLine; agents: Agent[]; no
       </div>
       <div style={{ display: 'flex', gap: '7px', alignItems: 'baseline', padding: '0 32px' }}>
         <span data-testid="room-to" style={{ color: 'var(--color-neutral-600)', fontSize: '10px' }}>
-          {roomRecipients(line, agents)}
+          {roomRecipients(line, agents, cast)}
         </span>
         <span
           data-testid="room-ts"
@@ -157,7 +211,7 @@ function RoomBubble({ line, agents, now }: { line: RoomLine; agents: Agent[]; no
         </span>
         <span
           data-testid="room-receipt"
-          style={{ color: line.read ? 'var(--color-neutral-700)' : 'var(--warn)', fontSize: '10px' }}
+          style={{ color: line.read ? 'var(--color-neutral-600)' : 'var(--warn)', fontSize: '10px' }}
         >
           {line.read
             ? turn === undefined
@@ -171,17 +225,21 @@ function RoomBubble({ line, agents, now }: { line: RoomLine; agents: Agent[]; no
 }
 
 function Bubble({
-  message, thread, agents, now,
+  message, thread, agents, now, runStart, runEnd,
 }: {
   message: MailMessage;
   thread: Thread;
   agents: Agent[];
   now: number;
+  runStart: boolean;
+  runEnd: boolean;
 }) {
   // Sides are fixed to the pair, not to the operator: the first participant is
   // always left, so a thread does not flip when a different message arrives.
   const mine = message.from === thread.b;
+  const ground = BUBBLE_GROUND[mine ? 'right' : 'left'];
   const recipient = agents.find((a) => a.name === message.to);
+  const sender = useCast().asChar(message.from).display;
   const turn = message.read ? readTurnOf(message.ts, recipient?.transcript ?? []) : undefined;
 
   return (
@@ -192,6 +250,7 @@ function Bubble({
         flexDirection: 'column',
         alignItems: mine ? 'flex-end' : 'flex-start',
         gap: '4px',
+        marginTop: runStart ? RUN_GAP : IN_RUN_GAP,
       }}
     >
       <div
@@ -203,22 +262,23 @@ function Bubble({
           maxWidth: BUBBLE_MAX_WIDTH,
         }}
       >
-        <div style={{ marginBottom: '2px' }}>
-          <Portrait agent={agentFor(message.from, agents)} size={22} />
-        </div>
+        <Face show={runEnd} agent={agentFor(message.from, agents)} />
         <div
           style={{
-            background: mine ? 'var(--color-accent-900)' : 'var(--color-bg)',
-            border: `1px solid ${mine ? 'var(--color-accent-700)' : 'var(--color-neutral-900)'}`,
+            background: ground.background,
+            border: ground.border,
             borderRadius: 'var(--radius-md)',
             padding: '9px 12px',
             minWidth: 0,
           }}
         >
           <div style={{ display: 'flex', gap: '8px', alignItems: 'baseline', marginBottom: '5px' }}>
-            <span data-testid="bubble-from" style={{ color: 'var(--color-accent-400)', fontSize: '10.5px' }}>
-              {message.from}
-            </span>
+            {/* Once per run — but the clock stays, since a run can span minutes. */}
+            {runStart && (
+              <span data-testid="bubble-from" style={{ color: 'var(--color-accent-400)', fontSize: '10.5px' }}>
+                {sender}
+              </span>
+            )}
             <span
               data-testid="bubble-ts"
               title={message.tsIsDelivery ? 'delivery time — send time unknown' : undefined}
@@ -230,7 +290,7 @@ function Bubble({
           <span
             data-testid="bubble-body"
             style={{
-              color: 'var(--color-neutral-300)',
+              color: ground.color,
               fontSize: '11.5px',
               lineHeight: 1.6,
               textWrap: 'pretty',
@@ -244,7 +304,7 @@ function Bubble({
       <span
         data-testid="bubble-delivery"
         style={{
-          color: message.read ? 'var(--color-neutral-700)' : 'var(--warn)',
+          color: message.read ? 'var(--color-neutral-600)' : 'var(--warn)',
           fontSize: '10px',
           padding: '0 32px',
         }}
@@ -260,40 +320,44 @@ function Bubble({
 }
 
 export function Comms({
-  agents, mail, tasks, focused, onFocus, onShowInWall, now, readOnly = false,
+  agents, mail, tasks, openThread, onFocus, onShowInWall, now, readOnly = false,
 }: {
   agents: Agent[];
   mail: MailMessage[];
   tasks: Task[];
-  focused: string | null;
+  /** An agent whose messages comms was asked to open — see the `picked` state. */
+  openThread: string | null;
   onFocus: (name: string) => void;
   onShowInWall: (name: string) => void;
   now: number;
   readOnly?: boolean;
 }) {
-  // Settle delivery before threading: the read flag on the wire is the one the
-  // inbox was written with and never updated. See resolveDelivery.
-  const settled = useMemo(() => resolveDelivery(mail, agents), [mail, agents]);
-  const threads = useMemo(() => threadsOf(settled), [settled]);
+  // `read` arrives settled and is taken as it comes. The one artefact that
+  // proves a read is a <teammate-message> frame in the recipient's own
+  // transcript, which the ingest folds in for the whole file; `Agent.unread` is
+  // the size of the CURRENT inbox — an in-flight readout, and no evidence about
+  // which message left it. Inferring reads from that count once stood here:
+  // measured against a live eight-agent team it settled nothing the frames had
+  // not already proved, and it stood ready to report a message read on no
+  // evidence at all. A message no frame accounts for says so.
+  const cast = useCast();
+  const threads = useMemo(() => threadsOf(mail), [mail]);
   // The whole team's traffic, pinned above the pairs. Not a seventh inbox — the
   // same messages, read end to end instead of two at a time.
-  const room = useMemo(() => everyoneThread(settled), [settled]);
-  const [picked, setPicked] = useState<string | null>(null);
+  const room = useMemo(() => everyoneThread(mail), [mail]);
+  // An open-this-thread intent, consumed once: entering comms is not a request
+  // for a particular conversation, so the room opens on every plain view switch
+  // and a pair only when one was actually asked for — the wall's in-flight
+  // badge, which has to land on the messages it counted.
+  const [picked, setPicked] = useState<string | null>(
+    () => threads.find((t) => t.a === openThread || t.b === openThread)?.id ?? null,
+  );
 
-  // The room holds every agent, so a focused agent never pulls the view off it.
-  const holds = (t: Thread, name: string) =>
-    t.kind === 'everyone' || t.a === name || t.b === name;
-  // Derived rather than cleared in an effect, like the focused agent in
-  // useTeamState: a thread stays open until the focused agent moves somewhere
-  // it has no part in — the panel, the rail, the wall — and comms follows it.
+  // The room first, so it is what `open` falls back to.
   const all = room ? [room, ...threads] : threads;
-  const pickedThread = all.find((t) => t.id === picked);
-  const open =
-    pickedThread && (!focused || holds(pickedThread, focused))
-      ? pickedThread
-      : (focused ? threads.find((t) => t.a === focused || t.b === focused) : undefined) ?? all[0];
+  const open = all.find((t) => t.id === picked) ?? all[0];
 
-  function openThread(thread: Thread) {
+  function openPair(thread: Thread) {
     setPicked(thread.id);
     onFocus(focusTargetOf(thread, agents));
   }
@@ -384,7 +448,7 @@ export function Comms({
               data-testid="pairs-label"
               style={{
                 padding: '8px 9px 2px',
-                color: 'var(--color-neutral-700)',
+                color: 'var(--color-neutral-600)',
                 fontSize: '10px',
                 letterSpacing: '.12em',
               }}
@@ -403,7 +467,7 @@ export function Comms({
                 data-testid="thread-row"
                 role="option"
                 aria-selected={selected}
-                onClick={() => openThread(thread)}
+                onClick={() => openPair(thread)}
                 style={{
                   padding: '8px 9px',
                   borderRadius: 'var(--radius-sm)',
@@ -431,7 +495,7 @@ export function Comms({
                         textOverflow: 'ellipsis',
                       }}
                     >
-                      {thread.pair}
+                      {pairLabel(thread, cast)}
                     </span>
                   </div>
                   <span
@@ -469,7 +533,7 @@ export function Comms({
           {threads.length === 0 && (
             <div
               data-testid="threads-empty"
-              style={{ padding: '8px 9px', color: 'var(--color-neutral-700)', fontSize: '11px' }}
+              style={{ padding: '8px 9px', color: 'var(--color-neutral-600)', fontSize: '11px' }}
             >
               no threads — nobody on this team has written to anybody
             </div>
@@ -503,6 +567,7 @@ function ThreadPane({
   readOnly: boolean;
   onShowInWall: () => void;
 }) {
+  const cast = useCast();
   const taskIds = taskIdsOf(thread, tasks);
   const composing = composingIn(thread, agents);
   // A thread outlives its participants: mail from an agent the config no longer
@@ -512,8 +577,10 @@ function ThreadPane({
     .filter((a): a is Agent => a !== undefined);
   // See Composer: the lead's inbox is drained by the team loop, not by the lead.
   const teamLive = agents.some((a) => !a.isLead && a.status !== 'departed');
-  // Everyone still able to read an inbox — who "message the team" actually reaches.
-  const members = agents.filter((a) => a.status !== 'departed');
+  // The whole roster goes to the composer, which drops the departed itself:
+  // a team with no reader left gets a DISABLED composer, not a vanished one —
+  // taking it away reads as the console having lost the thread, where disabled
+  // says the one true thing, that nothing is left to collect a message.
 
   return (
     <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -532,7 +599,7 @@ function ThreadPane({
         }}
       >
         <span style={{ color: 'var(--color-text)', fontSize: '12.5px', flex: 'none' }}>
-          {thread.pair}
+          {pairLabel(thread, cast)}
         </span>
         {thread.kind === 'pair' && (
           <span
@@ -560,7 +627,7 @@ function ThreadPane({
         {taskIds.length > 0 && (
           <span
             data-testid="thread-tasks"
-            style={{ color: 'var(--color-neutral-700)', fontSize: '10.5px', flex: 'none' }}
+            style={{ color: 'var(--color-neutral-600)', fontSize: '10.5px', flex: 'none' }}
           >
             {taskIds.join(' · ')}
           </span>
@@ -593,23 +660,48 @@ function ThreadPane({
           padding: '14px 16px',
           display: 'flex',
           flexDirection: 'column',
-          gap: '14px',
+          // Spacing is the run's, not the list's: see RUN_GAP.
+          gap: 0,
         }}
       >
         {thread.kind === 'everyone'
-          ? roomLines(thread.messages).map((line) => (
-              <RoomBubble key={line.key} line={line} agents={agents} now={now} />
+          ? roomLines(thread.messages).map((line, i, lines) => (
+              <RoomBubble
+                key={line.key}
+                line={line}
+                agents={agents}
+                now={now}
+                runStart={lines[i - 1]?.from !== line.from}
+                runEnd={lines[i + 1]?.from !== line.from}
+              />
             ))
-          : thread.messages.map((message) => (
-              <Bubble key={message.msgId} message={message} thread={thread} agents={agents} now={now} />
+          : thread.messages.map((message, i, messages) => (
+              <Bubble
+                key={message.msgId}
+                message={message}
+                thread={thread}
+                agents={agents}
+                now={now}
+                runStart={messages[i - 1]?.from !== message.from}
+                runEnd={messages[i + 1]?.from !== message.from}
+              />
             ))}
 
         {composing && (
           <div
             data-testid="composing"
-            style={{ display: 'flex', gap: '9px', alignItems: 'center', paddingLeft: '31px', opacity: 0.6 }}
+            style={{
+              display: 'flex',
+              gap: '9px',
+              alignItems: 'center',
+              paddingLeft: '31px',
+              marginTop: '14px',
+              opacity: 0.6,
+            }}
           >
-            <span style={{ color: 'var(--color-accent-400)', fontSize: '10.5px' }}>{composing}</span>
+            <span style={{ color: 'var(--color-accent-400)', fontSize: '10.5px' }}>
+              {cast.asChar(composing).display}
+            </span>
             <span style={{ color: 'var(--color-neutral-600)', fontSize: '10.5px' }}>
               composing a reply
             </span>
@@ -632,10 +724,10 @@ function ThreadPane({
       </div>
 
       {thread.kind === 'everyone'
-        ? members.length > 0 && (
+        ? agents.length > 0 && (
             <Composer
-              agent={members[0]}
-              alsoTo={members.slice(1)}
+              agent={agents[0]}
+              alsoTo={agents.slice(1)}
               variant="everyone"
               readOnly={readOnly}
               teamLive={teamLive}

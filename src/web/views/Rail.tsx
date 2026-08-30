@@ -8,6 +8,7 @@ import { StatusGlyph } from '../components/StatusGlyph';
 import { StopControlButton } from '../components/StopButton';
 import { TranscriptFeed } from '../components/TranscriptFeed';
 import { contextBar, costLabel, ctxLabel, pctLabel } from '../format';
+import { useCast } from '../state/useCast';
 
 // Memoised so an SSE frame only re-renders the rows whose agent actually moved.
 // The click handler is built here rather than passed down as an inline arrow, which
@@ -19,6 +20,9 @@ const Row = memo(function Row({
   isSelected: boolean;
   onFocus: (name: string) => void;
 }) {
+  // Display only: the row id, the focus call and the URL keep the real name.
+  const display = useCast().asChar(agent.name).display;
+
   return (
     <div
       id={`rail-option-${agent.name}`}
@@ -42,7 +46,7 @@ const Row = memo(function Row({
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '7px' }}>
           <StatusGlyph status={agent.status} size={10} />
           <span data-testid="rail-name" style={{ color: 'var(--color-text)', fontWeight: 500 }}>
-            {agent.name}
+            {display}
           </span>
           {agent.agentType && (
             <span
@@ -61,13 +65,13 @@ const Row = memo(function Row({
           <span style={{ flex: 1 }} />
           <span
             data-testid="rail-model"
-            style={{ color: 'var(--color-neutral-700)', fontSize: '10.5px' }}
+            style={{ color: 'var(--color-neutral-600)', fontSize: '10.5px' }}
           >
             {agent.model}
           </span>
           <span
             data-testid="rail-elapsed"
-            style={{ color: 'var(--color-neutral-700)', fontSize: '10.5px' }}
+            style={{ color: 'var(--color-neutral-600)', fontSize: '10.5px' }}
           >
             <Elapsed startedAt={agent.startedAt} />
           </span>
@@ -106,6 +110,7 @@ const Attached = memo(function Attached(
   { agent, readOnly, teamLive }: { agent: Agent; readOnly: boolean; teamLive: boolean },
 ) {
   const status = AGENT_STATUS[agent.status];
+  const display = useCast().asChar(agent.name).display;
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0 }}>
@@ -129,7 +134,7 @@ const Attached = memo(function Attached(
           data-testid="rail-detail-name"
           style={{ color: 'var(--color-text)', fontWeight: 500, fontSize: '13px' }}
         >
-          {agent.name}
+          {display}
         </span>
         {agent.agentType && (
           <span
@@ -161,7 +166,7 @@ const Attached = memo(function Attached(
         <span style={{ flex: 1 }} />
         <span
           data-testid="rail-detail-model"
-          style={{ color: 'var(--color-neutral-700)', fontSize: '10.5px' }}
+          style={{ color: 'var(--color-neutral-600)', fontSize: '10.5px' }}
         >
           {agent.model}
         </span>
@@ -192,7 +197,37 @@ const Attached = memo(function Attached(
         working={agent.status === 'working'}
       />
 
-      <Composer agent={agent} variant="rail" readOnly={readOnly} teamLive={teamLive} />
+      {/* One composer, and it is the lead's. A composer under a teammate's
+          transcript implies a channel this model does not have — every send is
+          a direct inbox write, and a message to any agent enters the run
+          through the lead. */}
+      {agent.isLead ? (
+        <Composer agent={agent} variant="rail" readOnly={readOnly} teamLive={teamLive} />
+      ) : (
+        <div
+          data-testid="rail-read-only"
+          style={{
+            borderTop: '1px solid var(--color-neutral-900)',
+            background: 'var(--color-bg)',
+            padding: '11px 18px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '9px',
+            color: 'var(--color-neutral-600)',
+            fontSize: '11px',
+            overflow: 'hidden',
+          }}
+        >
+          <span style={{ flex: 'none' }}>read-only · the composer lives in the lead&apos;s column</span>
+          <span style={{ flex: 1 }} />
+          <span
+            data-testid="rail-current-tool"
+            style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+          >
+            {agent.currentTool ?? ''}
+          </span>
+        </div>
+      )}
     </div>
   );
 });
@@ -288,7 +323,7 @@ export function Rail({
           style={{
             padding: '9px 16px',
             borderTop: '1px solid var(--color-neutral-900)',
-            color: 'var(--color-neutral-700)',
+            color: 'var(--color-neutral-600)',
             fontSize: '10.5px',
             display: 'flex',
             gap: '12px',

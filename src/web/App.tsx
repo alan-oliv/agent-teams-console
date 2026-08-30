@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './theme.css';
+import { buildCast } from '../shared/cast';
 import type { Agent, TeamsResponse, TeamSummary } from '../shared/domain';
+import { wallOrder as rosterOrder } from '../shared/roster';
 import { postJson } from './api';
 import { NeedsYou } from './chrome/NeedsYou';
 import { Panel } from './chrome/Panel';
@@ -8,7 +10,8 @@ import { StatusBar } from './chrome/StatusBar';
 import { StopConfirm, WatchConfirm } from './chrome/StopConfirm';
 import { DiffModal } from './components/DiffModal';
 import { StopContext } from './components/StopButton';
-import { useHiddenSessions } from './state/useHiddenSessions';
+import { CastContext } from './state/useCast';
+import { isEmptySession, isNotShown, useHiddenSessions } from './state/useHiddenSessions';
 import { useKeyboard } from './state/useKeyboard';
 import { SettingsContext, useSettings } from './state/useSettings';
 import { DiffContext, useTeamState } from './state/useTeamState';
@@ -43,6 +46,14 @@ export function App() {
   const state = store.state;
   const toggleTeams = useCallback(() => setTeamsOpen((open) => !open), []);
 
+  // An open-this-thread intent, not a selection: comms opens the everyone room
+  // on any plain view switch, and only the in-flight badge asks it for one
+  // agent's messages. Dropped on the way out, so the next visit is plain again.
+  const [mailFor, setMailFor] = useState<string | null>(null);
+  useEffect(() => {
+    if (store.view !== 'comms') setMailFor(null);
+  }, [store.view]);
+
   // "Stop watching" is a view-local dismissal, never written to `~/.claude` and
   // scoped to this tab — the team keeps running and this state is the only
   // place that knows the console stopped following it.
@@ -57,7 +68,7 @@ export function App() {
     setDismissed(false);
   }, [state?.teamName]);
 
-  const { hidden, hide, showAll } = useHiddenSessions();
+  const { hidden, hide, showAll, revealed } = useHiddenSessions();
   /**
    * Nothing worth drawing in the body. Two ways to get here:
    *
@@ -75,8 +86,23 @@ export function App() {
    */
   const currentHidden = state ? hidden.has(state.teamName) : false;
   const leadOnlyHere = state ? state.mode !== 'workflow' && state.agents.length < 2 : false;
-  const noTeamsAnywhere = leadOnlyHere && elsewhere.every((t) => t.members < 2);
+  // A team that has ENDED is not somewhere the console has to be, so it does not
+  // hold the empty screen off — even though the lists below keep it, because
+  // paging back into a finished session is what they are for.
+  const noTeamsAnywhere =
+    leadOnlyHere && elsewhere.every((t) => t.state === 'done' || isEmptySession(t));
   const bodyEmpty = currentHidden || noTeamsAnywhere;
+
+  // ONE rule for both empty screens. They disagreed: LeftSession got the raw
+  // list, so hidden and lead-only sessions were one-click destinations there and
+  // absent from NoSessions. What is offered is what the picker would let you
+  // switch to, nothing more.
+  const switchable = elsewhere.filter((t) => !hidden.has(t.name) && !isEmptySession(t));
+  // Everything the picker is dropping, plus the session on screen when hiding it
+  // is how we got here — `elsewhere` excludes it, and without it the way back
+  // disappears exactly when it is needed.
+  const notShownCount =
+    elsewhere.filter((t) => isNotShown(t, hidden, revealed)).length + (currentHidden ? 1 : 0);
 
   // Fetched only once there's something to show — the same "on open" rule the
   // picker's own listing follows.
@@ -87,7 +113,10 @@ export function App() {
       .then((res) => (res.ok ? (res.json() as Promise<TeamsResponse>) : Promise.reject(res.status)))
       .then((payload) => {
         if (!live) return;
-        setElsewhere(payload.teams.filter((t) => t.name !== state.teamName && t.state !== 'done'));
+        // Finished sessions stay: the design makes paging back into "a running
+        // or finished session" the picker's whole point, and dropping them here
+        // left the ✓ treatment on both screens as dead code.
+        setElsewhere(payload.teams.filter((t) => t.name !== state.teamName));
       })
       .catch(() => {
         if (live) setElsewhere([]);
@@ -110,8 +139,9 @@ export function App() {
       hidden,
       hideSession: hide,
       showHidden: showAll,
+      revealed,
     }),
-    [dismissed, watchAgain, hidden, hide, showAll],
+    [dismissed, watchAgain, hidden, hide, showAll, revealed],
   );
 
   // The launcher announces a new team at a console that is already running for
@@ -125,17 +155,10 @@ export function App() {
     void postJson(`/api/teams/${encodeURIComponent(target)}/select`);
   }, [state, store.announcedTeam]);
 
-  // The wall pins the lead leftmost, so column navigation (h/l) walks the
-  // same order — computed here rather than exported from Wall, since App
-  // needs only the names, not the rendered columns.
-  const wallOrder = state
-    ? (() => {
-        const lead = state.agents.find((a) => a.isLead);
-        return lead
-          ? [lead.name, ...state.agents.filter((a) => a !== lead).map((a) => a.name)]
-          : state.agents.map((a) => a.name);
-      })()
-    : [];
+  // The wall pins the lead leftmost then departed last, so column navigation
+  // (h/l) walks the same order — App needs only the names, not the rendered
+  // columns.
+  const wallOrder = state ? rosterOrder(state.agents).map((a) => a.name) : [];
 
   function isDeparted(name: string): boolean {
     return state?.agents.find((a) => a.name === name)?.status === 'departed';
@@ -181,6 +204,20 @@ export function App() {
     if (lead) askStop(lead.name);
   }, [state, askStop]);
 
+  // Built ONCE and handed to every view, from the roster's OWN order — the
+  // append-only join order out of `members[]`, not the wall's.
+  //
+  // Two different invariants, and both are needed. One cast for every view is
+  // what stops the wall and the grid disagreeing. Seeding it from an order that
+  // never re-sorts is what stops the team being recast over TIME: the theme's
+  // spare characters are dealt out in the order they arrive, and the wall's
+  // order moves a departed teammate to the end, so a single departure would
+  // deal every spare-drawn agent one seat along mid-session.
+  const cast = useMemo(
+    () => buildCast(state?.agents ?? [], appearance.settings.movieTheme),
+    [state?.agents, appearance.settings.movieTheme],
+  );
+
   // Above the `!state` return: every hook has to run on the frame before the
   // first snapshot lands too, or the hook order changes between renders.
   const stopControl = useMemo(
@@ -221,22 +258,43 @@ export function App() {
 
   // Workflow mode is a different shell, not a different view: no roster, no
   // task list, no inboxes, no composer, and `RUN` where the team bar says
-  // `TEAM`. The server picks the mode and only ever says 'workflow' when the
-  // roster is empty, so a team always wins and team mode cannot regress.
-  const run = state.mode === 'workflow' ? state.workflows?.[0] : undefined;
+  // `TEAM`. The chrome is the same chrome, so the providers it reads are the
+  // same ones: the picker shows what this browser has hidden, and the gear
+  // writes the appearance the leaves below it read.
+  //
+  // The server's mode is only the DEFAULT, and it hands a team the mode whenever
+  // there is one — so a workflow launched beside a live team is on the frame and
+  // undrawable until the operator asks for it. Asking is `store.run`, and it
+  // wins in either mode; the team keeps running behind it either way.
+  const runs = state.workflows ?? [];
+  const run = runs.find((r) => r.runId === store.run) ?? (state.mode === 'workflow' ? runs[0] : undefined);
   if (run) {
     return (
+      <SettingsContext.Provider value={appearance.settings}>
+      <WatchContext.Provider value={watchState}>
       <div className="console" style={appearance.vars} data-motion={appearance.settings.motion ? 'on' : 'off'}>
-        <main className="console-body">
-          <Workflow run={run} now={now} />
-        </main>
+        <Workflow
+          run={run}
+          runs={runs}
+          onSelectRun={store.setRun}
+          backToTeam={state.mode === 'team' ? (state.sessionName ?? state.teamName) : undefined}
+          now={now}
+          teamName={state.teamName}
+          sessionName={state.sessionName}
+          teamsOpen={teamsOpen}
+          onTeamsOpenChange={setTeamsOpen}
+          appearance={appearance}
+        />
       </div>
+      </WatchContext.Provider>
+      </SettingsContext.Provider>
     );
   }
 
   return (
     <StopContext.Provider value={stopControl}>
     <SettingsContext.Provider value={appearance.settings}>
+    <CastContext.Provider value={cast}>
     <DiffContext.Provider value={store.setOpenDiff}>
     <WatchContext.Provider value={watchState}>
     <div
@@ -251,6 +309,7 @@ export function App() {
         now={now}
         teamsOpen={teamsOpen}
         onTeamsOpenChange={setTeamsOpen}
+        onSelectRun={store.setRun}
         appearance={appearance}
       />
       <main className="console-body">
@@ -259,8 +318,8 @@ export function App() {
             point at nothing. */}
         {bodyEmpty ? (
           <NoSessions
-            remaining={elsewhere.filter((t) => !hidden.has(t.name) && t.members >= 2)}
-            hiddenCount={hidden.size}
+            remaining={switchable}
+            notShownCount={notShownCount}
             onShowHidden={showAll}
             onSwitchTo={(name) => void postJson(`/api/teams/${encodeURIComponent(name)}/select`)}
           />
@@ -269,7 +328,7 @@ export function App() {
             state={state}
             now={now}
             awaySince={awaySince}
-            elsewhere={elsewhere}
+            elsewhere={switchable}
             onWatchAgain={watchState.watchAgain}
             onEndForReal={endForReal}
             onSwitchTo={(name) => void postJson(`/api/teams/${encodeURIComponent(name)}/select`)}
@@ -286,6 +345,7 @@ export function App() {
             widths={store.widths}
             onWidthChange={store.setWidth}
             onOpenMail={(name) => {
+              setMailFor(name);
               store.setAgent(name);
               store.setView('comms');
             }}
@@ -299,7 +359,7 @@ export function App() {
             agents={state.agents}
             mail={state.mail}
             tasks={state.tasks}
-            focused={store.agent}
+            openThread={mailFor}
             onFocus={store.setAgent}
             onShowInWall={(name) => {
               store.setAgent(name);
@@ -341,6 +401,7 @@ export function App() {
     </div>
     </WatchContext.Provider>
     </DiffContext.Provider>
+    </CastContext.Provider>
     </SettingsContext.Provider>
     </StopContext.Provider>
   );

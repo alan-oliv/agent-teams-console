@@ -100,53 +100,69 @@ describe('pctLabel and ctxLabel', () => {
   });
 });
 
+// CONSOLE-DECISIONS.md ruling 2: the threshold reads the percent the operator
+// can see. Against compactAt it lit at ~63% of a 200k window, so a setting that
+// says 75 fired at 63 and nothing on screen explained the gap.
 describe('warnMark', () => {
-  it('fires relative to compactAt, not a fixed window fraction', () => {
-    expect(warnMark(156_000, 167_000)).toBe('!');
-    expect(warnMark(53_100, 967_000)).toBe('');
-    expect(warnMark(34_469, 967_000)).toBe('');
-    expect(warnMark(23_639, 167_000)).toBe('');
+  it('fires at 75% of the window the meter draws', () => {
+    expect(warnMark(150_000, 200_000)).toBe('!');
+    expect(warnMark(149_999, 200_000)).toBe('');
+    expect(warnMark(750_000, 1_000_000)).toBe('!');
+    expect(warnMark(749_999, 1_000_000)).toBe('');
+  });
+
+  it('reads the same percent on every window size', () => {
+    expect(warnMark(23_639, 200_000)).toBe('');
+    expect(warnMark(34_469, 1_000_000)).toBe('');
+    expect(warnMark(156_000, 200_000)).toBe('!');
+  });
+
+  it('says nothing when there is no window to measure against', () => {
+    expect(warnMark(156_000, 0)).toBe('');
   });
 });
 
 describe('compactionNote', () => {
   // The note is the second half of the design's context warning: `!` says the
   // 75% threshold is behind you, the note says how much room is left in front
-  // of the trigger. It starts halfway from that threshold to the trigger.
+  // of the trigger. It starts halfway from that threshold to the trigger — so
+  // it is based on the window like the glyph, and counts towards compactAt.
   it('stays quiet until halfway from the warn threshold to the trigger', () => {
-    expect(compactionNote(146_124, 167_000)).toBe('');
-    expect(compactionNote(146_125, 167_000)).toBe('compaction in ~21k tokens');
+    // 200k window: threshold 150_000, trigger 167_000, halfway 158_500.
+    expect(compactionNote(158_499, 200_000, 167_000)).toBe('');
+    expect(compactionNote(158_500, 200_000, 167_000)).toBe('compaction in ~9k tokens');
   });
 
   it('says nothing while the warn glyph itself is still off', () => {
-    expect(compactionNote(34_469, 967_000)).toBe('');
-    expect(compactionNote(23_639, 167_000)).toBe('');
+    expect(compactionNote(34_469, 1_000_000, 967_000)).toBe('');
+    expect(compactionNote(23_639, 200_000, 167_000)).toBe('');
   });
 
   it('is quiet for a while after the warn glyph lights, so the two read as stages', () => {
-    expect(warnMark(130_000, 167_000)).toBe('!');
-    expect(compactionNote(130_000, 167_000)).toBe('');
+    expect(warnMark(152_000, 200_000)).toBe('!');
+    expect(compactionNote(152_000, 200_000, 167_000)).toBe('');
   });
 
-  it('counts down the headroom in whole thousands', () => {
-    expect(compactionNote(159_000, 167_000)).toBe('compaction in ~8k tokens');
-    expect(compactionNote(166_500, 167_000)).toBe('compaction in ~1k tokens');
-    expect(compactionNote(166_600, 167_000)).toBe('compaction in ~0k tokens');
+  it('counts down the headroom towards the trigger, in whole thousands', () => {
+    expect(compactionNote(159_000, 200_000, 167_000)).toBe('compaction in ~8k tokens');
+    expect(compactionNote(166_500, 200_000, 167_000)).toBe('compaction in ~1k tokens');
+    expect(compactionNote(166_600, 200_000, 167_000)).toBe('compaction in ~0k tokens');
   });
 
   it('never counts below zero once the trigger is behind the agent', () => {
-    expect(compactionNote(167_000, 167_000)).toBe('compaction in ~0k tokens');
-    expect(compactionNote(199_000, 167_000)).toBe('compaction in ~0k tokens');
+    expect(compactionNote(167_000, 200_000, 167_000)).toBe('compaction in ~0k tokens');
+    expect(compactionNote(199_000, 200_000, 167_000)).toBe('compaction in ~0k tokens');
   });
 
-  it('says nothing when there is no trigger to count towards', () => {
-    expect(compactionNote(156_000, 0)).toBe('');
+  it('says nothing when there is no window or no trigger to count towards', () => {
+    expect(compactionNote(156_000, 200_000, 0)).toBe('');
+    expect(compactionNote(156_000, 0, 167_000)).toBe('');
   });
 
-  it('scales with compactAt rather than a fixed token distance', () => {
-    // A 1M window's trigger is 967_000; halfway is 846_125, not 146_125.
-    expect(compactionNote(146_125, 967_000)).toBe('');
-    expect(compactionNote(900_000, 967_000)).toBe('compaction in ~67k tokens');
+  it('scales with the window rather than a fixed token distance', () => {
+    // A 1M window: threshold 750_000, trigger 967_000, halfway 858_500.
+    expect(compactionNote(158_500, 1_000_000, 967_000)).toBe('');
+    expect(compactionNote(900_000, 1_000_000, 967_000)).toBe('compaction in ~67k tokens');
   });
 });
 

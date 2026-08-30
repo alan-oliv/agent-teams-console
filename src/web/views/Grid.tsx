@@ -6,8 +6,9 @@ import { Portrait } from '../components/Portrait';
 import { StatusGlyph } from '../components/StatusGlyph';
 import { StopControlButton } from '../components/StopButton';
 import { TranscriptFeed } from '../components/TranscriptFeed';
-import { pctLabel } from '../format';
+import { wallOrder } from '../../shared/roster';
 import { DORMANT_OPACITY, isDormant } from '../../shared/status';
+import { useCast } from '../state/useCast';
 
 const PANES = 6;
 
@@ -19,6 +20,9 @@ const Pane = memo(function Pane({
   isFocused: boolean;
   onFocus: (name: string) => void;
 }) {
+  // Display only — focus still carries the real name.
+  const display = useCast().asChar(agent.name).display;
+
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     if (e.target !== e.currentTarget) return;
     if (e.key === 'Enter' || e.key === ' ') {
@@ -63,12 +67,12 @@ const Pane = memo(function Pane({
               data-testid="grid-name"
               style={{ color: 'var(--color-text)', fontWeight: 500, fontSize: '12.5px' }}
             >
-              {agent.name}
+              {display}
             </span>
             <span style={{ flex: 1 }} />
             <span
               data-testid="grid-model"
-              style={{ color: 'var(--color-neutral-700)', fontSize: '10px' }}
+              style={{ color: 'var(--color-neutral-600)', fontSize: '10px' }}
             >
               {agent.model}
             </span>
@@ -82,16 +86,10 @@ const Pane = memo(function Pane({
               barSize={10}
               textSize={10}
             />
-            <span
-              data-testid="grid-pct"
-              style={{ color: 'var(--color-neutral-600)', fontSize: '10px' }}
-            >
-              {pctLabel(agent.contextTokens, agent.contextLimit)}
-            </span>
             <span style={{ flex: 1 }} />
             <span
               data-testid="grid-elapsed"
-              style={{ color: 'var(--color-neutral-700)', fontSize: '10px' }}
+              style={{ color: 'var(--color-neutral-600)', fontSize: '10px' }}
             >
               <Elapsed startedAt={agent.startedAt} />
             </span>
@@ -110,7 +108,7 @@ const Pane = memo(function Pane({
         style={{
           borderTop: '1px solid var(--color-neutral-900)',
           padding: '6px 11px',
-          color: 'var(--color-neutral-700)',
+          color: 'var(--color-neutral-600)',
           fontSize: '10px',
           whiteSpace: 'nowrap',
           overflow: 'hidden',
@@ -131,7 +129,9 @@ export function Grid({
   onFocus: (name: string) => void;
   now: number;
 }) {
-  const shown = agents.slice(0, PANES);
+  // Lead first, then live, then departed — a stale departed agent must not
+  // hoard a pane while a live teammate is pushed into the '+N more' chip.
+  const shown = wallOrder(agents).slice(0, PANES);
   const overflow = agents.length - shown.length;
 
   return (
@@ -169,7 +169,7 @@ export function Grid({
             border: '1px dashed var(--color-neutral-800)',
             borderRadius: 'var(--radius-sm)',
             padding: '2px 7px',
-            color: 'var(--color-neutral-700)',
+            color: 'var(--color-neutral-600)',
             fontSize: '10.5px',
             background: 'var(--color-bg)',
           }}

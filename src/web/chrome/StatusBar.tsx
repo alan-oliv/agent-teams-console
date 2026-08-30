@@ -1,78 +1,35 @@
-import {
-  useLayoutEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type ReactElement,
-  type RefObject,
-} from 'react';
+import type { ReactElement } from 'react';
 import type { TeamState, ViewId } from '../../shared/domain';
 import type { SettingsStore } from '../state/useSettings';
 import { formatCost, formatElapsed, formatTokens, meterCells } from '../format';
 import { VIEW_IDS } from '../state/useTeamState';
-import { ConfigMenu } from './ConfigMenu';
+import { Bar, METRIC } from './Bar';
+import { runOrder } from './RunSelect';
 import { TeamSelect } from './TeamSelect';
 
-// The bar is one 40px line. A child that can shrink or wrap doubles its height,
-// which is the one way this layout breaks — so nothing in it is allowed to.
-const METRIC: CSSProperties = { flex: 'none', whiteSpace: 'nowrap' };
-
 /**
- * How many metrics the bar can draw without overflowing.
+ * The order metrics are SHED in, which is not the order they are read in.
+ * Lower survives longer.
  *
- * Nothing in the bar may shrink or wrap, so at a narrow viewport the surplus
- * metrics would silently run off the edge. Which ones go is not this hook's
- * business — see {@link METRIC_RANK}; this only answers how many fit.
+ * The design drops right-to-left from the list's own tail: the diffstat-class
+ * extra first, then elapsed and spend merge into one chip, then the token
+ * figure goes. Only two of those steps are live here — the diffstat left the
+ * bar, and the merge is permanent rather than a step, so `limits` is the extra
+ * that goes first and `tokens` follows it.
  *
- * Shrink one per pass and let the layout effect re-run; widening resets to the
- * full set and lets it settle again. It terminates because a pass that changes
- * nothing renders nothing.
- */
-function useFittedCount(total: number, bar: RefObject<HTMLDivElement | null>): number {
-  const [shown, setShown] = useState(total);
-  const lastWidth = useRef(0);
-
-  useLayoutEffect(() => {
-    const el = bar.current;
-    // jsdom reports every width as 0, which would drop every metric; a bar with
-    // no measurable box is one nothing can be decided about.
-    if (!el || el.clientWidth === 0) return;
-    const fit = () => {
-      const grew = el.clientWidth > lastWidth.current;
-      lastWidth.current = el.clientWidth;
-      if (grew) setShown(total);
-      // Absolute, not a functional decrement. This effect has no dep array, so
-      // it re-observes on every pass and ResizeObserver fires again on observe —
-      // fit() runs several times against ONE committed layout, and a functional
-      // n - 1 per call shed three metrics off a 3px overflow, leaving the bar a
-      // third empty. Every call in a commit now computes the same value and
-      // React drops the repeats.
-      else if (el.scrollWidth > el.clientWidth) setShown(Math.max(0, shown - 1));
-    };
-    fit();
-    const ro = new ResizeObserver(fit);
-    ro.observe(el);
-    return () => ro.disconnect();
-  });
-
-  return Math.min(shown, total);
-}
-
-/**
- * The order metrics are SHED in, which is not the order they are read in. The
- * bar reads left to right in the handoff's arrangement, and when it runs out of
- * room the handoff sheds the token figure and keeps the spend. Dropping
+ * `branch` outlives every one of them. It used to shed second, which is the one
+ * ordering the design rules out: it is not a right-side figure, and dropping
  * whatever sits rightmost would shed exactly the figure the sixth switcher pill
- * was blamed for bleeding off-frame. Lower survives longer.
+ * was blamed for bleeding off-frame.
  */
-const METRIC_RANK: Record<string, number> = {
-  tasks: 0,
-  windows: 1,
-  spend: 2,
-  limits: 3,
+export const METRIC_RANK: Record<string, number> = {
+  branch: 0,
+  tasks: 1,
+  windows: 2,
+  spend: 3,
   meter: 4,
-  branch: 5,
-  tokens: 6,
+  tokens: 5,
+  limits: 6,
 };
 
 export interface StatusBarProps {
@@ -82,13 +39,14 @@ export interface StatusBarProps {
   now: number;
   teamsOpen: boolean;
   onTeamsOpenChange(open: boolean): void;
+  /** Opens workflow mode for a run this session also has. */
+  onSelectRun(runId: string): void;
   appearance: SettingsStore;
 }
 
 export function StatusBar({
-  state, view, onViewChange, now, teamsOpen, onTeamsOpenChange, appearance,
+  state, view, onViewChange, now, teamsOpen, onTeamsOpenChange, onSelectRun, appearance,
 }: StatusBarProps) {
-  const [configOpen, setConfigOpen] = useState(false);
   const done = state.tasks.filter((t) => t.state === 'completed').length;
   // Team context occupancy — what the meter has always looked like it meant.
   // It used to divide the CUMULATIVE token total by a capacity, which pins it
@@ -111,10 +69,10 @@ export function StatusBar({
         ]
       : []),
     <span key="tasks" style={{ color: 'var(--color-neutral-600)', ...METRIC }}>
-      {`tasks ${done}/${state.tasks.length}`}
+      {`${done}/${state.tasks.length} tasks`}
     </span>,
     <span key="windows" style={{ color: 'var(--color-neutral-600)', ...METRIC }}>
-      {`${state.agents.length} windows`}
+      {`${state.agents.length} ctx`}
     </span>,
     <span key="tokens" style={{ color: 'var(--color-neutral-500)', ...METRIC }}>
       {formatTokens(state.totalTokens)}
@@ -142,84 +100,49 @@ export function StatusBar({
     </span>,
   ];
 
-  const bar = useRef<HTMLDivElement>(null);
-  const fitted = useFittedCount(metrics.length, bar);
-  const kept = new Set(
-    [...metrics]
-      .sort((a, b) => METRIC_RANK[String(a.key)] - METRIC_RANK[String(b.key)])
-      .slice(0, fitted)
-      .map((m) => m.key),
-  );
+  // A team wins the mode, so runs this session also has are drawable only by
+  // asking for one. The chip is the ask — and it opens the live run rather than
+  // the first on the frame, since a run still going is what it is for.
+  const runs = runOrder(state.workflows ?? []);
 
   return (
-    <div
-      ref={bar}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        flexWrap: 'nowrap',
-        gap: 10,
-        padding: '9px 14px',
-        borderBottom: '1px solid var(--color-neutral-900)',
-        background: 'var(--color-bg)',
-        fontSize: 12.5,
-      }}
-    >
-      <span
-        id="team-wordmark"
-        style={{
-          color: 'var(--color-accent)',
-          letterSpacing: '.14em',
-          fontWeight: 700,
-          fontSize: 11,
-          ...METRIC,
-        }}
-      >
-        TEAM
-      </span>
-      <TeamSelect
-        current={state.teamName}
-        sessionName={state.sessionName}
-        open={teamsOpen}
-        onOpenChange={onTeamsOpenChange}
-        now={now}
-      />
-
-      <div
-        role="tablist"
-        aria-label="view"
-        style={{ display: 'flex', gap: 2, marginLeft: 2, ...METRIC }}
-      >
-        {VIEW_IDS.map((id) => (
-          <button
-            key={id}
-            className="tab"
-            type="button"
-            role="tab"
-            aria-selected={id === view}
-            onClick={() => onViewChange(id)}
-            style={{
-              padding: '1px 9px',
-              fontSize: 11.5,
-              whiteSpace: 'nowrap',
-              borderRadius: 'var(--radius-sm)',
-              color: id === view ? 'var(--color-text)' : 'var(--color-neutral-600)',
-              background: id === view ? 'var(--color-accent-900)' : 'transparent',
-              boxShadow: id === view ? 'inset 0 0 0 1px var(--color-accent-700)' : 'none',
-            }}
-          >
-            {id}
-          </button>
-        ))}
-      </div>
-
-      <span style={{ flex: 1, minWidth: 8 }} />
-
-      {metrics.filter((m) => kept.has(m.key))}
-
-      {/* Chrome, not a metric: it is never shed, so the operator can always
-          reach the theme even on a bar too narrow for a single figure. */}
-      <ConfigMenu appearance={appearance} open={configOpen} onOpenChange={setConfigOpen} />
-    </div>
+    <Bar
+      wordmark="TEAM"
+      picker={
+        <>
+          <TeamSelect
+            current={state.teamName}
+            sessionName={state.sessionName}
+            open={teamsOpen}
+            onOpenChange={onTeamsOpenChange}
+            now={now}
+          />
+          {runs.length > 0 && (
+            <button
+              className="chip"
+              data-testid="runs-chip"
+              type="button"
+              onClick={() => onSelectRun(runs[0].runId)}
+              style={{
+                border: '1px solid var(--color-neutral-800)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '2px 7px',
+                color: 'var(--color-accent-400)',
+                fontSize: 11.5,
+                ...METRIC,
+              }}
+            >
+              {`${runs.length} run${runs.length === 1 ? '' : 's'}`}
+            </button>
+          )}
+        </>
+      }
+      views={VIEW_IDS}
+      view={view}
+      onViewChange={onViewChange}
+      metrics={metrics}
+      metricRank={METRIC_RANK}
+      appearance={appearance}
+    />
   );
 }

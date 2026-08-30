@@ -1,4 +1,5 @@
-import { useEffect, useRef, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { MOVIE_THEMES, themeFor } from '../../shared/cast';
 import {
   ACCENT_KEYS,
   DENSITY_IDS,
@@ -27,6 +28,80 @@ function pickStyle(on: boolean): CSSProperties {
     border: `1px solid ${on ? 'var(--color-accent-600)' : 'var(--color-neutral-800)'}`,
     color: on ? 'var(--color-accent-300)' : 'var(--color-neutral-500)',
   };
+}
+
+/** The closed row of either picker. `team-trigger` carries the same hover. */
+const ROW: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '8px',
+  padding: '6px 9px',
+  cursor: 'pointer',
+  border: '1px solid var(--color-neutral-800)',
+  borderRadius: 'var(--radius-sm)',
+};
+
+/**
+ * The list each row opens. Absolute, so the panel's height is the height of two
+ * closed rows however long the lists grow — the whole point of the dropdowns.
+ */
+const MENU: CSSProperties = {
+  position: 'absolute',
+  top: 'calc(100% + 4px)',
+  left: 0,
+  right: 0,
+  zIndex: 40,
+  display: 'flex',
+  flexDirection: 'column',
+  maxHeight: '186px',
+  background: 'var(--color-bg)',
+  border: '1px solid var(--color-neutral-800)',
+  borderRadius: 'var(--radius-sm)',
+  boxShadow: '0 14px 32px rgba(0, 0, 0, 0.55)',
+};
+
+/** One option. `cfg-tile` carries the row hover. */
+function optionStyle(on: boolean): CSSProperties {
+  return {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '6px 9px',
+    cursor: 'pointer',
+    background: on ? 'var(--color-accent-900)' : 'transparent',
+    borderBottom: '1px solid var(--color-neutral-900)',
+  };
+}
+
+const optionColor = (on: boolean) => (on ? 'var(--color-accent-300)' : 'var(--color-neutral-400)');
+
+/** Ground, accent and text of a theme, so a name is not the only preview. */
+function Swatch({ id }: { id: ThemeId }) {
+  const theme = THEMES[id];
+  return (
+    <span
+      style={{
+        display: 'flex',
+        width: '34px',
+        flex: 'none',
+        borderRadius: '3px',
+        overflow: 'hidden',
+        boxShadow: '0 0 0 1px var(--color-neutral-800)',
+      }}
+    >
+      <span style={{ flex: 2, height: '13px', background: theme.term }} />
+      <span style={{ flex: 1, height: '13px', background: theme.accents.a.steps[0] }} />
+      <span style={{ flex: 1, height: '13px', background: theme.text }} />
+    </span>
+  );
+}
+
+function Check({ on }: { on: boolean }) {
+  return (
+    <span style={{ color: 'var(--color-accent-400)', fontSize: '9.5px', width: '8px' }}>
+      {on ? '✓' : ''}
+    </span>
+  );
 }
 
 function Toggle({
@@ -106,9 +181,15 @@ export function ConfigMenu({ appearance, open, onOpenChange }: ConfigMenuProps) 
   const { settings, set, reset } = appearance;
   const wrapper = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  // One at a time: two open lists would overlap in a 302px panel.
+  const [list, setList] = useState<'movie' | 'theme' | null>(null);
+  const movieLabel = settings.movieTheme ? themeFor(settings.movieTheme).film : 'off';
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setList(null);
+      return;
+    }
     // pointerdown, not click, so dismissal beats the focus move — same rule the
     // team picker follows.
     function onPointerDown(e: PointerEvent) {
@@ -166,6 +247,10 @@ export function ConfigMenu({ appearance, open, onOpenChange }: ConfigMenuProps) 
             display: 'flex',
             flexDirection: 'column',
             width: '302px',
+            // In px against the console body, never `calc(100% - …)`: the
+            // wrapper this hangs off is positioned but has no height, so a
+            // percentage resolves against 0 and collapses the panel to 1px.
+            maxHeight: '600px',
             background: 'var(--color-bg)',
             border: '1px solid var(--color-neutral-800)',
             borderRadius: 'var(--radius-md)',
@@ -204,65 +289,153 @@ export function ConfigMenu({ appearance, open, onOpenChange }: ConfigMenuProps) 
             </button>
           </div>
 
+          <div style={{ ...SECTION, paddingBottom: '12px' }}>
+            <span style={LABEL}>movie theme</span>
+            <div style={{ position: 'relative' }}>
+              <button
+                type="button"
+                className="team-trigger"
+                data-testid="movie-trigger"
+                aria-haspopup="listbox"
+                aria-expanded={list === 'movie'}
+                onClick={() => setList(list === 'movie' ? null : 'movie')}
+                style={{ ...ROW, width: '100%' }}
+              >
+                <span
+                  style={{
+                    color: 'var(--color-text)',
+                    fontSize: '11px',
+                    minWidth: 0,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {movieLabel}
+                </span>
+                <span style={{ flex: 1 }} />
+                <span style={{ color: 'var(--color-accent-400)', fontSize: '9px' }}>
+                  {list === 'movie' ? '▴' : '▾'}
+                </span>
+              </button>
+              {list === 'movie' && (
+                <div className="tscroll" role="listbox" data-testid="movie-menu" style={MENU}>
+                  {MOVIE_THEMES.map((film) => {
+                    const off = film.key === 'off';
+                    const on = off ? settings.movieTheme === null : settings.movieTheme === film.key;
+                    return (
+                      <button
+                        key={film.key}
+                        type="button"
+                        className="cfg-tile"
+                        data-testid={`movie-${film.key}`}
+                        role="option"
+                        aria-selected={on}
+                        title={film.note}
+                        onClick={() => {
+                          set('movieTheme', off ? null : film.key);
+                          setList(null);
+                        }}
+                        style={optionStyle(on)}
+                      >
+                        <span
+                          style={{
+                            color: optionColor(on),
+                            fontSize: '10.5px',
+                            minWidth: 0,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {off ? 'off' : film.film}
+                        </span>
+                        <span style={{ flex: 1 }} />
+                        {/* The lead is the tone in one word — visible before committing. */}
+                        <span
+                          style={{
+                            color: 'var(--color-neutral-600)',
+                            fontSize: '9.5px',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {off ? '—' : film.roles.lead}
+                        </span>
+                        <Check on={on} />
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <span
+              style={{ color: 'var(--color-neutral-600)', fontSize: '9.5px', lineHeight: 1.5 }}
+            >
+              Names only. Types, states and metrics keep their real values.
+            </span>
+          </div>
+
           <div style={SECTION}>
             <span style={LABEL}>theme</span>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
-              {THEME_IDS.map((id) => {
-                const theme = THEMES[id];
-                const on = settings.theme === id;
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    className="cfg-tile"
-                    data-testid={`theme-${id}`}
-                    aria-pressed={on}
-                    title={theme.note}
-                    onClick={() => set('theme', id as ThemeId)}
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '5px',
-                      cursor: 'pointer',
-                      padding: '6px',
-                      borderRadius: 'var(--radius-sm)',
-                      ...pickStyle(on),
-                    }}
-                  >
-                    {/* Each tile previews itself in its OWN colours, so the
-                        choice is visible before it is applied. */}
-                    <span
-                      style={{
-                        display: 'flex',
-                        borderRadius: '3px',
-                        overflow: 'hidden',
-                        boxShadow: '0 0 0 1px var(--color-neutral-800)',
-                      }}
-                    >
-                      <span style={{ flex: 2, height: '18px', background: theme.term }} />
-                      <span
-                        style={{ flex: 1, height: '18px', background: theme.accents.a.steps[0] }}
-                      />
-                      <span style={{ flex: 1, height: '18px', background: theme.text }} />
-                    </span>
-                    <span style={{ display: 'flex', gap: '5px', alignItems: 'baseline' }}>
-                      <span
-                        style={{
-                          fontSize: '10.5px',
-                          whiteSpace: 'nowrap',
-                          color: on ? 'var(--color-accent-300)' : 'var(--color-neutral-400)',
+            <div style={{ position: 'relative' }}>
+              <button
+                type="button"
+                className="team-trigger"
+                data-testid="theme-trigger"
+                aria-haspopup="listbox"
+                aria-expanded={list === 'theme'}
+                onClick={() => setList(list === 'theme' ? null : 'theme')}
+                style={{ ...ROW, width: '100%' }}
+              >
+                <Swatch id={settings.theme} />
+                <span
+                  style={{ color: 'var(--color-text)', fontSize: '11px', whiteSpace: 'nowrap' }}
+                >
+                  {THEMES[settings.theme].label}
+                </span>
+                <span style={{ flex: 1 }} />
+                <span style={{ color: 'var(--color-accent-400)', fontSize: '9px' }}>
+                  {list === 'theme' ? '▴' : '▾'}
+                </span>
+              </button>
+              {list === 'theme' && (
+                <div className="tscroll" role="listbox" data-testid="theme-menu" style={MENU}>
+                  {THEME_IDS.map((id) => {
+                    const on = settings.theme === id;
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        className="cfg-tile"
+                        data-testid={`theme-${id}`}
+                        role="option"
+                        aria-selected={on}
+                        title={THEMES[id].note}
+                        onClick={() => {
+                          set('theme', id as ThemeId);
+                          setList(null);
                         }}
+                        style={optionStyle(on)}
                       >
-                        {theme.label}
-                      </span>
-                      <span style={{ flex: 1 }} />
-                      <span style={{ color: 'var(--color-accent-400)', fontSize: '9.5px' }}>
-                        {on ? '✓' : ''}
-                      </span>
-                    </span>
-                  </button>
-                );
-              })}
+                        {/* Each option previews itself in its OWN colours, so
+                            the choice is visible before it is applied. */}
+                        <Swatch id={id as ThemeId} />
+                        <span
+                          style={{
+                            color: optionColor(on),
+                            fontSize: '10.5px',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {THEMES[id].label}
+                        </span>
+                        <span style={{ flex: 1 }} />
+                        <Check on={on} />
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
 

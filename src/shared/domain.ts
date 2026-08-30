@@ -121,7 +121,15 @@ export interface Task {
   owner?: string;            // bare agent name
   state: TaskState;
   blocks: string[];
+  /** Every declared blocker, resolved or not — DEPENDS ON draws the full list. */
   blockedBy: string[];
+  /**
+   * The blockers still open. `blockedBy` minus this is how many dependencies
+   * are done, which is the only honest progress figure a task carries. A
+   * server-side derivation: absent means none has been resolved yet, so read
+   * it as equal to `blockedBy`.
+   */
+  openBlockedBy?: string[];
   metadata?: TaskMetadata;
 }
 
@@ -219,6 +227,29 @@ export interface TeamSummary {
   branch?: string;           // read from <cwd>/.git/HEAD, not the statusline hook
   goal?: string;             // the lead session's name (`/branch` sets it)
   state: 'live' | 'idle' | 'done';
+  /**
+   * The newest dynamic-workflow run in this session, when there is one.
+   *
+   * A workflow's agents never enter `members[]`, so a session running one looks
+   * exactly like an empty window on every other field here — and the picker,
+   * which drops rosters under two, had no reason to offer it. `name` arrives
+   * with the run's snapshot, which is written only at termination: a live run
+   * genuinely has no name yet, and one must not be invented for it.
+   */
+  workflow?: { runId: string; name?: string; live: boolean };
+  /**
+   * Work sitting uncommitted in the lead's tree, against HEAD.
+   *
+   * The narrowest reading of the design's "diffstat", and the only one with a
+   * source that survives standing rule 3: a branch-against-base figure needs a
+   * base branch, which means guessing `main` or reading an `origin/HEAD` most
+   * clones never set — blank or wrong for most operators.
+   *
+   * Absent on a clean tree as well as on a directory that is not a repo. `+0
+   * −0` on every well-committed team would read as "did nothing", which is the
+   * opposite of what a clean tree means.
+   */
+  diffstat?: { added: number; removed: number };
 }
 
 export interface TeamsResponse {
@@ -235,12 +266,13 @@ export type ConsoleMode = 'team' | 'workflow';
 
 /**
  * The runtime emits `start | progress | done | error` plus the orthogonal flags
- * `cached` / `skipped` / `blocked`; this is the design's five-value vocabulary
- * those map onto. `null` is the design's name for "the agent returned null",
- * which is what the script sees for a skipped, blocked or thrown agent alike —
- * so `WorkflowAgent.error` carries the distinction the squash would lose.
+ * `cached` / `skipped` / `blocked`. The script sees `null` for a skipped,
+ * blocked or thrown agent alike, but the console must not: `null` is reserved
+ * for the operator's own decision to skip, `fail` is a thrown agent and `block`
+ * a classifier refusal. Only one of the three wants attention, and squashing
+ * them made all three look like the same shrug.
  */
-export type WorkflowAgentState = 'done' | 'run' | 'cache' | 'null' | 'wait';
+export type WorkflowAgentState = 'done' | 'run' | 'cache' | 'null' | 'wait' | 'fail' | 'block';
 
 /**
  * A `phase()` grouping, as DECLARED in the script's `meta.phases`. Every

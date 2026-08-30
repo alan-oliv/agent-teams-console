@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import { WatchConfirm } from './StopConfirm';
+import type { Agent } from '../../shared/domain';
+import { buildCast } from '../../shared/cast';
+import { CastContext } from '../state/useCast';
+import { StopConfirm, WatchConfirm } from './StopConfirm';
 
 afterEach(cleanup);
 
@@ -27,4 +30,21 @@ it('confirms only on the go button, not the cancel', () => {
 
   fireEvent.click(screen.getByTestId('watch-confirm-go'));
   expect(onConfirm).toHaveBeenCalled();
+});
+
+// The strip names the agent to the operator, so it names the character. The
+// stop itself is posted on the real name by App, which never sees this string.
+it('asks about the character, not the slot', () => {
+  const target = {
+    name: 'probe-alpha', agentId: 'probe-alpha@t', isLead: false, agentType: 'general-purpose',
+    model: 'claude-opus-5', role: '', status: 'working', contextTokens: 1, contextLimit: 2,
+    compactAt: 2, costUsd: 0, startedAt: 0, transcript: [], unread: 0,
+  } satisfies Agent;
+  render(
+    <CastContext.Provider value={buildCast([target], 'inception')}>
+      <StopConfirm target={target} onConfirm={vi.fn()} onCancel={vi.fn()} />
+    </CastContext.Provider>,
+  );
+  // probe-alpha fills no role slot, so it takes the film's first spare.
+  expect(screen.getByTestId('stop-confirm-go').textContent).toBe('stop Saito');
 });

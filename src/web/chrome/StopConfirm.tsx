@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import type { Agent } from '../../shared/domain';
+import { useCast } from '../state/useCast';
 
 /**
  * What stopping an agent actually costs the operator, in the two shapes it
@@ -10,7 +11,11 @@ import type { Agent } from '../../shared/domain';
  * run inside the lead's session, so ending it ends them. The strip says so
  * rather than letting `⏻` read as "stop one more agent".
  */
-export function stopPrompt(target: Agent): { q: string; why: string; verb: string } {
+export function stopPrompt(
+  target: Agent,
+  /** What the operator calls it — the character under a movie theme. */
+  shown: string = target.name,
+): { q: string; why: string; verb: string } {
   return target.isLead
     ? {
         q: 'end the session?',
@@ -18,9 +23,9 @@ export function stopPrompt(target: Agent): { q: string; why: string; verb: strin
         verb: 'end session',
       }
     : {
-        q: `stop ${target.name}?`,
+        q: `stop ${shown}?`,
         why: 'it stops at its next turn boundary · its context goes with it',
-        verb: `stop ${target.name}`,
+        verb: `stop ${shown}`,
       };
 }
 
@@ -58,8 +63,10 @@ export function StopConfirm({
   onConfirm(): void;
   onCancel(): void;
 }) {
+  // Above the early return: a hook cannot run behind a condition.
+  const { asChar } = useCast();
   if (!target) return null;
-  const { q, why, verb } = stopPrompt(target);
+  const { q, why, verb } = stopPrompt(target, asChar(target.name).display);
   return (
     <div data-testid="stop-confirm" style={BAR} role="alertdialog" aria-label={q}>
       <span style={{ color: 'var(--fail)', fontSize: '11px', whiteSpace: 'nowrap', flex: 'none' }}>{q}</span>

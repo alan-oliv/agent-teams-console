@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { WorkflowAgent, WorkflowRun } from '../../shared/domain';
-import { itemKeyOf, phaseTally, workflowGrid, WORK_ITEM_WIDTH } from './workflow-grid';
+import {
+  gridCooperates,
+  itemKeyOf,
+  liveCounts,
+  phaseList,
+  phaseTally,
+  workflowGrid,
+  WORK_ITEM_WIDTH,
+} from './workflow-grid';
 
 const agent = (over: Partial<WorkflowAgent> & { agentId: string }): WorkflowAgent => ({
   state: 'done',
@@ -87,6 +95,139 @@ describe('workflowGrid', () => {
   });
 });
 
+// The grid is offered, never assumed: it is derived from a naming CONVENTION,
+// and where the convention does not hold it is wrong visibly rather than
+// quietly. Each of these is one of the ways the design says it breaks.
+describe('gridCooperates', () => {
+  const closes = run({
+    phases: [{ index: 1, title: 'Design' }, { index: 2, title: 'Build' }],
+    agents: [
+      agent({ agentId: 'a1', label: 'design:S1', phaseIndex: 1 }),
+      agent({ agentId: 'a2', label: 'design:S2', phaseIndex: 1 }),
+      agent({ agentId: 'a3', label: 'build:S1', phaseIndex: 2 }),
+      agent({ agentId: 'a4', label: 'build:S2', phaseIndex: 2 }),
+    ],
+  });
+
+  it('accepts a corpus where every phase names the same work items', () => {
+    expect(gridCooperates(closes)).toBe(true);
+  });
+
+  it('accepts a phase that did fewer items, which is a blank and not a lie', () => {
+    expect(gridCooperates(run({
+      ...closes,
+      agents: closes.agents.filter((a) => a.agentId !== 'a4'),
+    }))).toBe(true);
+  });
+
+  it('refuses a corpus where a phase uses a key namespace of its own', () => {
+    expect(gridCooperates(run({
+      phases: [{ index: 1, title: 'Investigate' }, { index: 2, title: 'Verify' }],
+      agents: [
+        agent({ agentId: 'a1', label: 'probe:D1-frame', phaseIndex: 1 }),
+        agent({ agentId: 'a2', label: 'probe:D2-latency', phaseIndex: 1 }),
+        agent({ agentId: 'a3', label: 'verify:correctness', phaseIndex: 2 }),
+      ],
+    }))).toBe(false);
+  });
+
+  it('refuses a corpus carrying a label with no separator at all', () => {
+    const [first, ...rest] = closes.agents;
+    expect(gridCooperates(run({ ...closes, agents: [{ ...first, label: 'critic' }, ...rest] })))
+      .toBe(false);
+  });
+
+  it('refuses a live run, whose agents carry no label to split', () => {
+    expect(gridCooperates(run({
+      live: true,
+      agents: [agent({ agentId: 'a1' }), agent({ agentId: 'a2' })],
+    }))).toBe(false);
+  });
+
+  it('refuses when an agent sits outside every phase, having no column', () => {
+    expect(gridCooperates(run({
+      ...closes,
+      agents: [...closes.agents, agent({ agentId: 'a9', label: 'loose:one' })],
+    }))).toBe(false);
+  });
+
+  // One column or one row is a list wearing a table's clothes, and the design
+  // asks for the grid only where it earns the shape.
+  it('refuses a single phase, and a single work item', () => {
+    expect(gridCooperates(run({
+      phases: [{ index: 1, title: 'Only' }],
+      agents: [
+        agent({ agentId: 'a1', label: 'x:one', phaseIndex: 1 }),
+        agent({ agentId: 'a2', label: 'x:two', phaseIndex: 1 }),
+      ],
+    }))).toBe(false);
+    expect(gridCooperates(run({
+      ...closes,
+      agents: closes.agents.filter((a) => a.label?.endsWith('S1')),
+    }))).toBe(false);
+  });
+});
+
+describe('phaseList', () => {
+  const queued = run({
+    phases: [{ index: 1, title: 'Design' }, { index: 2, title: 'Verify' }],
+    agents: [
+      agent({ agentId: 'a1', label: 'design:S1', phaseIndex: 1, queuedAt: 1000 }),
+      agent({ agentId: 'a2', label: 'design:S2', phaseIndex: 1, queuedAt: 1000 }),
+      agent({ agentId: 'a3', label: 'design:S3', phaseIndex: 1, queuedAt: 2400 }),
+    ],
+  });
+
+  it('gives every declared phase a group, including one that never ran', () => {
+    expect(phaseList(queued).groups.map((g) => g.phase.title)).toEqual(['Design', 'Verify']);
+    expect(phaseList(queued).groups[1].clusters).toEqual([]);
+  });
+
+  it('hands back an agent outside every phase rather than dropping it', () => {
+    const list = phaseList(run({ ...queued, agents: [agent({ agentId: 'a9', label: 'loose' })] }));
+    expect(list.unphased.map((a) => a.agentId)).toEqual(['a9']);
+  });
+
+  // A byte-identical queuedAt is one parallel() call's fan-out. The evidence
+  // runs one way: a cluster of 2 proves concurrency, a cluster of 1 proves
+  // nothing — a run killed before its parallel() fanned out leaves singletons.
+  it('marks agents sharing a queuedAt as dispatched together', () => {
+    const [design] = phaseList(queued).groups;
+    expect(design.clusters.map((c) => c.agents.map((a) => a.agentId))).toEqual([['a1', 'a2'], ['a3']]);
+    expect(design.clusters.map((c) => c.together)).toEqual([true, false]);
+  });
+
+  it('claims nothing about an agent whose queuedAt the run never recorded', () => {
+    const list = phaseList(run({
+      phases: [{ index: 1, title: 'Design' }],
+      agents: [
+        agent({ agentId: 'a1', label: 'design:S1', phaseIndex: 1 }),
+        agent({ agentId: 'a2', label: 'design:S2', phaseIndex: 1 }),
+      ],
+    }));
+    expect(list.groups[0].clusters.map((c) => c.together)).toEqual([false, false]);
+  });
+});
+
+// The only totals a live run HAS. Tokens, tool calls and duration reach disk
+// with the snapshot, so counting what the journal saw is the whole budget.
+describe('liveCounts', () => {
+  it('counts what started and what has come back', () => {
+    expect(liveCounts(run({
+      live: true,
+      agents: [
+        agent({ agentId: 'a1', state: 'done' }),
+        agent({ agentId: 'a2', state: 'done' }),
+        agent({ agentId: 'a3', state: 'run' }),
+      ],
+    }))).toEqual({ started: 3, returned: 2 });
+  });
+
+  it('reports zeroes for a run whose journal is still empty', () => {
+    expect(liveCounts(run({ live: true, agents: [] }))).toEqual({ started: 0, returned: 0 });
+  });
+});
+
 describe('phaseTally', () => {
   const withStates = (...states: WorkflowAgent['state'][]) =>
     states.map((state, i) => agent({ agentId: `a${i}`, state, phaseIndex: 1 }));
@@ -101,6 +242,17 @@ describe('phaseTally', () => {
 
   it('names a cache replay and a null return in the reader\'s words', () => {
     expect(phaseTally(withStates('cache', 'null'), 1)).toBe('1 cached · 1 returned null');
+  });
+
+  // Ruling 11 picks `queued` over `waiting` for the `·` state, so the tally and
+  // the agents view say the same word.
+  it('calls an agent queued for a slot queued', () => {
+    expect(phaseTally(withStates('wait', 'wait'), 1)).toBe('2 queued');
+  });
+
+  it('counts a failure and a refusal apart from a returned null', () => {
+    expect(phaseTally(withStates('fail', 'block', 'null'), 1))
+      .toBe('1 failed · 1 blocked · 1 returned null');
   });
 
   it('counts only the phase asked for', () => {

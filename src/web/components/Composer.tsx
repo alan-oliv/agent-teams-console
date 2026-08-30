@@ -2,6 +2,7 @@ import { createContext, useContext, useState, type KeyboardEvent } from 'react';
 import type { Agent } from '../../shared/domain';
 import { AGENT_STATUS } from '../../shared/status';
 import { postJson } from '../api';
+import { useCast } from '../state/useCast';
 
 interface Variant {
   padding: string;
@@ -17,7 +18,7 @@ const VARIANT: Record<'wall' | 'rail' | 'thread' | 'everyone', Variant> = {
     padding: '8px 12px', gap: '7px',
     promptColor: 'var(--color-accent-600)', promptSize: '11px',
     placeholder: (n) => `message ${n}`,
-    placeholderColor: 'var(--color-neutral-700)',
+    placeholderColor: 'var(--color-neutral-600)',
   },
   rail: {
     padding: '11px 18px', gap: '9px',
@@ -99,6 +100,14 @@ export function Composer({
   // A departed agent has no reader left, so it is not offered.
   const routable = routed ? roster.filter((a) => a.status !== 'departed') : [];
 
+  // A themed team is addressable under EITHER name: the operator reads the
+  // character on the wall, but may well have typed the real one before the
+  // theme went on, and every send below still resolves to the real inbox.
+  const { asChar } = useCast();
+  const charOf = (a: Agent) => asChar(a.name).display;
+  const answersTo = (a: Agent, typed: string) =>
+    a.name === typed || charOf(a) === typed;
+
   /**
    * @-routing, Slack-style. At rest there is no chip and no picker: with no `@`
    * the message goes to the lead, which is the common case, and the composer
@@ -109,13 +118,19 @@ export function Composer({
   const frag = at < 0 ? null : text.slice(at + 1);
   const typing = routed && frag !== null && !/\s/.test(frag);
   const chipName = routed && at === 0 && !typing ? text.slice(1).trim().split(' ')[0] : '';
-  const chip = routable.find((a) => a.name === chipName);
-  const body = chip ? text.slice(chip.name.length + 1).replace(/^\s/, '') : text;
+  const chip = routable.find((a) => answersTo(a, chipName));
+  // Sliced by what was TYPED, not by the agent's real name: under a theme the
+  // token in the box may be the character, and the two are different lengths.
+  const body = chip ? text.slice(chipName.length + 1).replace(/^\s/, '') : text;
   const lead = routable.find((a) => a.isLead);
-  // Prefix match, and the first row is what Enter takes.
-  const options = typing
-    ? routable.filter((a) => !frag || a.name.startsWith(frag))
-    : [];
+  // Prefix match on either name, and the first row is what Enter takes.
+  // Case-insensitive because a character name is capitalised and nobody types
+  // the shift key to reach their own teammate.
+  const matches = (a: Agent) => {
+    const typed = (frag ?? '').toLowerCase();
+    return a.name.toLowerCase().startsWith(typed) || charOf(a).toLowerCase().startsWith(typed);
+  };
+  const options = typing ? routable.filter((a) => !frag || matches(a)) : [];
   // Clamped rather than reset in an effect: narrowing the filter can drop the
   // row under the cursor, and an out-of-range index would send to nobody.
   const active = options.length > 0 ? Math.min(highlight, options.length - 1) : 0;
@@ -164,7 +179,7 @@ export function Composer({
    * key every chat client sends with was indistinguishable from a console that
    * had stopped working, which is exactly how it was reported.
    */
-  const named = routed ? (target?.name ?? agent.name) : agent.name;
+  const named = asChar(routed ? (target?.name ?? agent.name) : agent.name).display;
 
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     const picking = typing && options.length > 0;
@@ -227,7 +242,7 @@ export function Composer({
             fontSize: '10.5px',
           }}
         >
-          {`@${chip.name}`}
+          {`@${charOf(chip)}`}
         </span>
       )}
 
@@ -287,8 +302,18 @@ export function Composer({
                   fontSize: '11px',
                 }}
               >
-                {`@${a.name}`}
+                {`@${charOf(a)}`}
               </span>
+              {/* The slot name, kept beside the character: the picker is where
+                  the operator has to know which real agent they are addressing. */}
+              {charOf(a) !== a.name && (
+                <span
+                  data-testid="route-real"
+                  style={{ color: 'var(--color-neutral-600)', fontSize: '9.5px' }}
+                >
+                  {a.name}
+                </span>
+              )}
               <span
                 style={{
                   color: 'var(--color-neutral-600)',
@@ -318,6 +343,10 @@ export function Composer({
         placeholder={
           readOnly
             ? 'read-only — control routes are disabled'
+            // Disabled rather than removed, so the box has to say why: every
+            // reader has departed and nothing is left to collect a message.
+            : recipients.length === 0
+            ? 'nobody is left to read it'
             : recipients.some((to) => to.isLead) && !teamLive
               ? `${v.placeholder(named)} · queued until a teammate is live`
               : routed && !chip
@@ -326,7 +355,7 @@ export function Composer({
         }
         disabled={disabled}
         onChange={(e) => {
-          setText(chip ? `@${chip.name} ${e.target.value}` : e.target.value);
+          setText(chip ? `@${chipName} ${e.target.value}` : e.target.value);
           setHighlight(0); // a changed filter starts at the top again
           setAck(null); // typing again is the operator moving on from the last result
         }}
@@ -371,11 +400,11 @@ export function Composer({
       )}
       {variant === 'wall' ? (
         // `⌘⏎` still sends, but naming it here taught the one key that did NOT.
-        <span style={{ color: 'var(--color-neutral-800)', fontSize: '10px' }}>⏎</span>
+        <span style={{ color: 'var(--color-neutral-600)', fontSize: '10px' }}>⏎</span>
       ) : variant === 'thread' || variant === 'everyone' ? (
         <span
           data-testid="composer-note"
-          style={{ color: 'var(--color-neutral-700)', fontSize: '10px', whiteSpace: 'nowrap' }}
+          style={{ color: 'var(--color-neutral-600)', fontSize: '10px', whiteSpace: 'nowrap' }}
         >
           a message wakes an idle recipient
         </span>
@@ -383,7 +412,7 @@ export function Composer({
         <span
           data-testid="composer-tool"
           style={{
-            color: 'var(--color-neutral-700)',
+            color: 'var(--color-neutral-600)',
             fontSize: '11px',
             whiteSpace: 'nowrap',
             overflow: 'hidden',

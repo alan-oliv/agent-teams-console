@@ -15,7 +15,7 @@ export function ContextMeter({
   barSize = 11.5,
   textSize = 10.5,
 }: ContextMeterProps) {
-  const note = compactionNote(contextTokens, compactAt);
+  const note = compactionNote(contextTokens, contextLimit, compactAt);
   return (
     <>
       <span
@@ -36,7 +36,7 @@ export function ContextMeter({
         data-testid="context-warn"
         style={{ color: 'var(--warn)', fontSize: textSize, width: 7, flex: 'none' }}
       >
-        {warnMark(contextTokens, compactAt)}
+        {warnMark(contextTokens, contextLimit)}
       </span>
       <span style={{ color: 'var(--color-neutral-600)', fontSize: textSize, flex: 'none' }}>
         {`${formatTokens(contextTokens)} / ${formatTokens(contextLimit)}`}

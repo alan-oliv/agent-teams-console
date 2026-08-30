@@ -2,6 +2,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { FIXTURE_NOW, fixtureAgents } from '../agents.fixture';
+import { buildCast } from '../../shared/cast';
+import { CastContext } from '../state/useCast';
 import { Wall } from './Wall';
 
 afterEach(cleanup);
@@ -82,6 +84,35 @@ describe('Wall', () => {
     expect(alpha.getByTestId('wall-warn').style.width).toBe('7px');
   });
 
+  // At the 232px column floor, hyphenated content ("general-purpose",
+  // "claude-opus-5") wraps at the hyphen by default, ballooning the header to
+  // several physical lines and misaligning it against its neighbours. The
+  // name is what yields — identity truncating reads better than a model or
+  // elapsed time vanishing — so it alone gets ellipsis; the rest hold their
+  // width and just refuse to wrap.
+  it('keeps the identity line to one line under width pressure, with the name yielding first', () => {
+    renderWall();
+    const alpha = within(screen.getAllByTestId('wall-column')[1]);
+
+    const name = alpha.getByTestId('wall-name');
+    expect(name.style.whiteSpace).toBe('nowrap');
+    expect(name.style.overflow).toBe('hidden');
+    expect(name.style.textOverflow).toBe('ellipsis');
+    expect(name.style.minWidth).toBe('0');
+
+    const type = alpha.getByTestId('wall-type');
+    expect(type.style.whiteSpace).toBe('nowrap');
+    expect(type.style.flexShrink).toBe('0');
+
+    const model = alpha.getByTestId('wall-model');
+    expect(model.style.whiteSpace).toBe('nowrap');
+    expect(model.style.flexShrink).toBe('0');
+
+    const elapsed = alpha.getByTestId('wall-elapsed');
+    expect(elapsed.style.whiteSpace).toBe('nowrap');
+    expect(elapsed.style.flexShrink).toBe('0');
+  });
+
   it('renders the current-tool row folded back from the README', () => {
     renderWall();
     const columns = screen.getAllByTestId('wall-column');
@@ -103,6 +134,15 @@ describe('Wall', () => {
     expect(inputs).toHaveLength(1);
     const lead = screen.getAllByTestId('wall-column')[0];
     expect(within(lead).getByTestId('composer-input')).toBeTruthy();
+  });
+
+  // The other half of the same rule: a column with no composer has to say why
+  // it has none, or its absence reads as a column that is somehow less loaded.
+  it('marks every column without the composer read-only', () => {
+    renderWall();
+    const columns = screen.getAllByTestId('wall-column');
+    expect(within(columns[0]).queryByTestId('wall-read-only')).toBeNull();
+    expect(within(columns[1]).getByTestId('wall-read-only').textContent).toBe('read-only');
   });
 
   // At rest it is a prompt and a hint. No @ means the lead, which is the common
@@ -525,6 +565,26 @@ describe('in-flight badge', () => {
     render(<Wall agents={agents} focused={null} onFocus={vi.fn()} now={now} />);
     expect(screen.queryAllByTestId('in-flight')).toHaveLength(0);
   });
+
+  // The badge claims nothing about delivery, so the title says only what is
+  // true: it was written, and it is read at a boundary nothing can force.
+  it('says what the count means without promising when it is read', () => {
+    const queued = agents.map((a) => (a.name === 'probe-alpha' ? { ...a, unread: 2 } : a));
+    render(<Wall agents={queued} focused={null} onFocus={vi.fn()} now={now} />);
+    expect(screen.getByTestId('in-flight').title).toBe(
+      'written to this inbox · read at its next turn boundary',
+    );
+  });
+
+  // Header line 1 is identity — name, type, model. The badge and the stop
+  // control are about the agent's current turn, which is line 2's subject.
+  it('sits on the status line, not the identity line', () => {
+    const queued = agents.map((a) => (a.name === 'probe-alpha' ? { ...a, unread: 2 } : a));
+    render(<Wall agents={queued} focused={null} onFocus={vi.fn()} now={now} />);
+    const line = screen.getByTestId('in-flight').parentElement!;
+    expect(within(line).getByTestId('wall-elapsed')).toBeTruthy();
+    expect(within(line).queryByTestId('wall-model')).toBeNull();
+  });
 });
 
 describe('compaction note', () => {
@@ -564,8 +624,10 @@ describe('compaction note', () => {
     expect(note.style.color).toBe('var(--warn)');
   });
 
+  // Past the 150_000 threshold (75% of the 200k window) but short of 158_500,
+  // which is halfway from there to the 167k trigger.
   it('holds back the note while only the glyph is warranted', () => {
-    renderNear(130_000);
+    renderNear(152_000);
     expect(charlie().getByTestId('wall-warn').textContent).toBe('!');
     expect(charlie().queryByTestId('wall-compaction')).toBeNull();
   });
@@ -683,4 +745,92 @@ it('does not focus the column when the badge is clicked', () => {
   render(<Wall agents={agents} focused={null} onFocus={onFocus} now={FIXTURE_NOW} onOpenMail={() => {}} />);
   fireEvent.click(screen.getByTestId('in-flight'));
   expect(onFocus).not.toHaveBeenCalled();
+});
+
+// Movie themes rename agents and nothing else. The cast comes from context, so
+// every view renders the same character for the same role.
+describe('a themed wall', () => {
+  const themed = (children: React.ReactNode) => (
+    <CastContext.Provider value={buildCast(agents, 'inception')}>{children}</CastContext.Provider>
+  );
+
+  it('draws the character and keeps the real type badge beside it', () => {
+    render(themed(<Wall agents={agents} focused={null} onFocus={vi.fn()} now={FIXTURE_NOW} />));
+    const names = screen.getAllByTestId('wall-name').map((n) => n.textContent);
+    expect(names[0]).toBe('Cobb');
+    expect(names).not.toContain('team-lead');
+    // The badge is the type, not the name: 'Cobb' + 'team-lead' costs nothing,
+    // and replacing the type would make the wall unreadable.
+    expect(screen.getAllByTestId('wall-type')[0].textContent).toBe('team-lead');
+  });
+
+  it('focuses the real name, so the URL and every route stay joinable', () => {
+    const onFocus = vi.fn();
+    render(themed(<Wall agents={agents} focused={null} onFocus={onFocus} now={FIXTURE_NOW} />));
+    fireEvent.click(screen.getAllByTestId('wall-column')[0]);
+    expect(onFocus).toHaveBeenCalledWith('team-lead');
+  });
+
+  it('is the identity mapping with no theme', () => {
+    render(<Wall agents={agents} focused={null} onFocus={vi.fn()} now={FIXTURE_NOW} />);
+    expect(screen.getAllByTestId('wall-name')[0].textContent).toBe('team-lead');
+  });
+});
+
+// The @ picker is the one place both names have to be live at once: the
+// operator may type either, the row shows both, and the send is on the real one.
+describe('the mention picker under a theme', () => {
+  const themed = () =>
+    render(
+      <CastContext.Provider value={buildCast(agents, 'inception')}>
+        <Wall agents={agents} focused={null} onFocus={vi.fn()} now={FIXTURE_NOW} />
+      </CastContext.Provider>,
+    );
+
+  it('matches the character and the real name alike', () => {
+    themed();
+    const input = screen.getByTestId('composer-input');
+
+    fireEvent.change(input, { target: { value: '@Mal' } });
+    expect(screen.getAllByTestId('route-option')).toHaveLength(1);
+    expect(screen.getAllByTestId('route-option')[0].textContent).toContain('@Mal');
+
+    fireEvent.change(input, { target: { value: '@probe-b' } });
+    expect(screen.getAllByTestId('route-option')).toHaveLength(1);
+    expect(screen.getAllByTestId('route-option')[0].textContent).toContain('@Mal');
+  });
+
+  it('shows the real slot name beside the character', () => {
+    themed();
+    fireEvent.change(screen.getByTestId('composer-input'), { target: { value: '@Mal' } });
+    expect(screen.getByTestId('route-real').textContent).toBe('probe-bravo');
+  });
+
+  it('chips the character and still sends to the real inbox', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(new Response('{}', { status: 200 })));
+    vi.stubGlobal('fetch', fetchMock);
+    themed();
+    const input = screen.getByTestId('composer-input');
+    fireEvent.change(input, { target: { value: '@Mal' } });
+    fireEvent.mouseDown(screen.getAllByTestId('route-option')[0]);
+
+    expect(screen.getByTestId('route-chip').textContent).toBe('@Mal');
+    expect((input as HTMLTextAreaElement).placeholder).toBe('message Mal');
+
+    fireEvent.change(input, { target: { value: 'ship it' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/agents/probe-bravo/message',
+      expect.objectContaining({ body: JSON.stringify({ text: 'ship it' }) }),
+    );
+  });
+
+  it('resolves a character typed by hand, so the chip is not pick-only', () => {
+    themed();
+    const input = screen.getByTestId('composer-input');
+    fireEvent.change(input, { target: { value: '@Mal hello' } });
+    expect(screen.getByTestId('route-chip').textContent).toBe('@Mal');
+    expect((input as HTMLTextAreaElement).value).toBe('hello');
+  });
 });

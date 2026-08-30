@@ -19,15 +19,16 @@ it('renders the bar, percent and "53.1k / 1M" for an opus agent', () => {
   expect(screen.getByText('53.1k / 1M')).toBeTruthy();
 });
 
-it('shows the warn glyph at and past 75% of compactAt, sharing the warnMark rule', () => {
-  // compactAt=167_000; 75% of it is 125_250 — the single shared threshold (format.ts warnMark).
+it('shows the warn glyph at and past 75% of the window, sharing the warnMark rule', () => {
+  // 75% of the 200k window is 150_000 — the threshold the percent beside it
+  // actually reads (format.ts warnMark, CONSOLE-DECISIONS.md ruling 2).
   const below = render(
-    <ContextMeter contextTokens={125_249} contextLimit={200_000} compactAt={167_000} />,
+    <ContextMeter contextTokens={149_999} contextLimit={200_000} compactAt={167_000} />,
   );
   expect(screen.getByTestId('context-warn').textContent).toBe('');
   below.unmount();
 
-  const at = render(<ContextMeter contextTokens={125_250} contextLimit={200_000} compactAt={167_000} />);
+  const at = render(<ContextMeter contextTokens={150_000} contextLimit={200_000} compactAt={167_000} />);
   expect(screen.getByTestId('context-warn').textContent).toBe('!');
   expect(screen.getByTestId('context-warn').style.color).toBe('var(--warn)');
   expect(screen.getByTestId('context-warn').style.width).toBe('7px');
@@ -64,8 +65,9 @@ it('adds the compaction note once the trigger is close, keeping the warn glyph',
   expect(note.title).toBe('compaction in ~7k tokens');
 });
 
+// Past the 150_000 threshold but short of the 158_500 halfway point.
 it('leaves the note out while the warn glyph alone is warranted', () => {
-  render(<ContextMeter contextTokens={130_000} contextLimit={200_000} compactAt={167_000} />);
+  render(<ContextMeter contextTokens={152_000} contextLimit={200_000} compactAt={167_000} />);
   expect(screen.getByTestId('context-warn').textContent).toBe('!');
   expect(screen.queryByTestId('context-compaction')).toBeNull();
 });

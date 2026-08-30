@@ -73,21 +73,28 @@ export function ctxLabel(tokens: number, limit: number): string {
   return `${tokensLabel(tokens)} / ${tokensLabel(limit)}`;
 }
 
-// Warns against the auto-compact trigger, not the raw window (spec §4.3).
+// Warns against the window the meter draws, so the threshold is a percent the
+// operator can read off the screen (CONSOLE-DECISIONS.md ruling 2). Measured
+// against compactAt instead, it lit at ~63% of a 200k window and 73% of a 1M
+// one — one glyph meaning a different number per model, and a "75%" setting
+// that fired at neither.
 const WARN_RATIO = 0.75;
 
-// "Near the limit" is halfway from the warning to the trigger, so the two
-// stages the design asks for stay distinguishable: the glyph alone means the
-// threshold is behind you, the glyph plus the note means it is about to fire.
-const NOTE_RATIO = WARN_RATIO + (1 - WARN_RATIO) / 2;
+const warnAt = (contextLimit: number) => contextLimit * WARN_RATIO;
 
-export function warnMark(tokens: number, compactAt: number): string {
-  if (compactAt <= 0) return '';
-  return tokens / compactAt >= WARN_RATIO ? '!' : '';
+export function warnMark(tokens: number, contextLimit: number): string {
+  if (contextLimit <= 0) return '';
+  return tokens >= warnAt(contextLimit) ? '!' : '';
 }
 
-export function compactionNote(tokens: number, compactAt: number): string {
-  if (compactAt <= 0 || tokens / compactAt < NOTE_RATIO) return '';
+// Two stages of one warning: the glyph means the threshold is behind you, the
+// note means the trigger is about to fire. So the note starts halfway from the
+// threshold to the trigger, and counts towards the trigger — the only figure
+// that describes the thing actually approaching.
+export function compactionNote(tokens: number, contextLimit: number, compactAt: number): string {
+  if (contextLimit <= 0 || compactAt <= 0) return '';
+  const threshold = warnAt(contextLimit);
+  if (tokens < threshold + (compactAt - threshold) / 2) return '';
   const left = Math.max(0, Math.round((compactAt - tokens) / 1000));
   return `compaction in ~${left}k tokens`;
 }
