@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { TeamSummary, TeamsResponse } from '../../shared/domain';
 import { postJson } from '../api';
 import { formatElapsed } from '../format';
+import { useWatch } from '../state/useWatch';
 
 // Derived, not chosen: 2 border + 12 padding + 120.03 ("session-" + 8 hex at the
 // bar's 12.5px) + 6 gap + 6 caret. Fixed so a longer team name ellipsizes instead
@@ -60,6 +61,7 @@ export interface TeamSelectProps {
 }
 
 export function TeamSelect({ current, sessionName, open, onOpenChange, now }: TeamSelectProps) {
+  const watch = useWatch();
   const [teams, setTeams] = useState<TeamSummary[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [unreadable, setUnreadable] = useState(false);
@@ -140,6 +142,9 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
   function select(name: string) {
     if (mark?.kind === 'switching') return;
     if (name === current) {
+      // Reselecting the session you dismissed is how you resume watching it —
+      // the picker's whole purpose is paging back in with one click.
+      if (watch.dismissed) watch.watchAgain();
       close();
       return;
     }
@@ -213,7 +218,7 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
           whiteSpace: 'nowrap',
           padding: '3px 8px',
           margin: '-3px 0',
-          border: '1px solid var(--color-neutral-800)',
+          border: `1px ${watch.dismissed ? 'dashed' : 'solid'} var(--color-neutral-800)`,
           borderRadius: 'var(--radius-sm)',
         }}
       >
@@ -221,13 +226,13 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
           id="team-trigger-name"
           data-testid="team-trigger-name"
           style={{
-            color: 'var(--color-text)',
+            color: watch.dismissed ? 'var(--color-neutral-500)' : 'var(--color-text)',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
           }}
         >
-          {sessionName ?? current}
+          {watch.dismissed ? 'no session selected' : (sessionName ?? current)}
         </span>
         <span aria-hidden="true" style={{ color: 'var(--color-accent-400)', fontSize: 10 }}>
           ▾
@@ -305,7 +310,11 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
           >
             {filteredRows.map((team) => {
               const isCurrent = team.name === current;
-              const rowMark = mark?.team === team.name ? mark.kind : isCurrent ? 'current' : null;
+              // A dismissed session is still the current one server-side — just
+              // not rendered — so its checkmark would contradict the "not
+              // watching" text sitting right below it. Drop the mark instead.
+              const notWatching = isCurrent && watch.dismissed;
+              const rowMark = mark?.team === team.name ? mark.kind : isCurrent && !notWatching ? 'current' : null;
               const state = team.state ?? (team.live ? 'live' : 'done');
               return (
                 <div
@@ -364,6 +373,27 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
                         {rowMark === 'current' ? '\u2713' : MARK_TEXT[rowMark]}
                       </span>
                     )}
+                    {isCurrent && !watch.dismissed && (
+                      <button
+                        type="button"
+                        data-testid="row-stop-watching"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          watch.requestStopWatching();
+                        }}
+                        style={{
+                          fontSize: '10px',
+                          color: 'var(--color-neutral-600)',
+                          background: 'transparent',
+                          border: 'none',
+                          padding: 0,
+                          cursor: 'pointer',
+                          flex: 'none',
+                        }}
+                      >
+                        stop watching
+                      </button>
+                    )}
                   </div>
                   <div
                     data-testid="team-meta"
@@ -416,7 +446,7 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
                         flex: 'none',
                       }}
                     >
-                      {stateText(team, now)}
+                      {notWatching ? 'running · not watching' : stateText(team, now)}
                     </span>
                   </div>
                 </div>

@@ -1,18 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './theme.css';
-import type { Agent } from '../shared/domain';
+import type { Agent, TeamsResponse, TeamSummary } from '../shared/domain';
 import { postJson } from './api';
 import { NeedsYou } from './chrome/NeedsYou';
 import { Panel } from './chrome/Panel';
 import { StatusBar } from './chrome/StatusBar';
-import { StopConfirm } from './chrome/StopConfirm';
+import { StopConfirm, WatchConfirm } from './chrome/StopConfirm';
 import { DiffModal } from './components/DiffModal';
 import { StopContext } from './components/StopButton';
 import { useKeyboard } from './state/useKeyboard';
 import { SettingsContext, useSettings } from './state/useSettings';
 import { DiffContext, useTeamState } from './state/useTeamState';
+import { WatchContext } from './state/useWatch';
 import { Comms } from './views/Comms';
 import { Grid } from './views/Grid';
+import { LeftSession } from './views/LeftSession';
 import { Overview } from './views/Overview';
 import { Rail } from './views/Rail';
 import { Tasks } from './views/Tasks';
@@ -37,6 +39,49 @@ export function App() {
 
   const state = store.state;
   const toggleTeams = useCallback(() => setTeamsOpen((open) => !open), []);
+
+  // "Stop watching" is a view-local dismissal, never written to `~/.claude` and
+  // scoped to this tab — the team keeps running and this state is the only
+  // place that knows the console stopped following it.
+  const [dismissed, setDismissed] = useState(false);
+  const [pendingDismiss, setPendingDismiss] = useState(false);
+  const [awaySince, setAwaySince] = useState<{ at: number; cost: number } | null>(null);
+  const [elsewhere, setElsewhere] = useState<TeamSummary[]>([]);
+
+  // The console actually switching teams is what "watching" means — dismissal
+  // never survives past that, whichever way the switch happened.
+  useEffect(() => {
+    setDismissed(false);
+  }, [state?.teamName]);
+
+  // Fetched only once there's something to show — the same "on open" rule the
+  // picker's own listing follows.
+  useEffect(() => {
+    if (!dismissed || !state) return;
+    let live = true;
+    fetch('/api/teams')
+      .then((res) => (res.ok ? (res.json() as Promise<TeamsResponse>) : Promise.reject(res.status)))
+      .then((payload) => {
+        if (!live) return;
+        setElsewhere(payload.teams.filter((t) => t.name !== state.teamName && t.state !== 'done'));
+      })
+      .catch(() => {
+        if (live) setElsewhere([]);
+      });
+    return () => {
+      live = false;
+    };
+  }, [dismissed, state?.teamName]);
+
+  const watchAgain = useCallback(() => {
+    setDismissed(false);
+    setAwaySince(null);
+  }, []);
+
+  const watchState = useMemo(
+    () => ({ dismissed, requestStopWatching: () => setPendingDismiss(true), watchAgain }),
+    [dismissed, watchAgain],
+  );
 
   // The launcher announces a new team at a console that is already running for
   // another one. Ref-guarded because main.tsx mounts under StrictMode, and a
@@ -97,6 +142,14 @@ export function App() {
     [state],
   );
 
+  // "End it for real" on the left-session screen is the same destructive verb
+  // as ending it from the wall — same confirmation, same fan-out to every
+  // teammate — just reached from a dismissed session instead of a live view.
+  const endForReal = useCallback(() => {
+    const lead = state?.agents.find((a) => a.isLead);
+    if (lead) askStop(lead.name);
+  }, [state, askStop]);
+
   // Above the `!state` return: every hook has to run on the frame before the
   // first snapshot lands too, or the hook order changes between renders.
   const stopControl = useMemo(
@@ -139,6 +192,7 @@ export function App() {
     <StopContext.Provider value={stopControl}>
     <SettingsContext.Provider value={appearance.settings}>
     <DiffContext.Provider value={store.setOpenDiff}>
+    <WatchContext.Provider value={watchState}>
     <div
       className="console"
       style={appearance.vars}
@@ -154,6 +208,18 @@ export function App() {
         appearance={appearance}
       />
       <main className="console-body">
+        {dismissed ? (
+          <LeftSession
+            state={state}
+            now={now}
+            awaySince={awaySince}
+            elsewhere={elsewhere}
+            onWatchAgain={watchState.watchAgain}
+            onEndForReal={endForReal}
+            onSwitchTo={(name) => void postJson(`/api/teams/${encodeURIComponent(name)}/select`)}
+          />
+        ) : (
+        <>
         {store.view === 'wall' && (
           <Wall
             agents={state.agents}
@@ -196,12 +262,24 @@ export function App() {
         {store.view === 'grid' && (
           <Grid agents={state.agents} focused={store.agent} onFocus={store.setAgent} now={now} />
         )}
+        </>
+        )}
       </main>
       <DiffModal diff={store.openDiff} onClose={() => store.setOpenDiff(null)} />
       <StopConfirm target={stopping} onConfirm={confirmStop} onCancel={() => setStopping(null)} />
+      <WatchConfirm
+        show={pendingDismiss}
+        onConfirm={() => {
+          setAwaySince({ at: Date.now(), cost: state.totalCostUsd });
+          setDismissed(true);
+          setPendingDismiss(false);
+        }}
+        onCancel={() => setPendingDismiss(false)}
+      />
       <NeedsYou items={state.needsYou} readOnly={state.readOnly} now={now} />
       <Panel agents={state.agents} focusedAgent={store.agent} onFocusAgent={store.setAgent} />
     </div>
+    </WatchContext.Provider>
     </DiffContext.Provider>
     </SettingsContext.Provider>
     </StopContext.Provider>

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { Diff } from '../shared/domain';
 import { App } from './App';
@@ -450,4 +450,122 @@ it('opens a diff-bearing row into the modal, from the same store every view shar
   expect(screen.getByTestId('diff-path').textContent).toBe(diff.path);
   fireEvent.click(screen.getByTestId('diff-close'));
   expect(screen.queryByTestId('diff-modal')).toBeNull();
+});
+
+// "Stop watching" vs "end session": the team keeps running either way unless
+// the operator explicitly ends it — this section is about the console merely
+// looking away, and never claiming the session ended while it does.
+async function openAndStopWatching() {
+  fireEvent.keyDown(document.body, { key: 't' });
+  const rows = await screen.findAllByRole('option');
+  fireEvent.click(within(rows[0]).getByTestId('row-stop-watching'));
+  fireEvent.click(screen.getByTestId('watch-confirm-go'));
+}
+
+it('empties the body into the left-session screen and dashes the picker', async () => {
+  stubTeamsFetch();
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+
+  expect(screen.queryByTestId('left-session-heading')).toBeNull();
+  await openAndStopWatching();
+
+  expect(screen.getByTestId('left-session-heading').textContent).toBe(
+    `You stopped watching ${sampleTeamState().teamName}.`,
+  );
+  expect(screen.queryByTestId('wall')).toBeNull();
+  expect(screen.getByTestId('team-trigger-name').textContent).toBe('no session selected');
+});
+
+it('cancelling the stop-watching confirmation leaves the wall exactly as it was', async () => {
+  stubTeamsFetch();
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+
+  fireEvent.keyDown(document.body, { key: 't' });
+  const rows = await screen.findAllByRole('option');
+  fireEvent.click(within(rows[0]).getByTestId('row-stop-watching'));
+  fireEvent.click(screen.getByTestId('watch-confirm-cancel'));
+
+  expect(screen.queryByTestId('watch-confirm')).toBeNull();
+  expect(screen.queryByTestId('left-session-heading')).toBeNull();
+  expect(screen.getByTestId('team-trigger-name').textContent).toBe(sampleTeamState().teamName);
+});
+
+it('watch again returns to the normal view', async () => {
+  stubTeamsFetch();
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+  await openAndStopWatching();
+
+  fireEvent.click(screen.getByTestId('watch-again'));
+
+  expect(screen.queryByTestId('left-session-heading')).toBeNull();
+  expect(screen.getByTestId('wall')).toBeTruthy();
+  expect(screen.getByTestId('team-trigger-name').textContent).toBe(sampleTeamState().teamName);
+});
+
+it('end it for real, from the left-session screen, reuses the existing destructive session-end flow', async () => {
+  const fetchMock = stubTeamsFetch();
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+  await openAndStopWatching();
+
+  fireEvent.click(screen.getByTestId('end-for-real'));
+  expect(screen.getByTestId('stop-confirm-go').textContent).toBe('end session');
+
+  fireEvent.click(screen.getByTestId('stop-confirm-go'));
+  const stopCalls = fetchMock.mock.calls.map((c) => c[0] as string).filter((p) => p.includes('/stop'));
+  expect(stopCalls.sort()).toEqual([
+    '/api/agents/probe-alpha/stop',
+    '/api/agents/probe-bravo/stop',
+    '/api/agents/probe-charlie/stop',
+    '/api/agents/team-lead/stop',
+  ]);
+});
+
+it('clears the dismissal automatically once the console actually switches teams', async () => {
+  stubTeamsFetch();
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+  await openAndStopWatching();
+  expect(screen.getByTestId('left-session-heading')).toBeTruthy();
+
+  act(() => MockEventSource.last().emit('snapshot', { ...sampleTeamState(), teamName: 'session-b5129c7b' }));
+
+  expect(screen.queryByTestId('left-session-heading')).toBeNull();
+  expect(screen.getByTestId('wall')).toBeTruthy();
+});
+
+it('lists the other live sessions on the machine and switches to one on click', async () => {
+  const fetchMock = vi.fn((path: string) =>
+    path === '/api/teams'
+      ? Promise.resolve(
+          new Response(
+            JSON.stringify({
+              current: 'session-98b0b4a7',
+              teams: [
+                sampleTeams()[0],
+                { ...sampleTeams()[1], state: 'idle' as const, current: false },
+              ],
+            }),
+            { status: 200 },
+          ),
+        )
+      : Promise.resolve(new Response('{}', { status: 200 })),
+  );
+  vi.stubGlobal('fetch', fetchMock);
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+  await openAndStopWatching();
+
+  const elsewhereRow = await screen.findByTestId('left-session-elsewhere-row');
+  expect(elsewhereRow.textContent).toContain('session-b5129c7b');
+  fireEvent.click(elsewhereRow);
+
+  expect(fetchMock).toHaveBeenLastCalledWith('/api/teams/session-b5129c7b/select', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}',
+  });
 });

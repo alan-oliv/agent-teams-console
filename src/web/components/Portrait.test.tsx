@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, expect, it } from 'vitest';
-import { Portrait } from './Portrait';
+import { SettingsContext, DEFAULT_SETTINGS } from '../state/useSettings';
+import { Portrait, TerminalSprite } from './Portrait';
 
 // This suite renders several times per test (and across tests); without
 // explicit cleanup the un-unmounted nodes from one `it` leak into the next
@@ -55,4 +56,31 @@ it('draws the same agent identically every time', () => {
   first.unmount();
   render(<Portrait agent={ALPHA} />);
   expect(screen.getByTestId('portrait').innerHTML).toBe(html);
+});
+
+it('sizes the terminal sprite box to the grid\'s 24:17 aspect, default 144x102', () => {
+  render(<TerminalSprite />);
+  const host = screen.getByTestId('terminal-sprite');
+  expect(host.style.width).toBe('144px');
+  expect(host.style.height).toBe('102px');
+  expect(host.style.position).toBe('relative');
+  expect(host.querySelector('svg')).not.toBeNull();
+});
+
+it('scales the terminal sprite and its glow together via the size prop', () => {
+  render(<TerminalSprite size={72} />);
+  const host = screen.getByTestId('terminal-sprite');
+  expect(host.style.width).toBe('72px');
+  expect(host.style.height).toBe('51px');
+  const glow = screen.getByTestId('terminal-sprite-glow');
+  expect(glow.style.width).toBe('88px'); // 176 * (72/144)
+});
+
+it('draws nothing for the terminal sprite when avatars are off, like the role portraits', () => {
+  render(
+    <SettingsContext.Provider value={{ ...DEFAULT_SETTINGS, avatars: false }}>
+      <TerminalSprite />
+    </SettingsContext.Provider>,
+  );
+  expect(screen.queryByTestId('terminal-sprite')).toBeNull();
 });

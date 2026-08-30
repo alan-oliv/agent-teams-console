@@ -2,6 +2,7 @@
 import { cleanup, createEvent, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { FIXTURE_NOW, sampleTeams } from '../test/state-fixture';
+import { WatchContext, type WatchState } from '../state/useWatch';
 import { TeamSelect } from './TeamSelect';
 
 // This suite renders once per `it`; without explicit cleanup the un-unmounted
@@ -38,13 +39,22 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function renderSelect(props: Partial<Parameters<typeof TeamSelect>[0]> = {}) {
+function renderSelect(props: Partial<Parameters<typeof TeamSelect>[0]> = {}, watch: Partial<WatchState> = {}) {
   const onOpenChange = vi.fn();
   const all = { current: 'session-98b0b4a7', open: true, onOpenChange, now: FIXTURE_NOW, ...props };
-  const view = render(<TeamSelect {...all} />);
+  const watchValue: WatchState = { dismissed: false, requestStopWatching: vi.fn(), watchAgain: vi.fn(), ...watch };
+  const view = render(
+    <WatchContext.Provider value={watchValue}>
+      <TeamSelect {...all} />
+    </WatchContext.Provider>,
+  );
   const rerender = (next: Partial<typeof all> = {}) =>
-    view.rerender(<TeamSelect {...all} {...next} />);
-  return { onOpenChange, rerender };
+    view.rerender(
+      <WatchContext.Provider value={watchValue}>
+        <TeamSelect {...all} {...next} />
+      </WatchContext.Provider>,
+    );
+  return { onOpenChange, rerender, watch: watchValue };
 }
 
 const SWITCH_TO_B5 = [
@@ -226,6 +236,58 @@ it('marks the row gone when the team vanished before the click', async () => {
   expect(mark.style.color).toBe('var(--fail)');
 });
 
+
+it('goes dashed and reads "no session selected" on the trigger once dismissed', () => {
+  renderSelect({ open: false }, { dismissed: true });
+  const trigger = screen.getByTestId('team-trigger');
+  expect(trigger.style.border).toContain('dashed');
+  expect(screen.getByTestId('team-trigger-name').textContent).toBe('no session selected');
+});
+
+it('keeps the normal trigger label and solid border while watching', () => {
+  renderSelect({ open: false });
+  const trigger = screen.getByTestId('team-trigger');
+  expect(trigger.style.border).toContain('solid');
+  expect(screen.getByTestId('team-trigger-name').textContent).toBe('session-98b0b4a7');
+});
+
+it('marks the dismissed session running · not watching instead of live, and drops its checkmark', async () => {
+  renderSelect({}, { dismissed: true });
+  const rows = await screen.findAllByRole('option');
+  expect(within(rows[0]).getByTestId('team-meta').textContent).toContain('running · not watching');
+  expect(within(rows[0]).queryByTestId('team-mark')).toBeNull();
+});
+
+it('offers "stop watching" only on the current row, and only while still watching', async () => {
+  renderSelect();
+  const rows = await screen.findAllByRole('option');
+  expect(within(rows[0]).getByTestId('row-stop-watching')).toBeTruthy();
+  expect(within(rows[1]).queryByTestId('row-stop-watching')).toBeNull();
+});
+
+it('does not offer "stop watching" again once already dismissed', async () => {
+  renderSelect({}, { dismissed: true });
+  const rows = await screen.findAllByRole('option');
+  expect(within(rows[0]).queryByTestId('row-stop-watching')).toBeNull();
+});
+
+it('requests the stop-watching confirmation without switching or closing', async () => {
+  const requestStopWatching = vi.fn();
+  const { onOpenChange } = renderSelect({}, { requestStopWatching });
+  const rows = await screen.findAllByRole('option');
+  fireEvent.click(within(rows[0]).getByTestId('row-stop-watching'));
+  expect(requestStopWatching).toHaveBeenCalled();
+  expect(onOpenChange).not.toHaveBeenCalled();
+});
+
+it('clicking the dismissed current row resumes watching it, instead of a no-op close', async () => {
+  const watchAgain = vi.fn();
+  const { onOpenChange } = renderSelect({}, { dismissed: true, watchAgain });
+  const rows = await screen.findAllByRole('option');
+  fireEvent.click(rows[0]);
+  expect(watchAgain).toHaveBeenCalled();
+  expect(onOpenChange).toHaveBeenCalledWith(false);
+});
 
 it('hides a team whose session has ended — it is history, not a session on this machine', async () => {
   const done = { current: 'session-98b0b4a7', teams: sampleTeams() };

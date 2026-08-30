@@ -94,3 +94,56 @@ export function StopConfirm({
     </div>
   );
 }
+
+/**
+ * The other verb, never merged with the one above: dismissing a session
+ * claims nothing about it, so it gets the accent treatment `StopConfirm`
+ * reserves for the destructive lead case, not the warn one.
+ */
+export function WatchConfirm({
+  show,
+  onConfirm,
+  onCancel,
+}: {
+  show: boolean;
+  onConfirm(): void;
+  onCancel(): void;
+}) {
+  if (!show) return null;
+  return (
+    <div data-testid="watch-confirm" style={BAR} role="alertdialog" aria-label="stop watching this session?">
+      <span style={{ color: 'var(--color-text)', fontSize: '11px', whiteSpace: 'nowrap', flex: 'none' }}>
+        stop watching this session?
+      </span>
+      <span
+        data-testid="watch-confirm-why"
+        style={{
+          color: 'var(--color-neutral-400)',
+          fontSize: '11px',
+          minWidth: 0,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        The team keeps running. The console stops following it and returns to the picker — instantly, with no
+        grace period, because nothing is being asserted about the team.
+      </span>
+      <span style={{ flex: 1 }} />
+      <button
+        data-testid="watch-confirm-go"
+        onClick={onConfirm}
+        style={{ ...BUTTON, border: '1px solid var(--color-accent-700)', color: 'var(--color-accent-300)' }}
+      >
+        stop watching
+      </button>
+      <button
+        data-testid="watch-confirm-cancel"
+        onClick={onCancel}
+        style={{ ...BUTTON, border: '1px solid var(--color-neutral-800)', color: 'var(--color-neutral-500)' }}
+      >
+        cancel
+      </button>
+    </div>
+  );
+}

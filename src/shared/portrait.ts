@@ -113,6 +113,39 @@ export const SKIN_PAIRS: Record<PortraitId, [string, string]> = {
   repro: ['#d9b89c', '#b2937a'],
 };
 
+/**
+ * The "left session" screen's sprite: an unwatched terminal, lit prompt, dim
+ * output lines, on a stand. No prototype grid to lift here — the mock fakes it
+ * with a role sprite as a placeholder — so this one is drawn from scratch, at
+ * the same 2px-per-cell scale as the role portraits above.
+ */
+export const TERMINAL_SPRITE: string[] = [
+  '........................',
+  '..ffffffffffffffffffff..',
+  '..fttttttttttttttttttf..',
+  '..fttoooooooooooootttf..',
+  '..fttttttttttttttttttf..',
+  '..fttoooooooottttttttf..',
+  '..fttttttttttttttttttf..',
+  '..fttoooooooooooottttf..',
+  '..fttttttttttttttttttf..',
+  '..fttppppptttttttttttf..',
+  '..fttttttttttttttttttf..',
+  '..ffffffffffffffffffff..',
+  '........................',
+  '...........ff...........',
+  '...........ff...........',
+  '.........ffffff.........',
+  '........ffffffff........',
+];
+
+const TERMINAL_SPRITE_COLORS: Record<string, string> = {
+  f: 'var(--color-neutral-700)', // case and stand
+  t: 'var(--color-neutral-900)', // screen ground
+  o: 'var(--color-neutral-600)', // dim output lines
+  p: 'var(--color-accent-400)', // the lit prompt
+};
+
 export const PORTRAIT_IDS: PortraitId[] = ['lead', 'security', 'perf', 'tests', 'architect', 'repro'];
 
 // The crown is the lead's identity marker; the hash fallback must never assign it to a teammate.
@@ -155,19 +188,11 @@ export function portraitFor(agent: { name: string; agentType: string; isLead: bo
   return { portrait: NON_LEAD_PORTRAIT_IDS[hash % NON_LEAD_PORTRAIT_IDS.length], skinIndex };
 }
 
-const svgCache = new Map<string, string>();
-
-export function portraitSvg(portrait: PortraitId, skinIndex: number): string {
-  const key = `${portrait}:${skinIndex}`;
-  const cached = svgCache.get(key);
-  if (cached !== undefined) return cached;
-
-  const skin = SKIN_PAIRS[PORTRAIT_IDS[skinIndex % PORTRAIT_IDS.length]];
-  const grid = SPRITES[portrait];
+/** One `<path>` per colour in `order`, a unit square per matching cell. */
+function gridSvg(grid: string[], width: number, order: string[], colorOf: (ch: string) => string): string {
   const paths: string[] = [];
-
-  for (const ch of PAINT_ORDER) {
-    const fill = ch === 's' ? skin[0] : ch === 'S' ? skin[1] : SPRITE_COLORS[ch];
+  for (const ch of order) {
+    const fill = colorOf(ch);
     let d = '';
     for (let y = 0; y < grid.length; y++) {
       const row = grid[y];
@@ -177,8 +202,28 @@ export function portraitSvg(portrait: PortraitId, skinIndex: number): string {
     }
     if (d) paths.push(`<path fill="${fill}" d="${d}"/>`);
   }
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${grid.length}" shape-rendering="crispEdges">${paths.join('')}</svg>`;
+}
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" shape-rendering="crispEdges">${paths.join('')}</svg>`;
+const svgCache = new Map<string, string>();
+
+export function portraitSvg(portrait: PortraitId, skinIndex: number): string {
+  const key = `${portrait}:${skinIndex}`;
+  const cached = svgCache.get(key);
+  if (cached !== undefined) return cached;
+
+  const skin = SKIN_PAIRS[PORTRAIT_IDS[skinIndex % PORTRAIT_IDS.length]];
+  const svg = gridSvg(SPRITES[portrait], 12, PAINT_ORDER, (ch) =>
+    ch === 's' ? skin[0] : ch === 'S' ? skin[1] : SPRITE_COLORS[ch],
+  );
   svgCache.set(key, svg);
   return svg;
 }
+
+// Fixed grid, fixed palette — computed once rather than cached per call.
+export const TERMINAL_SPRITE_SVG = gridSvg(
+  TERMINAL_SPRITE,
+  24,
+  ['f', 't', 'o', 'p'],
+  (ch) => TERMINAL_SPRITE_COLORS[ch],
+);
