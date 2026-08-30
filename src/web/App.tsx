@@ -58,15 +58,30 @@ export function App() {
   }, [state?.teamName]);
 
   const { hidden, hide, showAll } = useHiddenSessions();
-  // Hiding the session on screen leaves the body with nothing to draw. The
-  // picker keeps working — the remaining rows are still switchable — so this is
-  // an empty BODY, not an empty console.
+  /**
+   * Nothing worth drawing in the body. Two ways to get here:
+   *
+   * - the session on screen was hidden with the picker's `✕`;
+   * - or NO session on this machine is actually a team. Claude Code writes a
+   *   `teams/<session>/config.json` for every session, holding just that
+   *   session's own lead, so a machine with three windows open and no teammates
+   *   anywhere still has three of them. Drawing a wall for one is a column with
+   *   a lead in it and nothing to watch.
+   *
+   * The second condition deliberately asks about EVERY session, not just this
+   * one: a real team elsewhere means the console has somewhere to be, and a
+   * team that is mid-spawn — lead present, first teammate not yet — must not
+   * flash the empty screen on its way to becoming real.
+   */
   const currentHidden = state ? hidden.has(state.teamName) : false;
+  const leadOnlyHere = state ? state.mode !== 'workflow' && state.agents.length < 2 : false;
+  const noTeamsAnywhere = leadOnlyHere && elsewhere.every((t) => t.members < 2);
+  const bodyEmpty = currentHidden || noTeamsAnywhere;
 
   // Fetched only once there's something to show — the same "on open" rule the
   // picker's own listing follows.
   useEffect(() => {
-    if ((!dismissed && !currentHidden) || !state) return;
+    if ((!dismissed && !currentHidden && !leadOnlyHere) || !state) return;
     let live = true;
     fetch('/api/teams')
       .then((res) => (res.ok ? (res.json() as Promise<TeamsResponse>) : Promise.reject(res.status)))
@@ -80,7 +95,7 @@ export function App() {
     return () => {
       live = false;
     };
-  }, [dismissed, currentHidden, state?.teamName]);
+  }, [dismissed, currentHidden, leadOnlyHere, state?.teamName, state?.agents.length]);
 
   const watchAgain = useCallback(() => {
     setDismissed(false);
@@ -242,9 +257,9 @@ export function App() {
         {/* Hiding wins over dismissal: a session taken out of the picker has no
             row left to page back into, so LeftSession's "watch again" would
             point at nothing. */}
-        {currentHidden ? (
+        {bodyEmpty ? (
           <NoSessions
-            remaining={elsewhere.filter((t) => !hidden.has(t.name))}
+            remaining={elsewhere.filter((t) => !hidden.has(t.name) && t.members >= 2)}
             hiddenCount={hidden.size}
             onShowHidden={showAll}
             onSwitchTo={(name) => void postJson(`/api/teams/${encodeURIComponent(name)}/select`)}

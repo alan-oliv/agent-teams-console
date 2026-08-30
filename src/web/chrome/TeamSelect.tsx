@@ -68,6 +68,9 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
   const [cursor, setCursor] = useState(0);
   const [mark, setMark] = useState<Mark | null>(null);
   const [query, setQuery] = useState('');
+  // Reveals the rows filtered out for having no team. Local and per-open rather
+  // than persisted: unlike hiding, this is not a preference the operator set.
+  const [revealed, setRevealed] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const wrapper = useRef<HTMLDivElement>(null);
@@ -162,12 +165,27 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
   // claims otherwise. The team being VIEWED stays listed even once it ends —
   // dropping the row you are looking at would leave the picker contradicting
   // the wall behind it.
-  // Hidden sessions come out before anything else counts them, so the header
+  // Two kinds of row come out before anything else counts them, so the header
   // total, the search results and the cursor all agree with what is drawn.
-  const rows = (teams ?? []).filter(
-    (t) => (t.state !== 'done' || t.current) && !watch.hidden.has(t.name),
-  );
-  const hiddenCount = (teams ?? []).filter((t) => watch.hidden.has(t.name)).length;
+  //
+  // LEAD-ONLY sessions are the second kind, and they are the noisy one: Claude
+  // Code writes a `teams/<session>/config.json` for every session it starts,
+  // carrying just that session's own lead. So every open window shows up here
+  // as a switchable "session" that has no team in it. Two or more members is
+  // what makes a team — the same bar the launcher uses to decide whether to
+  // start at all — so anything under it is listed as not-shown rather than
+  // offered as somewhere to switch to.
+  const isLeadOnly = (t: TeamSummary) => t.members < 2;
+  const listed = (teams ?? []).filter((t) => t.state !== 'done' || t.current);
+  // `|| t.current` for the same reason the `done` filter carries it: dropping
+  // the row you are looking at leaves the picker contradicting the wall behind
+  // it. A lead-only session you are ON stays listed; the body tells you there is
+  // no team in it.
+  const filteredOut = (t: TeamSummary) =>
+    watch.hidden.has(t.name) || (!revealed && isLeadOnly(t) && !t.current);
+  const rows = listed.filter((t) => !filteredOut(t));
+  const notShown = listed.filter(filteredOut);
+  const hiddenCount = notShown.length;
   const filteredRows = rows.filter((t) => matchesQuery(t, query));
   const cursorTeam = filteredRows[Math.min(cursor, filteredRows.length - 1)];
 
@@ -499,7 +517,7 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
                     ? 'could not read teams'
                     : rows.length === 0
                       ? hiddenCount > 0
-                        ? 'every session is hidden'
+                        ? 'no teams — every session here is a lead on its own'
                         : 'no live teams'
                       : 'no matches'}
               </div>
@@ -514,6 +532,7 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
                 data-testid="show-hidden-rows"
                 onClick={() => {
                   watch.showHidden();
+                  setRevealed(true);
                   setCursor(0);
                 }}
                 style={{
@@ -528,7 +547,7 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
                   textAlign: 'left',
                 }}
               >
-                {`${hiddenCount} hidden · show ${hiddenCount === 1 ? 'it' : 'them'}`}
+                {`${hiddenCount} not shown · show ${hiddenCount === 1 ? 'it' : 'them'}`}
               </button>
             )}
           </div>

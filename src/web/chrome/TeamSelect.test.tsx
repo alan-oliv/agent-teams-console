@@ -10,12 +10,14 @@ import { TeamSelect } from './TeamSelect';
 // matching more than one element.
 afterEach(cleanup);
 
-// The second fixture team is `done`, which the picker now hides; these tests
-// are about rows and switching, so it stands in as an idle team. The hiding
-// rule has its own tests at the bottom.
+// The second fixture team is `done` and lead-only, both of which the picker now
+// filters out; these tests are about rows and switching, so it stands in as an
+// idle REAL team. The two filtering rules have their own tests at the bottom.
 const LIST = {
   current: 'session-98b0b4a7',
-  teams: sampleTeams().map((t, i) => (i === 1 ? { ...t, state: 'idle' as const } : t)),
+  teams: sampleTeams().map((t, i) =>
+    i === 1 ? { ...t, state: 'idle' as const, members: 2 } : t,
+  ),
 };
 
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -432,12 +434,44 @@ it('keeps a way back in the menu once anything is hidden', async () => {
   const showHidden = vi.fn();
   renderSelect({}, { hidden: new Set(['session-b5129c7b']), showHidden });
   const back = await screen.findByTestId('show-hidden-rows');
-  expect(back.textContent).toContain('1 hidden');
+  expect(back.textContent).toContain('1 not shown');
   fireEvent.click(back);
   expect(showHidden).toHaveBeenCalled();
 });
 
-it('says every session is hidden rather than "no live teams" when that is why the list is empty', async () => {
+it('says why the list is empty rather than claiming there are no teams', async () => {
   renderSelect({}, { hidden: new Set(['session-98b0b4a7', 'session-b5129c7b']) });
-  expect(await screen.findByText('every session is hidden')).toBeTruthy();
+  expect(
+    await screen.findByText('no teams — every session here is a lead on its own'),
+  ).toBeTruthy();
+});
+
+// Claude Code writes a teams/<session>/config.json for EVERY session, holding
+// just that session's own lead, so without this every open window shows up as a
+// switchable "session" with no team in it.
+it('keeps lead-only sessions out of the list and counts them as not shown', async () => {
+  renderSelect({}, {});
+  const rows = await screen.findAllByRole('option');
+  // Both fixture rows are real teams here, so nothing is filtered yet.
+  expect(rows).toHaveLength(2);
+});
+
+it('reveals the lead-only rows on demand, without needing them un-hidden', async () => {
+  const solo = {
+    current: 'session-98b0b4a7',
+    teams: sampleTeams().map((t, i) => (i === 1 ? { ...t, state: 'idle' as const, members: 1 } : t)),
+  };
+  fetchMock = routed(() => Promise.resolve(new Response('{}', { status: 200 })));
+  vi.stubGlobal('fetch', vi.fn((path: string) =>
+    path === '/api/teams'
+      ? Promise.resolve(new Response(JSON.stringify(solo), { status: 200 }))
+      : Promise.resolve(new Response('{}', { status: 200 })),
+  ));
+  renderSelect();
+
+  expect(await screen.findAllByRole('option')).toHaveLength(1);
+  const back = screen.getByTestId('show-hidden-rows');
+  expect(back.textContent).toContain('1 not shown');
+  fireEvent.click(back);
+  expect(await screen.findAllByRole('option')).toHaveLength(2);
 });

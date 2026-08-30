@@ -55,7 +55,7 @@ export function NoSessions({ remaining, hiddenCount, onShowHidden, onSwitchTo }:
           <TerminalSprite size={144} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: '9px', minWidth: 0 }}>
             <h1 style={{ color: 'var(--color-text)', fontSize: '16px', fontWeight: 500, margin: 0 }}>
-              {remaining.length > 0 ? 'Nothing selected.' : 'No sessions in the picker.'}
+              {remaining.length > 0 ? 'Nothing selected.' : 'No team to show.'}
             </h1>
             <p
               style={{
@@ -70,9 +70,11 @@ export function NoSessions({ remaining, hiddenCount, onShowHidden, onSwitchTo }:
                   moment an operator most needs telling that nothing was
                   stopped — the same reason the stop glyph and the in-flight
                   badge refuse to overstate. */}
-              Hiding a session only takes it out of this picker, in this browser.
-              Nothing was stopped, nothing was deleted, and any team that was
-              running still is.
+              A session on its own is not a team — Claude Code writes one for
+              every window you open, holding just its own lead. Spawn teammates
+              and the console fills in. Hiding a session only takes it out of
+              this picker, in this browser: nothing was stopped, nothing was
+              deleted, and any team that was running still is.
             </p>
           </div>
         </div>
