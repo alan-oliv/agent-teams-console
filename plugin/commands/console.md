@@ -30,11 +30,14 @@ curl -sf -m 2 http://127.0.0.1:4823/health && echo "STILL UP" || echo "port clea
 If this prints `STILL UP`, something else holds the port. Say so and stop rather
 than starting a second server against it.
 
-## 2. Is there a live team to show?
+## 2. Which team, if any, is live?
+
+This decides what goes in the URL. It does **not** decide whether to start —
+step 3 runs either way, so the console is up and waiting before the next team
+exists rather than after it.
 
 A team is live only when its `config.json` lists two or more members. Ordinary
-subagents never appear there, so an empty result means there is genuinely
-nothing to display.
+subagents never appear there, so an empty result means no team yet.
 
 ```bash
 for c in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/teams/*/config.json; do
@@ -44,12 +47,7 @@ for c in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/teams/*/config.json; do
 done
 ```
 
-If this prints nothing, report:
-
-> Console stopped, and no team is live — it starts by itself the next time you
-> spawn teammates.
-
-Then stop. Do not start a server with nothing to show.
+Nothing printed is a normal outcome, not a failure. Carry on to step 3.
 
 ## 3. Start the installed build
 
@@ -63,13 +61,24 @@ curl -sf -m 2 http://127.0.0.1:4823/health
 If `${CLAUDE_PLUGIN_ROOT}` came through unsubstituted, say so rather than
 guessing a path — the plugin is not installed the way this command expects.
 
-On success report:
+On success, with a team:
 
 > Console restarted: http://127.0.0.1:4823/?team=TEAM — N agents.
 
-Use the `team` from the health response, and drop the `?team=` part if it is
-empty. If the health check fails, print the last few lines of
+With no team, say so plainly and give the bare URL, because an empty wall would
+otherwise read as a broken console:
+
+> Console restarted: http://127.0.0.1:4823/ — no team yet, it binds to the next
+> one you spawn.
+
+Use the `team` from the health response, not from step 2, and drop the `?team=`
+part when it is empty. If the health check fails, print the last few lines of
 `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agent-teams-console.log` and stop.
+
+**Say this too when there was no team:** a server with nothing to watch reaps
+itself after its idle grace window, roughly ten minutes, so an unused console
+will not be there later. That is the server's own lifecycle, not a crash — run
+the command again, or just spawn a team and it starts itself.
 
 **One caveat worth stating when you report:** `${CLAUDE_PLUGIN_ROOT}` resolves to
 the build this *session* loaded at startup. If the plugin was updated after the
