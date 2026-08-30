@@ -573,8 +573,10 @@ describe('compaction note', () => {
     expect(note.style.color).toBe('var(--warn)');
   });
 
+  // Past the 150_000 threshold (75% of the 200k window) but short of 158_500,
+  // which is halfway from there to the 167k trigger.
   it('holds back the note while only the glyph is warranted', () => {
-    renderNear(130_000);
+    renderNear(152_000);
     expect(charlie().getByTestId('wall-warn').textContent).toBe('!');
     expect(charlie().queryByTestId('wall-compaction')).toBeNull();
   });

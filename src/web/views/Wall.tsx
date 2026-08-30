@@ -123,7 +123,7 @@ const Column = memo(function Column({
 }) {
   const status = AGENT_STATUS[agent.status];
   const isLeadColumn = agent.isLead;
-  const compaction = compactionNote(agent.contextTokens, agent.compactAt);
+  const compaction = compactionNote(agent.contextTokens, agent.contextLimit, agent.compactAt);
 
   const shadows: string[] = [];
   if (isLeadColumn) shadows.push('1px 0 0 var(--color-neutral-800)', '8px 0 18px rgba(0,0,0,.5)');
@@ -240,7 +240,7 @@ const Column = memo(function Column({
               data-testid="wall-warn"
               style={{ color: 'var(--warn)', fontSize: '10.5px', width: '7px' }}
             >
-              {warnMark(agent.contextTokens, agent.compactAt)}
+              {warnMark(agent.contextTokens, agent.contextLimit)}
             </span>
             <span
               data-testid="wall-ctx"
