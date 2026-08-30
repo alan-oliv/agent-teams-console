@@ -219,6 +219,10 @@ describe('Workflow', () => {
     expect(screen.queryByTestId('wf-phase-group')).toBeNull();
     expect(screen.getByTestId('workflow-agents')).toBeTruthy();
     expect(screen.getByTestId('wf-live-note').textContent).toMatch(/until the run ends/i);
+    // The sidebar was never restricted to a finished run, and the shell used to
+    // drop it for a live one by branching around the run view entirely.
+    expect(screen.getByTestId('wf-limits')).toBeTruthy();
+    expect(screen.getByTestId('wf-totals').textContent).toContain('1 started');
   });
 
   it('shows a live run no elapsed it cannot source', () => {
