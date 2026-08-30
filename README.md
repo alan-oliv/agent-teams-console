@@ -18,11 +18,13 @@ Agent teams console → http://127.0.0.1:4823/?team=session-98b0b4a7
 
 ## Six views
 
+These are team mode's. A second mode, for a dynamic workflow, hasn't landed.
+
 | | |
 |---|---|
 | **wall** | one transcript column per teammate, lead pinned on the left |
 | **overview** | one tile per agent with a context-occupancy bar |
-| **comms** | the team's mail: room and direct message pairs |
+| **comms** | an `everyone` room carrying the whole team's traffic, with per-pair inbox threads below it |
 | **tasks** | the shared task list |
 | **rail** | a keyboard-navigable agent list with one big transcript |
 | **grid** | six panes at once for a wide monitor |
