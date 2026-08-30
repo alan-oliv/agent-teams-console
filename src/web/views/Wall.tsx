@@ -16,7 +16,7 @@ import { Portrait } from '../components/Portrait';
 import { StatusGlyph } from '../components/StatusGlyph';
 import { StopControlButton } from '../components/StopButton';
 import { TranscriptFeed } from '../components/TranscriptFeed';
-import { contextBar, costLabel, ctxLabel, pctLabel, warnMark } from '../format';
+import { compactionNote, contextBar, costLabel, ctxLabel, pctLabel, warnMark } from '../format';
 import { COLUMN_WIDTH } from '../state/useTeamState';
 
 // Matches the --terminal-ground token (theme.css); kept literal so the tint
@@ -97,6 +97,7 @@ const Column = memo(function Column({
 }) {
   const status = AGENT_STATUS[agent.status];
   const isLeadColumn = agent.isLead;
+  const compaction = compactionNote(agent.contextTokens, agent.compactAt);
 
   const shadows: string[] = [];
   if (isLeadColumn) shadows.push('1px 0 0 var(--color-neutral-800)', '8px 0 18px rgba(0,0,0,.5)');
@@ -229,6 +230,31 @@ const Column = memo(function Column({
               {costLabel(agent.costUsd)}
             </span>
           </div>
+
+          {/*
+            The other half of the design's context warning, and the only header
+            row that is conditional. It cannot join the meter above it: the bar,
+            percent, token pair and cost already leave barely 30px spare in a
+            default 366px column, so the note would wrap that row onto a second
+            line — and the column drags down to COLUMN_MIN. On its own row it
+            fits at every width, and ellipsises rather than wrapping if it ever
+            does not.
+          */}
+          {compaction && (
+            <div
+              data-testid="wall-compaction"
+              title={compaction}
+              style={{
+                color: 'var(--warn)',
+                fontSize: '10.5px',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {compaction}
+            </div>
+          )}
         </div>
       </div>
 

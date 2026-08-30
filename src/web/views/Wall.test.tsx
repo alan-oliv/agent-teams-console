@@ -526,3 +526,66 @@ describe('in-flight badge', () => {
     expect(screen.queryAllByTestId('in-flight')).toHaveLength(0);
   });
 });
+
+describe('compaction note', () => {
+  // probe-charlie is the haiku agent: a 200k window, so compaction at 167k.
+  const nearCompaction = (contextTokens: number) =>
+    agents.map((a) => (a.name === 'probe-charlie' ? { ...a, contextTokens } : a));
+
+  const charlie = () =>
+    within(
+      screen.getAllByTestId('wall-column').find((c) => c.dataset.agent === 'probe-charlie')!,
+    );
+
+  function renderNear(contextTokens: number) {
+    render(
+      <Wall
+        agents={nearCompaction(contextTokens)}
+        focused={null}
+        onFocus={vi.fn()}
+        now={FIXTURE_NOW}
+      />,
+    );
+  }
+
+  it('says nothing while every agent still has headroom', () => {
+    render(<Wall agents={agents} focused={null} onFocus={vi.fn()} now={FIXTURE_NOW} />);
+    expect(screen.queryAllByTestId('wall-compaction')).toHaveLength(0);
+  });
+
+  // The design's warning has two stages: `!` once the threshold is behind the
+  // agent, the note once the trigger is close. The glyph stays when the note
+  // arrives — the note is the second half of the warning, not a replacement.
+  it('counts the headroom down beside the warn glyph once compaction is close', () => {
+    renderNear(160_000);
+    expect(charlie().getByTestId('wall-warn').textContent).toBe('!');
+    const note = charlie().getByTestId('wall-compaction');
+    expect(note.textContent).toBe('compaction in ~7k tokens');
+    expect(note.style.color).toBe('var(--warn)');
+  });
+
+  it('holds back the note while only the glyph is warranted', () => {
+    renderNear(130_000);
+    expect(charlie().getByTestId('wall-warn').textContent).toBe('!');
+    expect(charlie().queryByTestId('wall-compaction')).toBeNull();
+  });
+
+  it('warns only the agent that is near its own trigger', () => {
+    renderNear(160_000);
+    expect(screen.getAllByTestId('wall-compaction')).toHaveLength(1);
+  });
+
+  // The context line is already full at the default 366px column and the header
+  // rows are one-line, so the note takes a row of its own rather than wrapping
+  // the meter onto a second line. It is ellipsised there, with the full text on
+  // the title, for a column dragged down to COLUMN_MIN.
+  it('keeps the note on one line of its own, never on the context line', () => {
+    renderNear(160_000);
+    const note = charlie().getByTestId('wall-compaction');
+    expect(note.parentElement).not.toBe(charlie().getByTestId('wall-ctx').parentElement);
+    expect(note.style.whiteSpace).toBe('nowrap');
+    expect(note.style.overflow).toBe('hidden');
+    expect(note.style.textOverflow).toBe('ellipsis');
+    expect(note.title).toBe('compaction in ~7k tokens');
+  });
+});

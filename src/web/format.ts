@@ -74,9 +74,22 @@ export function ctxLabel(tokens: number, limit: number): string {
 }
 
 // Warns against the auto-compact trigger, not the raw window (spec §4.3).
+const WARN_RATIO = 0.75;
+
+// "Near the limit" is halfway from the warning to the trigger, so the two
+// stages the design asks for stay distinguishable: the glyph alone means the
+// threshold is behind you, the glyph plus the note means it is about to fire.
+const NOTE_RATIO = WARN_RATIO + (1 - WARN_RATIO) / 2;
+
 export function warnMark(tokens: number, compactAt: number): string {
   if (compactAt <= 0) return '';
-  return tokens / compactAt >= 0.75 ? '!' : '';
+  return tokens / compactAt >= WARN_RATIO ? '!' : '';
+}
+
+export function compactionNote(tokens: number, compactAt: number): string {
+  if (compactAt <= 0 || tokens / compactAt < NOTE_RATIO) return '';
+  const left = Math.max(0, Math.round((compactAt - tokens) / 1000));
+  return `compaction in ~${left}k tokens`;
 }
 
 // U+2212 minus sign, not a hyphen — the design prototype's own glyph.
