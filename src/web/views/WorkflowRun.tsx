@@ -328,7 +328,11 @@ export function WorkflowRun({ run }: { run: Run }) {
           </>
         )}
 
-        {unphased.length > 0 && (
+        {/* Live, EVERY agent is unphased — phases arrive with the snapshot — so
+            the strip would fire on all of them and blame a script nobody read.
+            It means "the script called agent() without phase()", which is only
+            knowable once the phases have actually landed. */}
+        {!run.live && unphased.length > 0 && (
           <div
             data-testid="wf-unphased"
             style={{

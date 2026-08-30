@@ -231,6 +231,14 @@ describe('WorkflowRun', () => {
       expect(screen.queryByTestId('wf-layout')).toBeNull();
     });
 
+    // Live, NO agent has a phase — phases reach disk with the snapshot. So the
+    // unphased strip would fire for every one of them and blame the script for
+    // never calling phase(), which is a claim about source nobody has read.
+    it('does not blame the script for the phases the snapshot has not delivered', () => {
+      render(<WorkflowRun run={LIVE} />);
+      expect(screen.queryByTestId('wf-unphased')).toBeNull();
+    });
+
     it('keeps the sidebar, which the spec never restricted to a finished run', () => {
       render(<WorkflowRun run={LIVE} />);
 
