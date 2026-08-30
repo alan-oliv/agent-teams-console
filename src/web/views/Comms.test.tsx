@@ -214,12 +214,12 @@ describe('Comms — thread pane', () => {
     expect(bubbles[1].style.alignItems).toBe('flex-end');
   });
 
-  it('caps a bubble at 78% and puts the sender face on the outer edge', () => {
+  it('caps a bubble at 64% and puts the sender face on the outer edge', () => {
     renderPair();
     const bubbles = screen.getAllByTestId('bubble');
     const left = bubbles[0].firstElementChild as HTMLElement;
     const right = bubbles[1].firstElementChild as HTMLElement;
-    expect(left.style.maxWidth).toBe('78%');
+    expect(left.style.maxWidth).toBe('64%');
     expect(left.style.flexDirection).toBe('row');
     expect(right.style.flexDirection).toBe('row-reverse');
     expect(within(bubbles[0]).getByTestId('portrait').style.width).toBe('22px');
@@ -380,6 +380,12 @@ describe('Comms — the everyone room', () => {
     // MAIL holds three perf/security messages and one lead→security.
     expect(screen.getAllByTestId('room-line')).toHaveLength(4);
     expect(screen.queryAllByTestId('bubble')).toHaveLength(0);
+  });
+
+  it('caps a room bubble at the same width as a pair bubble', () => {
+    renderComms();
+    const row = screen.getAllByTestId('room-line')[0].children[1] as HTMLElement;
+    expect(row.style.maxWidth).toBe('64%');
   });
 
   // The room is every DIRECT message read end to end, so dropping the recipient
