@@ -4,7 +4,6 @@ import {
   composingIn,
   everyoneThread,
   readTurnOf,
-  resolveDelivery,
   roomLines,
   roomRecipients,
   stateOf,
@@ -50,6 +49,25 @@ const BUBBLE_MAX_WIDTH = '64%';
 // they collapse into a run: the name is drawn once at the top of it, the face
 // once at the bottom, and the bubbles between sit tight. Both the room and the
 // pair thread read these, like BUBBLE_MAX_WIDTH, so the two cannot drift.
+/**
+ * One pair of grounds, consumed by both rooms so they cannot drift — the same
+ * reasoning as BUBBLE_MAX_WIDTH. `accent-900` under an inset `accent-500` is the
+ * SELECTED-ROW tint everywhere else in the console, so a bubble drawn on it
+ * reads as a selection rather than as a side of the conversation.
+ */
+const BUBBLE_GROUND = {
+  left: {
+    background: 'var(--color-neutral-900)',
+    border: '1px solid var(--color-neutral-800)',
+    color: 'var(--color-neutral-200)',
+  },
+  right: {
+    background: 'var(--color-accent-700)',
+    border: '1px solid var(--color-accent-600)',
+    color: 'var(--color-text)',
+  },
+} as const;
+
 const RUN_GAP = '10px';
 const IN_RUN_GAP = '3px';
 const FACE_PX = 22;
@@ -121,6 +139,7 @@ function RoomBubble({
   runEnd: boolean;
 }) {
   const mine = line.from === CONSOLE_SENDER;
+  const ground = BUBBLE_GROUND[mine ? 'right' : 'left'];
   const recipient = agents.find((a) => a.name === line.to[0]);
   const turn = line.read && line.to.length === 1
     ? readTurnOf(line.ts, recipient?.transcript ?? [])
@@ -156,8 +175,8 @@ function RoomBubble({
         {!mine && <Face show={runEnd} agent={agentFor(line.from, agents)} />}
         <div
           style={{
-            background: mine ? 'var(--color-accent-700)' : 'var(--color-neutral-900)',
-            border: `1px solid ${mine ? 'var(--color-accent-600)' : 'var(--color-neutral-800)'}`,
+            background: ground.background,
+            border: ground.border,
             borderRadius: 'var(--radius-md)',
             padding: '8px 12px',
             minWidth: 0,
@@ -166,7 +185,7 @@ function RoomBubble({
           <span
             data-testid="room-body"
             style={{
-              color: mine ? 'var(--color-text)' : 'var(--color-neutral-300)',
+              color: ground.color,
               fontSize: '11.5px',
               lineHeight: 1.6,
               textWrap: 'pretty',
@@ -215,6 +234,7 @@ function Bubble({
   // Sides are fixed to the pair, not to the operator: the first participant is
   // always left, so a thread does not flip when a different message arrives.
   const mine = message.from === thread.b;
+  const ground = BUBBLE_GROUND[mine ? 'right' : 'left'];
   const recipient = agents.find((a) => a.name === message.to);
   const turn = message.read ? readTurnOf(message.ts, recipient?.transcript ?? []) : undefined;
 
@@ -241,8 +261,8 @@ function Bubble({
         <Face show={runEnd} agent={agentFor(message.from, agents)} />
         <div
           style={{
-            background: mine ? 'var(--color-accent-900)' : 'var(--color-bg)',
-            border: `1px solid ${mine ? 'var(--color-accent-700)' : 'var(--color-neutral-900)'}`,
+            background: ground.background,
+            border: ground.border,
             borderRadius: 'var(--radius-md)',
             padding: '9px 12px',
             minWidth: 0,
@@ -266,7 +286,7 @@ function Bubble({
           <span
             data-testid="bubble-body"
             style={{
-              color: 'var(--color-neutral-300)',
+              color: ground.color,
               fontSize: '11.5px',
               lineHeight: 1.6,
               textWrap: 'pretty',
@@ -308,13 +328,18 @@ export function Comms({
   now: number;
   readOnly?: boolean;
 }) {
-  // Settle delivery before threading: the read flag on the wire is the one the
-  // inbox was written with and never updated. See resolveDelivery.
-  const settled = useMemo(() => resolveDelivery(mail, agents), [mail, agents]);
-  const threads = useMemo(() => threadsOf(settled), [settled]);
+  // `read` arrives settled and is taken as it comes. The one artefact that
+  // proves a read is a <teammate-message> frame in the recipient's own
+  // transcript, which the ingest folds in for the whole file; `Agent.unread` is
+  // the size of the CURRENT inbox — an in-flight readout, and no evidence about
+  // which message left it. Inferring reads from that count once stood here:
+  // measured against a live eight-agent team it settled nothing the frames had
+  // not already proved, and it stood ready to report a message read on no
+  // evidence at all. A message no frame accounts for says so.
+  const threads = useMemo(() => threadsOf(mail), [mail]);
   // The whole team's traffic, pinned above the pairs. Not a seventh inbox — the
   // same messages, read end to end instead of two at a time.
-  const room = useMemo(() => everyoneThread(settled), [settled]);
+  const room = useMemo(() => everyoneThread(mail), [mail]);
   // An open-this-thread intent, consumed once: entering comms is not a request
   // for a particular conversation, so the room opens on every plain view switch
   // and a pair only when one was actually asked for — the wall's in-flight

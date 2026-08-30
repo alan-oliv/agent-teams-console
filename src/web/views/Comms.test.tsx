@@ -283,6 +283,56 @@ describe('Comms — delivery state', () => {
   });
 });
 
+// One bubble pair, both rooms (CONSOLE-DECISIONS ruling 7a): `accent-900` with
+// an inset `accent-500` is the selected-row tint everywhere else in the console,
+// so a bubble drawn on it reads as a selection.
+describe('Comms — bubble grounds', () => {
+  const groundOf = (bubble: HTMLElement) =>
+    (bubble.firstElementChild!.lastElementChild as HTMLElement).style;
+
+  it('draws the pair thread on the same two grounds as the room', () => {
+    renderComms({ openThread: 'perf' });
+    const [left, right] = screen.getAllByTestId('bubble');
+
+    expect(groundOf(left).background).toBe('var(--color-neutral-900)');
+    expect(groundOf(left).border).toBe('1px solid var(--color-neutral-800)');
+    expect(within(left).getByTestId('bubble-body').style.color).toBe('var(--color-neutral-200)');
+
+    expect(groundOf(right).background).toBe('var(--color-accent-700)');
+    expect(groundOf(right).border).toBe('1px solid var(--color-accent-600)');
+    expect(within(right).getByTestId('bubble-body').style.color).toBe('var(--color-text)');
+  });
+
+  it('holds a room line to the same text colour as a pair bubble', () => {
+    renderComms();
+    expect(screen.getAllByTestId('room-body')[0].style.color).toBe('var(--color-neutral-200)');
+  });
+});
+
+// Nothing ever writes `read: true` into an inbox and an entry is DELETED when
+// the recipient takes it, so an empty inbox is not proof that any particular
+// message was read. The one artefact that proves it is a <teammate-message>
+// frame in the recipient's own transcript, which the server has already folded
+// into `read` by the time mail reaches this view.
+describe('Comms — what proves a read', () => {
+  it('leaves a message unread when no frame proved it, however empty the inbox is', () => {
+    renderComms({
+      agents: [agent('perf', { unread: 0 }), agent('security')],
+      mail: [{
+        msgId: 'u1',
+        from: 'security',
+        to: 'perf',
+        text: 'took the batch',
+        ts: NOW - 34_000,
+        tsIsDelivery: false,
+        read: false,
+      }],
+      openThread: 'perf',
+    });
+    expect(screen.getByTestId('bubble-delivery').textContent).toBe('delivered · unread 34s');
+  });
+});
+
 describe('Comms — composing indicator', () => {
   it('shows a participant whose current turn is mid-SendMessage', () => {
     renderPair({
