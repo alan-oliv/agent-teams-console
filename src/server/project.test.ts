@@ -23,9 +23,9 @@ vi.mock('../shared/transcript', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../shared/transcript')>();
   return {
     ...actual,
-    toTranscriptLines: (rec: TranscriptRecord) => {
+    toTranscriptLines: (rec: TranscriptRecord, agent?: string) => {
       derivations.lines++;
-      return actual.toTranscriptLines(rec);
+      return actual.toTranscriptLines(rec, agent);
     },
     currentToolOf: (rec: TranscriptRecord) => {
       derivations.tools++;
@@ -471,6 +471,67 @@ describe('project', () => {
     expect(derivations.tools).toBe(0);
     expect(again.transcript).toHaveLength(PROJECTED_TRANSCRIPT_LINES);
     expect(again.currentTool).toBe('Bash(echo 1998)');
+  });
+
+  const editRecord = (uuid: string): TranscriptRecord => ({
+    type: 'assistant',
+    uuid,
+    timestamp: '2026-08-27T15:09:55.618Z',
+    message: {
+      content: [
+        { type: 'tool_use', name: 'Edit', input: { file_path: '/a.ts', old_string: 'a', new_string: 'b' } },
+      ],
+    },
+  });
+
+  const twoMemberConfig: TeamConfig = {
+    name: 'session-two',
+    createdAt: 0,
+    leadAgentId: 'lead-1',
+    leadSessionId: 'lead-1',
+    members: [
+      { agentId: 'lead-1', name: 'first', joinedAt: 0, tmuxPaneId: '', subscriptions: [] },
+      { agentId: 'lead-2', name: 'second', joinedAt: 0, tmuxPaneId: '', subscriptions: [] },
+    ],
+  };
+
+  it("fills Diff.agent from the agent whose transcript the line came from, not left blank", () => {
+    const solo = project(soloLog([editRecord('edit-1')]), false).agents.find((a) => a.name === 'solo')!;
+    expect(solo.transcript[0].diff?.agent).toBe('solo');
+  });
+
+  // The memo is keyed on (record, agent), not on the record alone, precisely so
+  // this can never happen — even if the SAME record object were ever read for
+  // two agents, each would still get its own name on the diff rather than
+  // whichever agent happened to derive it first.
+  it('keeps two agents apart even when the same record object is read for both', () => {
+    const record = editRecord('shared');
+    const log: StoredEvent[] = [
+      { seq: 1, ts: 0, kind: 'roster', payload: { config: twoMemberConfig, sidecars: [] } },
+      { seq: 2, ts: 0, kind: 'transcript', agent: 'first', payload: { agent: 'first', records: [record] } },
+      { seq: 3, ts: 0, kind: 'transcript', agent: 'second', payload: { agent: 'second', records: [record] } },
+    ];
+    const agents = project(log, false).agents;
+    expect(agents.find((a) => a.name === 'first')!.transcript[0].diff?.agent).toBe('first');
+    expect(agents.find((a) => a.name === 'second')!.transcript[0].diff?.agent).toBe('second');
+  });
+
+  it('caches per (record, agent): a repeat publish is free, a new agent on the same record is not', () => {
+    const record = editRecord('shared-2');
+    const log: StoredEvent[] = [
+      { seq: 1, ts: 0, kind: 'roster', payload: { config: twoMemberConfig, sidecars: [] } },
+      { seq: 2, ts: 0, kind: 'transcript', agent: 'first', payload: { agent: 'first', records: [record] } },
+    ];
+    derivations.lines = 0;
+    project(log, false);
+    expect(derivations.lines).toBe(1);
+
+    project(log, false); // same (record, agent) pair — the 53ms-of-56ms property
+    expect(derivations.lines).toBe(1);
+
+    log.push({ seq: 3, ts: 0, kind: 'transcript', agent: 'second', payload: { agent: 'second', records: [record] } });
+    project(log, false); // same record, a genuinely new agent — one more derivation, not zero
+    expect(derivations.lines).toBe(2);
   });
 
   it('projects the last 60 lines of a single record that yields more', () => {

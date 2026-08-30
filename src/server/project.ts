@@ -139,7 +139,8 @@ function memoisable(rec: TranscriptRecord): boolean {
 }
 
 /**
- * `toTranscriptLines` and `currentToolOf` are pure functions of one record, and
+ * `toTranscriptLines` and `currentToolOf` are pure functions of one record
+ * (plus, for the former, the agent it is being read for — see below), and
  * `store.replay()` hands back the SAME record objects on every publish — it
  * copies the array, not the rows, and `trim()`/`setTeam()` re-wrap the event but
  * keep the payload. Without these the fold re-derived byte-identical strings
@@ -149,14 +150,27 @@ function memoisable(rec: TranscriptRecord): boolean {
  * `linesOf` hands back the memoised array itself. Nothing may mutate it or the
  * lines in it — every later frame would carry the damage, and the projection
  * tests would not see it.
+ *
+ * The inner Map adds the AGENT to the key, needed now that a diff-bearing line
+ * carries `Diff.agent`. A record is in practice only ever read for the one
+ * agent whose file it came from — every `store.append('transcript', …, agent)`
+ * call in ingest/files.ts resolves and fixes that agent before any record from
+ * the read reaches the store — but keying on the record alone would make that
+ * an invariant this file has to keep re-proving against ingest's attribution
+ * logic forever. Keying on both instead makes a wrong agent structurally
+ * impossible here, for the cost of one small Map per record — no cache miss
+ * on the common path, since a record is read for its one real agent every
+ * time. The Map lives only inside the WeakMap entry, so it dies with it.
  */
-const lineMemo = new WeakMap<TranscriptRecord, TranscriptLine[]>();
-function linesOf(rec: TranscriptRecord): TranscriptLine[] {
-  if (!memoisable(rec)) return toTranscriptLines(rec);
-  let lines = lineMemo.get(rec);
+const lineMemo = new WeakMap<TranscriptRecord, Map<string, TranscriptLine[]>>();
+function linesOf(rec: TranscriptRecord, agent: string): TranscriptLine[] {
+  if (!memoisable(rec)) return toTranscriptLines(rec, agent);
+  const byAgent = lineMemo.get(rec) ?? new Map<string, TranscriptLine[]>();
+  let lines = byAgent.get(agent);
   if (!lines) {
-    lines = toTranscriptLines(rec);
-    lineMemo.set(rec, lines);
+    lines = toTranscriptLines(rec, agent);
+    byAgent.set(agent, lines);
+    lineMemo.set(rec, byAgent);
   }
   return lines;
 }
@@ -203,7 +217,7 @@ export function transcriptHistory(events: StoredEvent[], agent: string): Transcr
     }
   }
   const lines: TranscriptLine[] = [];
-  for (const rec of records) lines.push(...linesOf(rec));
+  for (const rec of records) lines.push(...linesOf(rec, agent));
   return lines;
 }
 
@@ -306,7 +320,7 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
           }
           if (rec.type === 'assistant') {
             if (rec.isApiErrorMessage) {
-              errors.set(p.agent, linesOf(rec)[0]?.text ?? 'api error');
+              errors.set(p.agent, linesOf(rec, p.agent)[0]?.text ?? 'api error');
             } else {
               errors.delete(p.agent);
             }
@@ -420,7 +434,7 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
     const tail: TranscriptLine[][] = [];
     let have = 0;
     for (let i = recs.length - 1; i >= 0 && have < PROJECTED_TRANSCRIPT_LINES; i--) {
-      const some = linesOf(recs[i]);
+      const some = linesOf(recs[i], id.name);
       if (some.length === 0) continue;
       tail.push(some);
       have += some.length;
