@@ -43,6 +43,12 @@ function agentCount(team: TeamSummary): string {
   return `${team.members} agent${team.members === 1 ? '' : 's'}`;
 }
 
+function matchesQuery(team: TeamSummary, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return [team.name, team.goal, team.branch].some((field) => field?.toLowerCase().includes(q));
+}
+
 export interface TeamSelectProps {
   /** The team the snapshot says is on screen — the only honest `current`. */
   current: string;
@@ -59,9 +65,11 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
   const [unreadable, setUnreadable] = useState(false);
   const [cursor, setCursor] = useState(0);
   const [mark, setMark] = useState<Mark | null>(null);
+  const [query, setQuery] = useState('');
   const trigger = useRef<HTMLButtonElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const wrapper = useRef<HTMLDivElement>(null);
+  const search = useRef<HTMLInputElement>(null);
 
   // Fetched on open, never cached at mount: a team's member count changes under
   // the console, and a listed team can be gone by the time it is clicked.
@@ -90,6 +98,7 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
 
   function close() {
     setMark(null);
+    setQuery('');
     onOpenChange(false);
     trigger.current?.focus();
   }
@@ -101,7 +110,7 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
   }, [current, mark]);
 
   useEffect(() => {
-    if (open) list.current?.focus();
+    if (open) search.current?.focus();
   }, [open]);
 
   useEffect(() => {
@@ -112,6 +121,20 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
     }
     document.addEventListener('pointerdown', onPointerDown);
     return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [open, onOpenChange]);
+
+  // Global, not gated on `open`, so ⌘K can open the picker from anywhere — and
+  // re-focus the search once it is already open, since a row click can have
+  // moved focus off the input.
+  useEffect(() => {
+    function onKeyDown(e: globalThis.KeyboardEvent) {
+      if (!e.metaKey || e.ctrlKey || e.altKey || e.key.toLowerCase() !== 'k') return;
+      e.preventDefault();
+      if (open) search.current?.focus();
+      else onOpenChange(true);
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
   }, [open, onOpenChange]);
 
   function select(name: string) {
@@ -135,12 +158,13 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
   // dropping the row you are looking at would leave the picker contradicting
   // the wall behind it.
   const rows = (teams ?? []).filter((t) => t.state !== 'done' || t.current);
-  const cursorTeam = rows[Math.min(cursor, rows.length - 1)];
+  const filteredRows = rows.filter((t) => matchesQuery(t, query));
+  const cursorTeam = filteredRows[Math.min(cursor, filteredRows.length - 1)];
 
   function onListKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setCursor((c) => Math.min(rows.length - 1, c + 1));
+      setCursor((c) => Math.min(filteredRows.length - 1, c + 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setCursor((c) => Math.max(0, c - 1));
@@ -150,7 +174,12 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
     } else if (e.key === 'Escape') {
       // preventDefault is what stops the global handler interrupting an agent.
       e.preventDefault();
-      close();
+      if (query) {
+        setQuery('');
+        setCursor(0);
+      } else {
+        close();
+      }
     }
   }
 
@@ -233,6 +262,7 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
             style={{
               display: 'flex',
               justifyContent: 'space-between',
+              alignItems: 'center',
               padding: '10px 14px 8px',
               color: 'var(--color-neutral-600)',
               fontSize: '10.5px',
@@ -240,6 +270,27 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
             }}
           >
             <span>{`SESSIONS ON THIS MACHINE \u00b7 ${rows.length}`}</span>
+            <input
+              ref={search}
+              data-testid="team-search"
+              type="text"
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setCursor(0);
+              }}
+              placeholder="search"
+              aria-label="search sessions"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                outline: 'none',
+                color: 'var(--color-text)',
+                fontSize: '11px',
+                letterSpacing: 'normal',
+                width: '140px',
+              }}
+            />
           </div>
 
           <div
@@ -252,7 +303,7 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
               padding: '0 8px 8px',
             }}
           >
-            {rows.map((team) => {
+            {filteredRows.map((team) => {
               const isCurrent = team.name === current;
               const rowMark = mark?.team === team.name ? mark.kind : isCurrent ? 'current' : null;
               const state = team.state ?? (team.live ? 'live' : 'done');
@@ -372,7 +423,7 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
               );
             })}
 
-            {rows.length === 0 && (
+            {filteredRows.length === 0 && (
               <div
                 style={{
                   padding: '6px 10px 4px',
@@ -384,7 +435,9 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
                   ? 'reading teams…'
                   : unreadable
                     ? 'could not read teams'
-                    : 'no live teams'}
+                    : rows.length === 0
+                      ? 'no live teams'
+                      : 'no matches'}
               </div>
             )}
           </div>
