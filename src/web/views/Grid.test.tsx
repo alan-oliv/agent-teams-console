@@ -49,7 +49,9 @@ describe('Grid', () => {
     expect(alpha.getByTestId('grid-name').style.fontSize).toBe('12.5px');
     expect(alpha.getByTestId('grid-model').textContent).toBe('claude-opus-5');
     expect(alpha.getByTestId('grid-model').style.fontSize).toBe('10px');
-    expect(alpha.getByTestId('grid-pct').textContent).toBe('3%');
+    // ContextMeter already renders its own percent — the pane must not add a
+    // second one alongside it.
+    expect(alpha.getAllByText('3%')).toHaveLength(1);
     expect(alpha.getByTestId('grid-elapsed').textContent).toBe('0m 42s');
   });
 

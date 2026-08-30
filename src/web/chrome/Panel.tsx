@@ -59,8 +59,11 @@ export function Panel({ agents, focusedAgent, onFocusAgent }: PanelProps) {
   const departed = agents.filter((a) => a.status === 'departed');
 
   const idle = live.filter((a) => a.status === 'idle');
-  const collapsed = idle.length > IDLE_COLLAPSE_AT && !expanded;
-  const shown = collapsed ? live.filter((a) => a.status !== 'idle') : live;
+  // Only the surplus past the first three collapses — those three stay
+  // addressable as chips like any other agent.
+  const idleSurplus = expanded ? [] : idle.slice(IDLE_COLLAPSE_AT);
+  const collapsed = idleSurplus.length > 0;
+  const shown = collapsed ? live.filter((a) => !idleSurplus.includes(a)) : live;
 
   return (
     <div
@@ -98,7 +101,7 @@ export function Panel({ agents, focusedAgent, onFocusAgent }: PanelProps) {
               whiteSpace: 'nowrap',
             }}
           >
-            {`${idle.length} idle agents`}
+            {idleSurplus.length === 1 ? '1 idle agent' : `${idleSurplus.length} idle agents`}
           </button>
         )}
         {departed.length > 0 && (

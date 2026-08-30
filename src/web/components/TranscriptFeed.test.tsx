@@ -197,6 +197,33 @@ describe('expanding a row that has more to show', () => {
     fireEvent.click(rows()[0]);
     expect(onParent).toHaveBeenCalledTimes(1);
   });
+
+  // A long one-liner has no newline to split a header from, so it needs its
+  // own length-based trigger — and its drawer must show the text once, not
+  // duplicate it into a "body" that is just the same line again.
+  describe('a long single-line row, with no newline at all', () => {
+    const long = 'x'.repeat(140);
+    const LONG: TranscriptLine[] = [{ id: 'long', marker: '⏺', text: long, ts: 3 }];
+
+    it('is expandable past the length threshold', () => {
+      render(<TranscriptFeed lines={LONG} size="wall" />);
+      expect(rows()[0].getAttribute('aria-expanded')).toBe('false');
+    });
+
+    it('opens to the full text with no separate drawer body', () => {
+      render(<TranscriptFeed lines={LONG} size="wall" />);
+      open();
+      const drawer = rows()[0];
+      expect(within(drawer).getByTestId('transcript-text').textContent).toBe(long);
+      expect(within(drawer).queryByTestId('transcript-drawer-body')).toBeNull();
+    });
+
+    it('counts it as "1 line", not "1 lines"', () => {
+      render(<TranscriptFeed lines={LONG} size="wall" />);
+      open();
+      expect(screen.getByTestId('transcript-drawer-count').textContent).toBe('1 line');
+    });
+  });
 });
 
 // jsdom gives every element zero layout, so the pane's scroll geometry is stubbed

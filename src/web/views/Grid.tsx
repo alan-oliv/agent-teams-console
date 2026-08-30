@@ -6,7 +6,6 @@ import { Portrait } from '../components/Portrait';
 import { StatusGlyph } from '../components/StatusGlyph';
 import { StopControlButton } from '../components/StopButton';
 import { TranscriptFeed } from '../components/TranscriptFeed';
-import { pctLabel } from '../format';
 import { DORMANT_OPACITY, isDormant } from '../../shared/status';
 
 const PANES = 6;
@@ -82,12 +81,6 @@ const Pane = memo(function Pane({
               barSize={10}
               textSize={10}
             />
-            <span
-              data-testid="grid-pct"
-              style={{ color: 'var(--color-neutral-600)', fontSize: '10px' }}
-            >
-              {pctLabel(agent.contextTokens, agent.contextLimit)}
-            </span>
             <span style={{ flex: 1 }} />
             <span
               data-testid="grid-elapsed"

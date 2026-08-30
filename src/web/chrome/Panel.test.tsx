@@ -58,7 +58,7 @@ it('shows one chip per agent while three or fewer are idle', () => {
   expect(screen.queryByTestId('idle-chip')).toBeNull();
 });
 
-it('collapses the surplus into a dashed chip once four agents are idle', () => {
+it('collapses only the idle surplus into a dashed chip once more than three are idle', () => {
   render(
     <Panel
       agents={[
@@ -71,9 +71,12 @@ it('collapses the surplus into a dashed chip once four agents are idle', () => {
       onFocusAgent={vi.fn()}
     />,
   );
-  expect(screen.queryAllByTestId('agent-chip')).toHaveLength(0);
+  // The first three idle agents stay visible as chips — only the surplus
+  // (the fourth) collapses.
+  expect(screen.getAllByTestId('agent-chip')).toHaveLength(3);
+  expect(screen.queryByText('probe-charlie')).toBeNull();
   const idleChip = screen.getByTestId('idle-chip');
-  expect(idleChip.textContent).toBe('4 idle agents');
+  expect(idleChip.textContent).toBe('1 idle agent');
   expect(idleChip.style.border).toBe('1px dashed var(--color-neutral-800)');
 
   fireEvent.click(idleChip);
@@ -81,7 +84,7 @@ it('collapses the surplus into a dashed chip once four agents are idle', () => {
   expect(screen.queryByTestId('idle-chip')).toBeNull();
 });
 
-it('keeps busy agents visible while the idle ones are collapsed', () => {
+it('keeps busy agents and the first three idle ones visible, collapsing only the surplus', () => {
   render(
     <Panel
       agents={[
@@ -95,8 +98,9 @@ it('keeps busy agents visible while the idle ones are collapsed', () => {
       onFocusAgent={vi.fn()}
     />,
   );
-  expect(screen.getAllByTestId('agent-chip')).toHaveLength(1);
-  expect(screen.getByTestId('idle-chip').textContent).toBe('4 idle agents');
+  expect(screen.getAllByTestId('agent-chip')).toHaveLength(4);
+  expect(screen.queryByText('probe-delta')).toBeNull();
+  expect(screen.getByTestId('idle-chip').textContent).toBe('1 idle agent');
 });
 
 it('shows the glyph, name and context percent on each chip and focuses on click', () => {

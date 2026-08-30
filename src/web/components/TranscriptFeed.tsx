@@ -68,6 +68,12 @@ const MARKER_COLOR = 'var(--color-accent-500)';
 // this bounds the merged list once scrollback has been pulled in.
 const RENDER_LIMIT = 1_200;
 
+// A row with no newline otherwise has no expandability trigger at all, so a
+// long one-liner just ellipsises with no way to read the rest. The wall
+// column's minimum width is 232px; a monospaced line comfortably overflows
+// that well before 120 characters.
+const LONG_LINE_CHARS = 120;
+
 /**
  * How strongly a line reads, by its distance back from the newest. The current
  * command has to look current; a flat colour down the whole ladder does not
@@ -526,7 +532,8 @@ export function TranscriptFeed({
         const more =
           text.includes('\n') ||
           payload !== undefined ||
-          (line.text.length === TRANSCRIPT_TEXT_CAP && line.text.endsWith('…'));
+          (line.text.length === TRANSCRIPT_TEXT_CAP && line.text.endsWith('…')) ||
+          text.length > LONG_LINE_CHARS;
         const isOpen = more && open.has(line.id);
         const opacity = appearance.fade
           ? (working ? 1 : RESTING) * fade(shown.length - 1 - i)
@@ -785,36 +792,45 @@ export function TranscriptFeed({
                 </span>
               </div>
 
-              <div style={{ height: '1px', background: 'var(--color-neutral-900)' }} />
+              {/* A one-liner has no "rest" after the header — the header already
+                  shows it whole, so a body here would just repeat it. */}
+              {text.includes('\n') && (
+                <>
+                  <div style={{ height: '1px', background: 'var(--color-neutral-900)' }} />
 
-              <div
-                data-testid="transcript-drawer-body"
-                style={{ display: 'flex', flexDirection: 'column', gap: '11px', paddingLeft: '16px' }}
-              >
-                {/* The first line is the row's own header; the body is the rest. */}
-                {toolCodeLang(text.split('\n')[0]) !== undefined ? (
-                  // A tool row carries no prose to fence code off from — the
-                  // whole body is the command or the file.
-                  <CodeBlock
-                    lang={toolCodeLang(text.split('\n')[0])!}
-                    lines={text.slice(text.indexOf('\n') + 1).replace(/\s+$/, '').split('\n')}
-                  />
-                ) : (
-                segments(text.slice(text.indexOf('\n') + 1)).map((seg, b) =>
-                  seg.kind === 'code' ? (
-                    <CodeBlock key={b} lang={seg.lang} lines={seg.lines} />
-                  ) : (
-                    <Prose key={b} text={seg.text} />
-                  ),
-                ))}
-              </div>
+                  <div
+                    data-testid="transcript-drawer-body"
+                    style={{ display: 'flex', flexDirection: 'column', gap: '11px', paddingLeft: '16px' }}
+                  >
+                    {/* The first line is the row's own header; the body is the rest. */}
+                    {toolCodeLang(text.split('\n')[0]) !== undefined ? (
+                      // A tool row carries no prose to fence code off from — the
+                      // whole body is the command or the file.
+                      <CodeBlock
+                        lang={toolCodeLang(text.split('\n')[0])!}
+                        lines={text.slice(text.indexOf('\n') + 1).replace(/\s+$/, '').split('\n')}
+                      />
+                    ) : (
+                    segments(text.slice(text.indexOf('\n') + 1)).map((seg, b) =>
+                      seg.kind === 'code' ? (
+                        <CodeBlock key={b} lang={seg.lang} lines={seg.lines} />
+                      ) : (
+                        <Prose key={b} text={seg.text} />
+                      ),
+                    ))}
+                  </div>
+                </>
+              )}
 
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center', paddingLeft: '16px' }}>
                 <span
                   data-testid="transcript-drawer-count"
                   style={{ color: 'var(--color-neutral-700)', fontSize: '10px' }}
                 >
-                  {`${text.split('\n').length} lines`}
+                  {(() => {
+                    const n = text.split('\n').length;
+                    return `${n} line${n === 1 ? '' : 's'}`;
+                  })()}
                 </span>
                 <span style={{ flex: 1 }} />
                 <button
