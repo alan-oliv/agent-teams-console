@@ -1615,7 +1615,9 @@ var require_proper_lockfile = __commonJS({
 // src/server/index.ts
 import os2 from "node:os";
 import path9 from "node:path";
+import { execFile as execFile3 } from "node:child_process";
 import { promises as fs8 } from "node:fs";
+import { promisify as promisify3 } from "node:util";
 
 // src/server/store.ts
 import {
@@ -3015,7 +3017,8 @@ function project(events, readOnly) {
     };
   });
   const tasks = [...tasksRaw.values()].map((t) => {
-    const openBlockedBy = (t.blockedBy ?? []).filter((id) => tasksRaw.get(id)?.status !== "completed");
+    const blockedBy = t.blockedBy ?? [];
+    const openBlockedBy = blockedBy.filter((id) => tasksRaw.get(id)?.status !== "completed");
     return {
       id: t.id,
       subject: t.subject,
@@ -3024,7 +3027,8 @@ function project(events, readOnly) {
       owner: t.owner,
       state: deriveTaskState(t.status, { owner: t.owner, blockedBy: openBlockedBy }, agents),
       blocks: t.blocks ?? [],
-      blockedBy: openBlockedBy,
+      blockedBy,
+      openBlockedBy,
       metadata: t.metadata
     };
   });
@@ -3207,6 +3211,15 @@ var bagOf = (v) => v !== null && typeof v === "object" ? v : {};
 var str = (v) => typeof v === "string" && v ? v : void 0;
 var num = (v) => typeof v === "number" && Number.isFinite(v) ? v : void 0;
 var arr = (v) => Array.isArray(v) ? v : [];
+function resultText2(v) {
+  if (typeof v === "string") return v;
+  if (v === null || v === void 0) return void 0;
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return void 0;
+  }
+}
 var RUN_STATUS = /* @__PURE__ */ new Set(["completed", "killed", "failed", "running"]);
 function agentStateOf(rec) {
   if (rec.cached === true) return "cache";
@@ -3219,6 +3232,12 @@ function agentStateOf(rec) {
     // spawned"; `startedAt` is the only thing that separates them.
     case "start":
       return num(rec.startedAt) === void 0 ? "wait" : "run";
+    // `error` is the runtime's one bucket for three different things: the
+    // operator skipped it, the classifier refused it, or it threw. Only the
+    // last is a failure, and it is the one the console must not bury.
+    case "error":
+      if (rec.skipped === true) return "null";
+      return rec.blocked === true ? "block" : "fail";
     default:
       return "null";
   }
@@ -3271,7 +3290,7 @@ function parseWorkflowJournal(runId, lines) {
     if (!agentId) continue;
     const existing = byId.get(agentId);
     if (rec.type === "result") {
-      byId.set(agentId, { agentId, state: "done", ...opt("result", str(rec.result)) });
+      byId.set(agentId, { agentId, state: "done", ...opt("result", resultText2(rec.result)) });
     } else if (rec.type === "started" && !existing) {
       byId.set(agentId, { agentId, state: "run" });
     }
@@ -4719,6 +4738,7 @@ async function runSetup(opts) {
 }
 
 // src/server/index.ts
+var execFileAsync2 = promisify3(execFile3);
 var DEFAULT_PORT = 4823;
 var IDLE_GRACE_MS = 10 * 60 * 1e3;
 var FOLLOW_INTERVAL_MS = 3e3;
@@ -4846,6 +4866,25 @@ async function branchOf(cwd) {
     return void 0;
   }
 }
+var GIT_TIMEOUT_MS = 2e3;
+async function diffstatOf(cwd) {
+  if (!cwd) return void 0;
+  try {
+    const { stdout } = await execFileAsync2("git", ["diff", "--shortstat", "HEAD"], {
+      cwd,
+      timeout: GIT_TIMEOUT_MS,
+      maxBuffer: 64 * 1024
+    });
+    return parseShortstat(stdout);
+  } catch {
+    return void 0;
+  }
+}
+function parseShortstat(out) {
+  const added = Number(/(\d+) insertions?\(\+\)/.exec(out)?.[1] ?? 0);
+  const removed = Number(/(\d+) deletions?\(-\)/.exec(out)?.[1] ?? 0);
+  return added === 0 && removed === 0 ? void 0 : { added, removed };
+}
 async function lastActivityOf(teamDir, configMtimeMs) {
   let latest = configMtimeMs;
   let entries;
@@ -4863,6 +4902,50 @@ async function lastActivityOf(teamDir, configMtimeMs) {
     }
   }
   return latest;
+}
+async function workflowOf(projectsRoot, cwd, sessionId, now) {
+  if (!cwd || !sessionId) return void 0;
+  const sessionDir = path9.join(projectsRoot, cwd.replace(/[^a-zA-Z0-9]/g, "-"), sessionId);
+  const runsDir = path9.join(sessionDir, "subagents", "workflows");
+  let entries;
+  try {
+    entries = await fs8.readdir(runsDir);
+  } catch {
+    return void 0;
+  }
+  let runId = "";
+  let journalMtimeMs = 0;
+  for (const entry of entries) {
+    try {
+      const st = await fs8.stat(path9.join(runsDir, entry, "journal.jsonl"));
+      if (st.mtimeMs > journalMtimeMs) {
+        journalMtimeMs = st.mtimeMs;
+        runId = entry;
+      }
+    } catch {
+    }
+  }
+  if (!runId) return void 0;
+  const snapshot = path9.join(sessionDir, "workflows", `${runId}.json`);
+  let ended = false;
+  try {
+    ended = (await fs8.stat(snapshot)).isFile();
+  } catch {
+  }
+  const name = ended ? await workflowNameOf(snapshot) : void 0;
+  return {
+    runId,
+    ...name ? { name } : {},
+    live: !ended && now - journalMtimeMs < IDLE_GRACE_MS
+  };
+}
+async function workflowNameOf(snapshot) {
+  try {
+    const raw = JSON.parse(await fs8.readFile(snapshot, "utf8"));
+    return typeof raw.workflowName === "string" && raw.workflowName ? raw.workflowName : void 0;
+  } catch {
+    return void 0;
+  }
 }
 async function teamsOfLiveSessions(projectsRoot, sessions) {
   const teams = /* @__PURE__ */ new Map();
@@ -4901,6 +4984,7 @@ async function listTeamSummaries(teamsRoot2, sessionsRoot, current, projectsRoot
   const now = Date.now();
   const teams = [];
   const leadCwds = /* @__PURE__ */ new Map();
+  const diffstats = /* @__PURE__ */ new Map();
   for (const name of entries) {
     const teamDir = path9.join(teamsRoot2, name);
     let configMtimeMs;
@@ -4920,6 +5004,9 @@ async function listTeamSummaries(teamsRoot2, sessionsRoot, current, projectsRoot
     const recent = now - lastActivityAt < IDLE_GRACE_MS;
     const lead = config.members.find((m) => m.agentId === config.leadAgentId) ?? config.members[0];
     leadCwds.set(name, lead?.cwd ?? "");
+    const workflow = projectsRoot ? await workflowOf(projectsRoot, sessions.cwds.get(leadSession) ?? lead?.cwd ?? "", leadSession, now) : void 0;
+    const leadCwd = lead?.cwd ?? "";
+    if (!diffstats.has(leadCwd)) diffstats.set(leadCwd, await diffstatOf(leadCwd));
     teams.push({
       // The DIRECTORY name, not config.name: the ingest gates its own team's
       // config.json on the directory, so a mismatch would make the team
@@ -4939,7 +5026,9 @@ async function listTeamSummaries(teamsRoot2, sessionsRoot, current, projectsRoot
       goal: sessions.names.get(leadSession),
       // `idle` is a team whose lead process is gone but whose files moved
       // recently — it can still be paged back into; `done` is finished.
-      state: leadAlive ? "live" : recent ? "idle" : "done"
+      state: leadAlive ? "live" : recent ? "idle" : "done",
+      ...workflow ? { workflow } : {},
+      ...diffstats.get(leadCwd) ? { diffstat: diffstats.get(leadCwd) } : {}
     });
   }
   adoptByCwd(teams, leadCwds, sessions, now);
@@ -5196,5 +5285,6 @@ export {
   fencedSink,
   listTeamSummaries,
   main,
-  parseArgs
+  parseArgs,
+  parseShortstat
 };
