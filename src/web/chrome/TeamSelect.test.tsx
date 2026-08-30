@@ -497,3 +497,58 @@ it('drops a lead-only session even when it is the current one', async () => {
   expect(screen.queryAllByRole('option')).toHaveLength(0);
   expect(screen.getByText('no teams — every session here is a lead on its own')).toBeTruthy();
 });
+
+function soloList() {
+  const solo = {
+    current: 'session-98b0b4a7',
+    teams: sampleTeams().map((t) => ({ ...t, members: 1, state: 'live' as const })),
+  };
+  vi.stubGlobal('fetch', vi.fn((path: string) =>
+    path === '/api/teams'
+      ? Promise.resolve(new Response(JSON.stringify(solo), { status: 200 }))
+      : Promise.resolve(new Response('{}', { status: 200 })),
+  ));
+}
+
+// Revealing them explains why the console is empty. Switching to one would put
+// it right back on a session with no team — the thing being explained.
+it('reveals lead-only rows but refuses to switch to them', async () => {
+  soloList();
+  renderSelect();
+  fireEvent.click(await screen.findByTestId('show-hidden-rows'));
+
+  const rows = await screen.findAllByRole('option');
+  expect(rows).toHaveLength(2);
+  expect(rows.every((r) => r.getAttribute('aria-disabled') === 'true')).toBe(true);
+  expect(within(rows[0]).getByTestId('team-meta').textContent).toContain('no team · not selectable');
+
+  fireEvent.click(rows[1]);
+  const posts = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    .map((c) => c[0] as string)
+    .filter((p) => p.includes('/select'));
+  expect(posts).toEqual([]);
+});
+
+it('keeps the keyboard cursor off lead-only rows, so enter cannot land on one', async () => {
+  soloList();
+  renderSelect();
+  fireEvent.click(await screen.findByTestId('show-hidden-rows'));
+  await screen.findAllByRole('option');
+
+  const list = screen.getByRole('listbox', { name: 'teams' });
+  expect(list.getAttribute('aria-activedescendant')).toBeNull();
+  fireEvent.keyDown(list, { key: 'ArrowDown' });
+  fireEvent.keyDown(list, { key: 'Enter' });
+  const posts = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    .map((c) => c[0] as string)
+    .filter((p) => p.includes('/select'));
+  expect(posts).toEqual([]);
+});
+
+it('counts teams in the header, not revealed lead-only rows', async () => {
+  soloList();
+  renderSelect();
+  fireEvent.click(await screen.findByTestId('show-hidden-rows'));
+  await screen.findAllByRole('option');
+  expect(screen.getByText('TEAMS ON THIS MACHINE · 0')).toBeTruthy();
+});

@@ -187,12 +187,23 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
   const notShown = listed.filter(filteredOut);
   const hiddenCount = notShown.length;
   const filteredRows = rows.filter((t) => matchesQuery(t, query));
-  const cursorTeam = filteredRows[Math.min(cursor, filteredRows.length - 1)];
+
+  /**
+   * A revealed lead-only row is shown, not offered. Switching to one puts the
+   * console on a session with no team in it — the empty state — which is the
+   * thing revealing them was meant to explain, not to hand you a way back into.
+   * So they render, and the keyboard cursor and Enter skip them entirely.
+   *
+   * The header count follows the same line: it says TEAMS, so it counts teams.
+   */
+  const selectable = filteredRows.filter((t) => !isLeadOnly(t));
+  const teamCount = rows.filter((t) => !isLeadOnly(t)).length;
+  const cursorTeam = selectable[Math.min(cursor, selectable.length - 1)];
 
   function onListKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setCursor((c) => Math.min(filteredRows.length - 1, c + 1));
+      setCursor((c) => Math.min(selectable.length - 1, c + 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setCursor((c) => Math.max(0, c - 1));
@@ -300,7 +311,7 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
             {/* "TEAMS", not the design's "SESSIONS": the list holds only
                 teams now, and calling them sessions is the exact conflation
                 that made four lead-only windows look like four teams. */}
-            <span>{`TEAMS ON THIS MACHINE \u00b7 ${rows.length}`}</span>
+            <span>{`TEAMS ON THIS MACHINE \u00b7 ${teamCount}`}</span>
             <input
               ref={search}
               data-testid="team-search"
@@ -340,6 +351,8 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
               // not rendered — so its checkmark would contradict the "not
               // watching" text sitting right below it. Drop the mark instead.
               const notWatching = isCurrent && watch.dismissed;
+              // Revealed for awareness, not offered as a destination.
+              const soloOnly = isLeadOnly(team);
               const rowMark = mark?.team === team.name ? mark.kind : isCurrent && !notWatching ? 'current' : null;
               const state = team.state ?? (team.live ? 'live' : 'done');
               return (
@@ -348,11 +361,17 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
                   id={`team-option-${team.name}`}
                   role="option"
                   aria-selected={isCurrent}
-                  onClick={() => select(team.name)}
+                  aria-disabled={soloOnly || undefined}
+                  data-solo={soloOnly ? 'true' : undefined}
+                  onClick={() => {
+                    if (soloOnly) return;
+                    select(team.name);
+                  }}
                   style={{
                     padding: '8px 10px',
                     borderRadius: 'var(--radius-sm)',
-                    cursor: 'pointer',
+                    cursor: soloOnly ? 'default' : 'pointer',
+                    opacity: soloOnly ? 0.55 : 1,
                     display: 'flex',
                     flexDirection: 'column',
                     gap: '3px',
@@ -499,7 +518,11 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
                         flex: 'none',
                       }}
                     >
-                      {notWatching ? 'running · not watching' : stateText(team, now)}
+                      {soloOnly
+                        ? 'no team · not selectable'
+                        : notWatching
+                          ? 'running · not watching'
+                          : stateText(team, now)}
                     </span>
                   </div>
                 </div>
