@@ -197,7 +197,7 @@ const TALLY_ORDER: Array<[WorkflowAgentState, string]> = [
   ['fail', 'failed'],
   ['block', 'blocked'],
   ['null', 'returned null'],
-  ['wait', 'waiting'],
+  ['wait', 'queued'], // ruling 11, same word the agents view uses
 ];
 
 /**

@@ -244,6 +244,12 @@ describe('phaseTally', () => {
     expect(phaseTally(withStates('cache', 'null'), 1)).toBe('1 cached · 1 returned null');
   });
 
+  // Ruling 11 picks `queued` over `waiting` for the `·` state, so the tally and
+  // the agents view say the same word.
+  it('calls an agent queued for a slot queued', () => {
+    expect(phaseTally(withStates('wait', 'wait'), 1)).toBe('2 queued');
+  });
+
   it('counts a failure and a refusal apart from a returned null', () => {
     expect(phaseTally(withStates('fail', 'block', 'null'), 1))
       .toBe('1 failed · 1 blocked · 1 returned null');
