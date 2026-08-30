@@ -6,9 +6,11 @@ import type {
   WorkflowRun as Run,
 } from '../../shared/domain';
 import { formatTokens } from '../format';
+import { WorkflowAgents } from './WorkflowAgents';
 import {
   gridCooperates,
   itemKeyOf,
+  liveCounts,
   phaseList,
   phaseTally,
   workflowGrid,
@@ -179,30 +181,53 @@ export function WorkflowRun({ run }: { run: Run }) {
   // layout already chosen, so this decides the drawing rather than the click.
   const offered = gridCooperates(run);
   const showGrid = offered && layout === 'grid';
+  const live = liveCounts(run);
 
   return (
     <div data-testid="workflow-run" style={{ flex: 1, display: 'flex', minHeight: 0 }}>
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-        {offered && (
-          <div data-testid="wf-layout" style={{ flex: 'none', display: 'flex', padding: '8px 12px 0' }}>
-            {(['phases', 'grid'] as const).map((id) => (
-              <button
-                key={id}
-                type="button"
-                data-testid={`wf-layout-${id}`}
-                onClick={() => setLayout(id)}
-                style={{
-                  ...TAB,
-                  color: layout === id ? 'var(--color-accent-400)' : 'var(--color-neutral-600)',
-                }}
-              >
-                {id === 'phases' ? 'BY PHASE' : 'ITEM GRID'}
-              </button>
-            ))}
-          </div>
-        )}
+        {run.live ? (
+          <>
+            <div
+              data-testid="wf-live-note"
+              style={{
+                flex: 'none',
+                padding: '10px 16px',
+                borderBottom: '1px solid var(--color-neutral-900)',
+                color: 'var(--color-neutral-600)',
+                fontSize: '11px',
+                lineHeight: 1.5,
+              }}
+            >
+              this run is still going, so there is no grid to draw — the phases
+              and labels reach disk only in the snapshot, which is written once,
+              at termination. Until the run ends the journal knows which agents
+              started and which came back, and nothing else.
+            </div>
+            <WorkflowAgents agents={run.agents} />
+          </>
+        ) : (
+          <>
+            {offered && (
+              <div data-testid="wf-layout" style={{ flex: 'none', display: 'flex', padding: '8px 12px 0' }}>
+                {(['phases', 'grid'] as const).map((id) => (
+                  <button
+                    key={id}
+                    type="button"
+                    data-testid={`wf-layout-${id}`}
+                    onClick={() => setLayout(id)}
+                    style={{
+                      ...TAB,
+                      color: layout === id ? 'var(--color-accent-400)' : 'var(--color-neutral-600)',
+                    }}
+                  >
+                    {id === 'phases' ? 'BY PHASE' : 'ITEM GRID'}
+                  </button>
+                ))}
+              </div>
+            )}
 
-        {showGrid ? (
+            {showGrid ? (
           <>
             <div style={HEAD}>
               <span
@@ -288,6 +313,8 @@ export function WorkflowRun({ run }: { run: Run }) {
               </div>
             )}
           </div>
+            )}
+          </>
         )}
 
         {unphased.length > 0 && (
@@ -319,12 +346,16 @@ export function WorkflowRun({ run }: { run: Run }) {
         <div style={SIDE_PANEL}>
           <div style={SIDE_LABEL}>RUN TOTALS</div>
           <div data-testid="wf-totals" style={SIDE_BODY}>
-            {`${formatTokens(run.totalTokens ?? 0)} · ${run.totalToolCalls ?? 0} tool calls · ${run.agentCount ?? run.agents.length} agents`}
+            {run.live
+              ? `${live.started} started · ${live.returned} returned`
+              : `${formatTokens(run.totalTokens ?? 0)} · ${run.totalToolCalls ?? 0} tool calls · ${run.agentCount ?? run.agents.length} agents`}
             {/* Budget is deliberately absent: it exists nowhere on disk, and
                 totalTokens counts this run's agents while budget.spent() is a
                 session-level counter — showing one as the other under-reports. */}
             <div style={{ color: 'var(--color-neutral-700)', fontSize: '10px', marginTop: '4px' }}>
-              no budget on disk · this is the run&apos;s own spend, not the session&apos;s
+              {run.live
+                ? 'tokens, tool calls and duration land with the snapshot, at the end'
+                : "no budget on disk · this is the run's own spend, not the session's"}
             </div>
           </div>
         </div>
@@ -336,19 +367,30 @@ export function WorkflowRun({ run }: { run: Run }) {
             <div style={{ color: 'var(--color-neutral-600)', marginTop: '4px' }}>
               1000 agents is the lifetime cap for the whole run
             </div>
+            {/* The cap is resolved from the HOST's cpu count at launch and never
+                written to the snapshot. This browser's own core count is a
+                different machine's number, so the figure is named as missing
+                rather than substituted. */}
+            <div style={{ color: 'var(--color-neutral-700)', fontSize: '10px', marginTop: '4px' }}>
+              the slot count itself is not recorded — only the formula is known
+            </div>
           </div>
         </div>
 
         <div style={{ ...SIDE_PANEL, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           <div style={SIDE_LABEL}>NARRATION</div>
           <div data-testid="wf-log" style={{ ...SIDE_BODY, flex: 1, minHeight: 0, overflow: 'auto' }}>
-            {run.logs.length === 0
-              ? 'the script called log() nowhere'
-              : run.logs.map((line, i) => (
+            {run.logs.length > 0
+              ? run.logs.map((line, i) => (
                   <div key={`${i}-${line}`} style={{ marginBottom: '3px' }}>
                     {line}
                   </div>
-                ))}
+                ))
+              : run.live
+                ? // log() output reaches disk only in the snapshot, so an empty
+                  // list mid-run is silence about the script, not silence FROM it.
+                  'the narration arrives with the snapshot — nothing to read yet'
+                : 'the script called log() nowhere'}
           </div>
         </div>
 

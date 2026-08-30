@@ -3,6 +3,7 @@ import type { WorkflowAgent, WorkflowRun } from '../../shared/domain';
 import {
   gridCooperates,
   itemKeyOf,
+  liveCounts,
   phaseList,
   phaseTally,
   workflowGrid,
@@ -205,6 +206,25 @@ describe('phaseList', () => {
       ],
     }));
     expect(list.groups[0].clusters.map((c) => c.together)).toEqual([false, false]);
+  });
+});
+
+// The only totals a live run HAS. Tokens, tool calls and duration reach disk
+// with the snapshot, so counting what the journal saw is the whole budget.
+describe('liveCounts', () => {
+  it('counts what started and what has come back', () => {
+    expect(liveCounts(run({
+      live: true,
+      agents: [
+        agent({ agentId: 'a1', state: 'done' }),
+        agent({ agentId: 'a2', state: 'done' }),
+        agent({ agentId: 'a3', state: 'run' }),
+      ],
+    }))).toEqual({ started: 3, returned: 2 });
+  });
+
+  it('reports zeroes for a run whose journal is still empty', () => {
+    expect(liveCounts(run({ live: true, agents: [] }))).toEqual({ started: 0, returned: 0 });
   });
 });
 

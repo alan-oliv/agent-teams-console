@@ -44,6 +44,27 @@ describe('WorkflowScript', () => {
     expect(screen.getByTestId('wf-script-legend').textContent).toContain('nothing was replayed');
   });
 
+  // A resumed run's journal omits every agent served from cache, so live there
+  // is no such thing as a zero cache count — only a count nobody can take yet.
+  // Asserting "this run started clean" mid-flight is a claim, not a reading.
+  it('refuses to call a live run clean, having no way to see a cache hit', () => {
+    render(<WorkflowScript run={run({ live: true, agents: [agent('a1', 'run', 'x')] })} />);
+    const legend = screen.getByTestId('wf-script-legend').textContent ?? '';
+
+    expect(legend).not.toContain('nothing was replayed');
+    expect(legend).not.toContain('0 replayed from cache');
+    expect(legend).toMatch(/cache/i);
+    expect(legend).toMatch(/snapshot|not.*yet|cannot/i);
+  });
+
+  it('still counts the calls a live journal did see', () => {
+    render(<WorkflowScript run={run({
+      live: true,
+      agents: [agent('a1', 'done', 'x'), agent('a2', 'run', 'y')],
+    })} />);
+    expect(screen.getByTestId('wf-script-legend').textContent).toContain('2');
+  });
+
   it('shows the source when the snapshot carried it', () => {
     render(<WorkflowScript run={run({ script: "export const meta = { name: 'x' }" })} />);
     expect(screen.getByTestId('wf-script-source').textContent).toContain('export const meta');

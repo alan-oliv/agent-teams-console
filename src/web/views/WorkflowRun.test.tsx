@@ -193,6 +193,68 @@ describe('WorkflowRun', () => {
     expect(limits).toContain('1000');
   });
 
+  // The cap is computed from the HOST's cpu count at launch and never written
+  // down. The browser's own core count is a different machine's number, so the
+  // panel names the formula and says the value is not recorded.
+  it('names the slot formula without inventing the slot count', () => {
+    render(<WorkflowRun run={RUN} />);
+    const limits = screen.getByTestId('wf-limits').textContent ?? '';
+    expect(limits).toMatch(/not recorded|never written/i);
+    expect(limits).not.toMatch(/\b(?:8|16) slots\b/);
+  });
+
+  describe('a live run', () => {
+    const LIVE: Run = {
+      runId: 'wf_live-001',
+      status: 'running',
+      live: true,
+      phases: [],
+      logs: [],
+      agents: [
+        agent({ agentId: 'a1', state: 'done' }),
+        agent({ agentId: 'a2', state: 'done' }),
+        agent({ agentId: 'a3', state: 'run' }),
+      ],
+    };
+
+    // The snapshot lands once, at termination. Mid-flight there is no phase and
+    // no label on disk, so a grid is not merely empty — it is not derivable.
+    it('draws the flat agent list and says why there is no grid', () => {
+      render(<WorkflowRun run={LIVE} />);
+
+      expect(screen.getByTestId('wf-live-note').textContent).toMatch(/until the run ends/i);
+      expect(screen.queryByTestId('wf-row')).toBeNull();
+      expect(screen.queryByTestId('wf-phase-group')).toBeNull();
+      expect(screen.queryByTestId('wf-layout')).toBeNull();
+    });
+
+    it('keeps the sidebar, which the spec never restricted to a finished run', () => {
+      render(<WorkflowRun run={LIVE} />);
+
+      expect(screen.getByTestId('wf-limits')).toBeTruthy();
+      expect(screen.getByTestId('wf-not-in-loop')).toBeTruthy();
+    });
+
+    // Absent is not zero. Tokens and tool calls reach disk with the snapshot,
+    // and drawing them as 0 mid-run reports a measurement nobody took.
+    it('totals what the journal counted instead of a fabricated zero', () => {
+      render(<WorkflowRun run={LIVE} />);
+      const totals = screen.getByTestId('wf-totals').textContent ?? '';
+
+      expect(totals).toContain('3 started');
+      expect(totals).toContain('2 returned');
+      expect(totals).not.toMatch(/0 tool calls/);
+    });
+
+    it('does not claim the script called log() nowhere before it could know', () => {
+      render(<WorkflowRun run={LIVE} />);
+      const log = screen.getByTestId('wf-log').textContent ?? '';
+
+      expect(log).not.toMatch(/called log\(\) nowhere/i);
+      expect(log).toMatch(/snapshot/i);
+    });
+  });
+
   it('shows the log() narration the script emitted', () => {
     render(<WorkflowRun run={RUN} />);
     const log = screen.getByTestId('wf-log').textContent ?? '';

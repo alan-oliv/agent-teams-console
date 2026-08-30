@@ -104,6 +104,23 @@ export function gridCooperates(run: WorkflowRun): boolean {
 }
 
 /**
+ * A live run's only totals. `totalTokens`, `totalToolCalls` and `durationMs`
+ * reach disk in the snapshot and the snapshot is written once, at termination —
+ * so mid-flight these two counts are the entire budget, and drawing the absent
+ * ones as `0` would report a measurement where there is none.
+ *
+ * `started` counts the journal's `started` lines. A resumed run's journal omits
+ * every agent served from cache, so this is what the journal SAW, which is not
+ * always what the run dispatched.
+ */
+export function liveCounts(run: WorkflowRun): { started: number; returned: number } {
+  return {
+    started: run.agents.length,
+    returned: run.agents.filter((a) => a.state === 'done').length,
+  };
+}
+
+/**
  * Agents a single `parallel()` call fanned out, identified by a byte-identical
  * `queuedAt`. `together` says the cluster PROVES concurrency; false says only
  * that nothing proved it — a run killed before its `parallel()` fanned out

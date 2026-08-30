@@ -45,13 +45,30 @@ export function WorkflowScript({ run }: { run: WorkflowRun }) {
         >
           {/* Counted from the same array that is drawn below, so the number and
               the drawing cannot disagree. */}
-          <span style={{ color: TINT.cache.color }}>
-            {`${TINT.cache.mark} ${split.cached.length} replayed from cache`}
-          </span>
-          <span style={{ color: TINT.fresh.color }}>{`${TINT.fresh.mark} ${split.fresh.length} ran`}</span>
-          {!split.resumed && <span>nothing was replayed — this run started clean</span>}
-          {split.strayCacheHits > 0 && (
-            <span>{`${split.strayCacheHits} cache hit(s) after the prefix`}</span>
+          {run.live ? (
+            // A resumed run's journal omits every agent served from cache, so
+            // live the cache count is not zero — it is untakeable. Saying "this
+            // run started clean" here would be an assertion the data cannot back.
+            <>
+              <span style={{ color: TINT.fresh.color }}>
+                {`${TINT.fresh.mark} ${run.agents.length} call(s) the journal has seen`}
+              </span>
+              <span>
+                a cache hit is invisible until the snapshot lands — the journal
+                skips every agent replayed from cache
+              </span>
+            </>
+          ) : (
+            <>
+              <span style={{ color: TINT.cache.color }}>
+                {`${TINT.cache.mark} ${split.cached.length} replayed from cache`}
+              </span>
+              <span style={{ color: TINT.fresh.color }}>{`${TINT.fresh.mark} ${split.fresh.length} ran`}</span>
+              {!split.resumed && <span>nothing was replayed — this run started clean</span>}
+              {split.strayCacheHits > 0 && (
+                <span>{`${split.strayCacheHits} cache hit(s) after the prefix`}</span>
+              )}
+            </>
           )}
         </div>
 
