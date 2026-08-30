@@ -3,6 +3,7 @@ import { CONSOLE_SENDER, type Agent, type MailMessage, type Task } from '../../s
 import {
   composingIn,
   everyoneThread,
+  pairLabel,
   readTurnOf,
   roomLines,
   roomRecipients,
@@ -16,6 +17,7 @@ import {
 import { Composer } from '../components/Composer';
 import { Portrait } from '../components/Portrait';
 import { briefAge, clockLabel } from '../format';
+import { useCast } from '../state/useCast';
 
 const PANE_HEAD: CSSProperties = {
   padding: '10px 14px 8px',
@@ -138,6 +140,7 @@ function RoomBubble({
   runStart: boolean;
   runEnd: boolean;
 }) {
+  const cast = useCast();
   const mine = line.from === CONSOLE_SENDER;
   const ground = BUBBLE_GROUND[mine ? 'right' : 'left'];
   const recipient = agents.find((a) => a.name === line.to[0]);
@@ -159,7 +162,7 @@ function RoomBubble({
     >
       {runStart && (
         <span data-testid="room-from" style={{ color: 'var(--color-neutral-600)', fontSize: '10px', padding: '0 32px' }}>
-          {mine ? 'you' : line.from}
+          {mine ? 'you' : cast.asChar(line.from).display}
         </span>
       )}
       <div
@@ -197,7 +200,7 @@ function RoomBubble({
       </div>
       <div style={{ display: 'flex', gap: '7px', alignItems: 'baseline', padding: '0 32px' }}>
         <span data-testid="room-to" style={{ color: 'var(--color-neutral-600)', fontSize: '10px' }}>
-          {roomRecipients(line, agents)}
+          {roomRecipients(line, agents, cast)}
         </span>
         <span
           data-testid="room-ts"
@@ -236,6 +239,7 @@ function Bubble({
   const mine = message.from === thread.b;
   const ground = BUBBLE_GROUND[mine ? 'right' : 'left'];
   const recipient = agents.find((a) => a.name === message.to);
+  const sender = useCast().asChar(message.from).display;
   const turn = message.read ? readTurnOf(message.ts, recipient?.transcript ?? []) : undefined;
 
   return (
@@ -272,7 +276,7 @@ function Bubble({
             {/* Once per run — but the clock stays, since a run can span minutes. */}
             {runStart && (
               <span data-testid="bubble-from" style={{ color: 'var(--color-accent-400)', fontSize: '10.5px' }}>
-                {message.from}
+                {sender}
               </span>
             )}
             <span
@@ -336,6 +340,7 @@ export function Comms({
   // measured against a live eight-agent team it settled nothing the frames had
   // not already proved, and it stood ready to report a message read on no
   // evidence at all. A message no frame accounts for says so.
+  const cast = useCast();
   const threads = useMemo(() => threadsOf(mail), [mail]);
   // The whole team's traffic, pinned above the pairs. Not a seventh inbox — the
   // same messages, read end to end instead of two at a time.
@@ -490,7 +495,7 @@ export function Comms({
                         textOverflow: 'ellipsis',
                       }}
                     >
-                      {thread.pair}
+                      {pairLabel(thread, cast)}
                     </span>
                   </div>
                   <span
@@ -562,6 +567,7 @@ function ThreadPane({
   readOnly: boolean;
   onShowInWall: () => void;
 }) {
+  const cast = useCast();
   const taskIds = taskIdsOf(thread, tasks);
   const composing = composingIn(thread, agents);
   // A thread outlives its participants: mail from an agent the config no longer
@@ -593,7 +599,7 @@ function ThreadPane({
         }}
       >
         <span style={{ color: 'var(--color-text)', fontSize: '12.5px', flex: 'none' }}>
-          {thread.pair}
+          {pairLabel(thread, cast)}
         </span>
         {thread.kind === 'pair' && (
           <span
@@ -693,7 +699,9 @@ function ThreadPane({
               opacity: 0.6,
             }}
           >
-            <span style={{ color: 'var(--color-accent-400)', fontSize: '10.5px' }}>{composing}</span>
+            <span style={{ color: 'var(--color-accent-400)', fontSize: '10.5px' }}>
+              {cast.asChar(composing).display}
+            </span>
             <span style={{ color: 'var(--color-neutral-600)', fontSize: '10.5px' }}>
               composing a reply
             </span>

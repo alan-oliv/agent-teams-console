@@ -2,6 +2,7 @@ import { memo, useCallback, useState, type CSSProperties, type KeyboardEvent } f
 import type { Agent } from '../../shared/domain';
 import { wallOrder } from '../../shared/roster';
 import { AGENT_STATUS, DORMANT_OPACITY, isDormant } from '../../shared/status';
+import { useCast } from '../state/useCast';
 import { Elapsed, NowContext } from '../components/Elapsed';
 import { Portrait } from '../components/Portrait';
 import { StatusGlyph } from '../components/StatusGlyph';
@@ -39,6 +40,9 @@ const Tile = memo(function Tile({
     cursor: 'pointer',
     opacity: isDormant(agent.status) ? DORMANT_OPACITY : 1,
   };
+
+  // Display only — focus still carries the real name.
+  const display = useCast().asChar(agent.name).display;
 
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     if (e.target !== e.currentTarget) return;
@@ -78,7 +82,7 @@ const Tile = memo(function Tile({
                 data-testid="overview-name"
                 style={{ color: 'var(--color-text)', fontWeight: 500, fontSize: '12px' }}
               >
-                {agent.name}
+                {display}
               </span>
             </div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>

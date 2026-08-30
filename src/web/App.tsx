@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './theme.css';
+import { buildCast } from '../shared/cast';
 import type { Agent, TeamsResponse, TeamSummary } from '../shared/domain';
 import { wallOrder as rosterOrder } from '../shared/roster';
 import { postJson } from './api';
@@ -9,6 +10,7 @@ import { StatusBar } from './chrome/StatusBar';
 import { StopConfirm, WatchConfirm } from './chrome/StopConfirm';
 import { DiffModal } from './components/DiffModal';
 import { StopContext } from './components/StopButton';
+import { CastContext } from './state/useCast';
 import { isEmptySession, isNotShown, useHiddenSessions } from './state/useHiddenSessions';
 import { useKeyboard } from './state/useKeyboard';
 import { SettingsContext, useSettings } from './state/useSettings';
@@ -202,6 +204,14 @@ export function App() {
     if (lead) askStop(lead.name);
   }, [state, askStop]);
 
+  // Built ONCE, from the wall's order, and handed to every view: the theme's
+  // spare characters are dealt out in roster order, so a second cast built from
+  // a differently sorted list would rename the same agent twice over.
+  const cast = useMemo(
+    () => buildCast(rosterOrder(state?.agents ?? []), appearance.settings.movieTheme),
+    [state?.agents, appearance.settings.movieTheme],
+  );
+
   // Above the `!state` return: every hook has to run on the frame before the
   // first snapshot lands too, or the hook order changes between renders.
   const stopControl = useMemo(
@@ -278,6 +288,7 @@ export function App() {
   return (
     <StopContext.Provider value={stopControl}>
     <SettingsContext.Provider value={appearance.settings}>
+    <CastContext.Provider value={cast}>
     <DiffContext.Provider value={store.setOpenDiff}>
     <WatchContext.Provider value={watchState}>
     <div
@@ -384,6 +395,7 @@ export function App() {
     </div>
     </WatchContext.Provider>
     </DiffContext.Provider>
+    </CastContext.Provider>
     </SettingsContext.Provider>
     </StopContext.Provider>
   );

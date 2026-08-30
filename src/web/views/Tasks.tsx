@@ -1,6 +1,7 @@
 import { useState, type CSSProperties } from 'react';
 import type { Task, TaskState } from '../../shared/domain';
 import { TASK_STATUS } from '../../shared/status';
+import { useCast } from '../state/useCast';
 
 // Task completion is countable — done over total — so a bar is honest here in
 // a way a per-task percentage never would be. It is segmented by STATE rather
@@ -148,6 +149,8 @@ export function Tasks({
   teamName: string;
 }) {
   const [hovered, setHovered] = useState<string | null>(null);
+  // The OWNER cell only. Ids, states and dependency ids are readouts.
+  const { asChar } = useCast();
 
   return (
     <div data-testid="tasks" style={{ flex: 1, display: 'flex', minHeight: 0 }}>
@@ -250,7 +253,7 @@ export function Tasks({
                   {task.metadata?.model ?? '—'}
                 </span>
                 <span data-testid="task-owner" style={{ width: '80px', color: 'var(--color-neutral-500)' }}>
-                  {task.owner ?? 'unassigned'}
+                  {task.owner ? asChar(task.owner).display : 'unassigned'}
                 </span>
                 <span
                   data-testid="task-deps"

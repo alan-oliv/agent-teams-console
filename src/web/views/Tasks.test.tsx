@@ -2,6 +2,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import type { MailMessage, Task } from '../../shared/domain';
+import { buildCast } from '../../shared/cast';
+import { CastContext } from '../state/useCast';
 import { Tasks } from './Tasks';
 
 afterEach(cleanup);
@@ -304,3 +306,21 @@ describe('Tasks — per-task stepper', () => {
   });
 });
 
+
+// The OWNER cell is the agent, so it is cast. The task id, the state and the
+// dependency ids are readouts and are never renamed.
+it('casts the owner cell and nothing else in the row', () => {
+  const agents = [
+    { name: 'team-lead', agentType: 'team-lead', isLead: true },
+    { name: 'probe-alpha', agentType: 'general-purpose', isLead: false },
+  ];
+  render(
+    <CastContext.Provider value={buildCast(agents, 'inception')}>
+      <Tasks tasks={TASKS} teamName="session-98b0b4a7" />
+    </CastContext.Provider>,
+  );
+  const owners = screen.getAllByTestId('task-owner').map((o) => o.textContent);
+  expect(owners).toContain('Saito');
+  expect(owners).not.toContain('probe-alpha');
+  expect(owners).toContain('unassigned');
+});

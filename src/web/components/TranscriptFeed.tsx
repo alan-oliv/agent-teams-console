@@ -14,6 +14,7 @@ import { TRANSCRIPT_TEXT_CAP } from '../../shared/transcript';
 import { diffStat } from '../format';
 import { DiffContext } from '../state/useTeamState';
 import { useAppearance } from '../state/useSettings';
+import { useCast } from '../state/useCast';
 import { DENSITY } from '../themes';
 import { codeTokens, segments, toolCodeLang, type CodeTokenKind } from '../../shared/code';
 import { blocks as mdBlocks, type Inline } from '../../shared/markdown';
@@ -112,6 +113,10 @@ const NEUTRAL_ACTION: CSSProperties = {
  * should give way when the column is narrow.
  */
 function Sender({ name, size }: { name: string; size: string }) {
+  // The pill is the only place a row carries a name of its own; the text is the
+  // agent's own words and is left exactly as it arrived.
+  const display = useCast().asChar(name).display;
+
   return (
     <span
       data-testid="transcript-sender"
@@ -125,7 +130,7 @@ function Sender({ name, size }: { name: string; size: string }) {
         flex: 'none',
       }}
     >
-      {name}
+      {display}
     </span>
   );
 }

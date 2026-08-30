@@ -8,6 +8,7 @@ import { StopControlButton } from '../components/StopButton';
 import { TranscriptFeed } from '../components/TranscriptFeed';
 import { wallOrder } from '../../shared/roster';
 import { DORMANT_OPACITY, isDormant } from '../../shared/status';
+import { useCast } from '../state/useCast';
 
 const PANES = 6;
 
@@ -19,6 +20,9 @@ const Pane = memo(function Pane({
   isFocused: boolean;
   onFocus: (name: string) => void;
 }) {
+  // Display only — focus still carries the real name.
+  const display = useCast().asChar(agent.name).display;
+
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     if (e.target !== e.currentTarget) return;
     if (e.key === 'Enter' || e.key === ' ') {
@@ -63,7 +67,7 @@ const Pane = memo(function Pane({
               data-testid="grid-name"
               style={{ color: 'var(--color-text)', fontWeight: 500, fontSize: '12.5px' }}
             >
-              {agent.name}
+              {display}
             </span>
             <span style={{ flex: 1 }} />
             <span

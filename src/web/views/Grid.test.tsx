@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { FIXTURE_NOW, fixtureAgents, padAgents } from '../agents.fixture';
 import { Grid } from './Grid';
+import { buildCast } from '../../shared/cast';
+import { CastContext } from '../state/useCast';
 
 afterEach(cleanup);
 
@@ -160,4 +162,17 @@ describe('Grid pane memoisation', () => {
     rerender(<Grid agents={changed} focused={null} onFocus={onFocus} now={FIXTURE_NOW} />);
     expect(feed.renders).toBe(1);
   });
+});
+
+it('draws the character in a themed pane, and focuses the real name', () => {
+  const onFocus = vi.fn();
+  const agents = fixtureAgents();
+  render(
+    <CastContext.Provider value={buildCast(agents, 'inception')}>
+      <Grid agents={agents} focused={null} onFocus={onFocus} now={FIXTURE_NOW} />
+    </CastContext.Provider>,
+  );
+  expect(screen.getAllByTestId('grid-name')[0].textContent).toBe('Cobb');
+  fireEvent.click(screen.getAllByTestId('grid-pane')[0]);
+  expect(onFocus).toHaveBeenCalledWith('team-lead');
 });

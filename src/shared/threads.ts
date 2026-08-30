@@ -1,3 +1,4 @@
+import type { Cast } from './cast';
 import { CONSOLE_SENDER, type Agent, type MailMessage, type Task, type TranscriptLine } from './domain';
 
 /**
@@ -151,12 +152,27 @@ export function roomLines(messages: MailMessage[]): RoomLine[] {
   return lines;
 }
 
-/** `to everyone` once a send reached every other member, else the names it did reach. */
-export function roomRecipients(line: RoomLine, agents: Agent[]): string {
+/**
+ * `to everyone` once a send reached every other member, else the names it did
+ * reach. The names are display, so a `cast` renames them; the `to` list it
+ * reads stays the real inboxes, which is what `reached` is matched on.
+ */
+export function roomRecipients(line: RoomLine, agents: Agent[], cast?: Cast): string {
   const others = agents.filter((a) => a.name !== line.from).map((a) => a.name);
   const reached = new Set(line.to);
   if (others.length > 1 && others.every((n) => reached.has(n))) return 'to everyone';
-  return `→ ${line.to.join(', ')}`;
+  const shown = cast ? line.to.map((n) => cast.asChar(n).display) : line.to;
+  return `→ ${shown.join(', ')}`;
+}
+
+/**
+ * A thread's heading. `Thread.pair` is built from the real names, because that
+ * is what threading itself works on; this is how it is SHOWN. The room's label
+ * is not a pair of names at all, so it passes through unchanged.
+ */
+export function pairLabel(thread: Thread, cast: Cast): string {
+  if (thread.kind === 'everyone') return thread.pair;
+  return `${cast.asChar(thread.a).display} ⇄ ${cast.asChar(thread.b).display}`;
 }
 
 /**

@@ -5,6 +5,8 @@ import type { Diff, TranscriptLine } from '../../shared/domain';
 import { TRANSCRIPT_TEXT_CAP } from '../../shared/transcript';
 import { DiffContext } from '../state/useTeamState';
 import { DEFAULT_SETTINGS, SettingsContext } from '../state/useSettings';
+import { buildCast } from '../../shared/cast';
+import { CastContext } from '../state/useCast';
 import { TranscriptFeed } from './TranscriptFeed';
 
 afterEach(cleanup);
@@ -765,6 +767,28 @@ describe('sender chip', () => {
       sender: 'probe-alpha',
     },
   ];
+
+  // The pill is an agent name, so a theme casts it. The row text itself is the
+  // agent's own words and is never rewritten.
+  it('casts the sender pill under a theme, and leaves the row text alone', () => {
+    const roster = [
+      { name: 'team-lead', agentType: 'team-lead', isLead: true },
+      { name: 'probe-charlie', agentType: 'general-purpose', isLead: false },
+      { name: 'probe-alpha', agentType: 'general-purpose', isLead: false },
+    ];
+    render(
+      <CastContext.Provider value={buildCast(roster, 'inception')}>
+        <TranscriptFeed lines={DELIVERED} size="wall" />
+      </CastContext.Provider>,
+    );
+    expect(screen.getAllByTestId('transcript-sender').map((c) => c.textContent)).toEqual([
+      'Saito',
+      'Mal',
+    ]);
+    expect(screen.getAllByTestId('transcript-row')[1].textContent).toContain(
+      'probe-charlie reporting',
+    );
+  });
 
   it('names the sender of every delivered row, and only those', () => {
     render(<TranscriptFeed lines={DELIVERED} size="wall" />);

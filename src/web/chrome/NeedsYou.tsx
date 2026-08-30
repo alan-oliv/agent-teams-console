@@ -1,5 +1,6 @@
 import type { NeedsYouItem } from '../../shared/domain';
 import { postJson } from '../api';
+import { useCast } from '../state/useCast';
 
 export interface NeedsYouProps {
   items: NeedsYouItem[];
@@ -52,6 +53,10 @@ function Action({
 }
 
 function Card({ item, readOnly, now }: { item: NeedsYouItem; readOnly: boolean; now: number }) {
+  // The card names the agent to the operator, so it names the character. Every
+  // answer below is posted on the item's own id and is untouched by the theme.
+  const who = useCast().asChar(item.agent).display;
+
   if (item.kind === 'failure') {
     return (
       <div
@@ -59,7 +64,7 @@ function Card({ item, readOnly, now }: { item: NeedsYouItem; readOnly: boolean; 
         style={{ ...CARD_BASE, flex: 'none', border: '1px solid var(--color-neutral-800)' }}
       >
         <span style={{ color: 'var(--fail)', fontSize: 11, whiteSpace: 'nowrap' }}>
-          {`${item.agent} · ${item.reason}`}
+          {`${who} · ${item.reason}`}
         </span>
         <span style={{ ...DETAIL, color: 'var(--color-neutral-600)' }}>{item.detail}</span>
         <Action
@@ -79,7 +84,7 @@ function Card({ item, readOnly, now }: { item: NeedsYouItem; readOnly: boolean; 
       style={{ ...CARD_BASE, flex: 1, minWidth: 0, border: '1px solid var(--warn-edge)' }}
     >
       <span style={{ color: 'var(--warn)', fontSize: 11, whiteSpace: 'nowrap' }}>
-        {`${item.agent} · ${item.reason}`}
+        {`${who} · ${item.reason}`}
       </span>
       <span style={{ ...DETAIL, color: 'var(--color-neutral-500)' }}>{item.detail}</span>
       <span style={{ flex: 1 }} />
@@ -104,7 +109,7 @@ function Card({ item, readOnly, now }: { item: NeedsYouItem; readOnly: boolean; 
             tone="neutral"
             readOnly={readOnly}
             onClick={() => {
-              const reason = window.prompt(`reason for denying ${item.agent}`);
+              const reason = window.prompt(`reason for denying ${who}`);
               if (reason === null) return;
               void postJson(`/api/permits/${item.id}/deny`, { reason });
             }}
@@ -123,7 +128,7 @@ function Card({ item, readOnly, now }: { item: NeedsYouItem; readOnly: boolean; 
             tone="neutral"
             readOnly={readOnly}
             onClick={() => {
-              const feedback = window.prompt(`feedback for ${item.agent}`);
+              const feedback = window.prompt(`feedback for ${who}`);
               if (feedback === null) return;
               void postJson(`/api/plans/${item.id}/reject`, { feedback });
             }}

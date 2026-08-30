@@ -2,6 +2,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { FIXTURE_NOW, fixtureAgents } from '../agents.fixture';
+import { buildCast } from '../../shared/cast';
+import { CastContext } from '../state/useCast';
 import { Wall } from './Wall';
 
 afterEach(cleanup);
@@ -714,4 +716,92 @@ it('does not focus the column when the badge is clicked', () => {
   render(<Wall agents={agents} focused={null} onFocus={onFocus} now={FIXTURE_NOW} onOpenMail={() => {}} />);
   fireEvent.click(screen.getByTestId('in-flight'));
   expect(onFocus).not.toHaveBeenCalled();
+});
+
+// Movie themes rename agents and nothing else. The cast comes from context, so
+// every view renders the same character for the same role.
+describe('a themed wall', () => {
+  const themed = (children: React.ReactNode) => (
+    <CastContext.Provider value={buildCast(agents, 'inception')}>{children}</CastContext.Provider>
+  );
+
+  it('draws the character and keeps the real type badge beside it', () => {
+    render(themed(<Wall agents={agents} focused={null} onFocus={vi.fn()} now={FIXTURE_NOW} />));
+    const names = screen.getAllByTestId('wall-name').map((n) => n.textContent);
+    expect(names[0]).toBe('Cobb');
+    expect(names).not.toContain('team-lead');
+    // The badge is the type, not the name: 'Cobb' + 'team-lead' costs nothing,
+    // and replacing the type would make the wall unreadable.
+    expect(screen.getAllByTestId('wall-type')[0].textContent).toBe('team-lead');
+  });
+
+  it('focuses the real name, so the URL and every route stay joinable', () => {
+    const onFocus = vi.fn();
+    render(themed(<Wall agents={agents} focused={null} onFocus={onFocus} now={FIXTURE_NOW} />));
+    fireEvent.click(screen.getAllByTestId('wall-column')[0]);
+    expect(onFocus).toHaveBeenCalledWith('team-lead');
+  });
+
+  it('is the identity mapping with no theme', () => {
+    render(<Wall agents={agents} focused={null} onFocus={vi.fn()} now={FIXTURE_NOW} />);
+    expect(screen.getAllByTestId('wall-name')[0].textContent).toBe('team-lead');
+  });
+});
+
+// The @ picker is the one place both names have to be live at once: the
+// operator may type either, the row shows both, and the send is on the real one.
+describe('the mention picker under a theme', () => {
+  const themed = () =>
+    render(
+      <CastContext.Provider value={buildCast(agents, 'inception')}>
+        <Wall agents={agents} focused={null} onFocus={vi.fn()} now={FIXTURE_NOW} />
+      </CastContext.Provider>,
+    );
+
+  it('matches the character and the real name alike', () => {
+    themed();
+    const input = screen.getByTestId('composer-input');
+
+    fireEvent.change(input, { target: { value: '@Mal' } });
+    expect(screen.getAllByTestId('route-option')).toHaveLength(1);
+    expect(screen.getAllByTestId('route-option')[0].textContent).toContain('@Mal');
+
+    fireEvent.change(input, { target: { value: '@probe-b' } });
+    expect(screen.getAllByTestId('route-option')).toHaveLength(1);
+    expect(screen.getAllByTestId('route-option')[0].textContent).toContain('@Mal');
+  });
+
+  it('shows the real slot name beside the character', () => {
+    themed();
+    fireEvent.change(screen.getByTestId('composer-input'), { target: { value: '@Mal' } });
+    expect(screen.getByTestId('route-real').textContent).toBe('probe-bravo');
+  });
+
+  it('chips the character and still sends to the real inbox', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(new Response('{}', { status: 200 })));
+    vi.stubGlobal('fetch', fetchMock);
+    themed();
+    const input = screen.getByTestId('composer-input');
+    fireEvent.change(input, { target: { value: '@Mal' } });
+    fireEvent.mouseDown(screen.getAllByTestId('route-option')[0]);
+
+    expect(screen.getByTestId('route-chip').textContent).toBe('@Mal');
+    expect((input as HTMLTextAreaElement).placeholder).toBe('message Mal');
+
+    fireEvent.change(input, { target: { value: 'ship it' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/agents/probe-bravo/message',
+      expect.objectContaining({ body: JSON.stringify({ text: 'ship it' }) }),
+    );
+  });
+
+  it('resolves a character typed by hand, so the chip is not pick-only', () => {
+    themed();
+    const input = screen.getByTestId('composer-input');
+    fireEvent.change(input, { target: { value: '@Mal hello' } });
+    expect(screen.getByTestId('route-chip').textContent).toBe('@Mal');
+    expect((input as HTMLTextAreaElement).value).toBe('hello');
+  });
 });

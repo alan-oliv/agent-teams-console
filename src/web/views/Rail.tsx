@@ -8,6 +8,7 @@ import { StatusGlyph } from '../components/StatusGlyph';
 import { StopControlButton } from '../components/StopButton';
 import { TranscriptFeed } from '../components/TranscriptFeed';
 import { contextBar, costLabel, ctxLabel, pctLabel } from '../format';
+import { useCast } from '../state/useCast';
 
 // Memoised so an SSE frame only re-renders the rows whose agent actually moved.
 // The click handler is built here rather than passed down as an inline arrow, which
@@ -19,6 +20,9 @@ const Row = memo(function Row({
   isSelected: boolean;
   onFocus: (name: string) => void;
 }) {
+  // Display only: the row id, the focus call and the URL keep the real name.
+  const display = useCast().asChar(agent.name).display;
+
   return (
     <div
       id={`rail-option-${agent.name}`}
@@ -42,7 +46,7 @@ const Row = memo(function Row({
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '7px' }}>
           <StatusGlyph status={agent.status} size={10} />
           <span data-testid="rail-name" style={{ color: 'var(--color-text)', fontWeight: 500 }}>
-            {agent.name}
+            {display}
           </span>
           {agent.agentType && (
             <span
@@ -106,6 +110,7 @@ const Attached = memo(function Attached(
   { agent, readOnly, teamLive }: { agent: Agent; readOnly: boolean; teamLive: boolean },
 ) {
   const status = AGENT_STATUS[agent.status];
+  const display = useCast().asChar(agent.name).display;
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0 }}>
@@ -129,7 +134,7 @@ const Attached = memo(function Attached(
           data-testid="rail-detail-name"
           style={{ color: 'var(--color-text)', fontWeight: 500, fontSize: '13px' }}
         >
-          {agent.name}
+          {display}
         </span>
         {agent.agentType && (
           <span

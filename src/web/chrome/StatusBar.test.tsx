@@ -2,6 +2,9 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { FIXTURE_NOW, sampleTeamState } from '../test/state-fixture';
+import { MOVIE_THEMES } from '../../shared/cast';
+import { buildCast } from '../../shared/cast';
+import { CastContext } from '../state/useCast';
 import { METRIC_RANK, StatusBar } from './StatusBar';
 import { DEFAULT_SETTINGS } from '../state/useSettings';
 import { cssVarsFor, DENSITY } from '../themes';
@@ -307,4 +310,39 @@ it('spends no bar width on a diffstat', () => {
   renderBar();
   const bar = screen.getByText('TEAM').parentElement!;
   expect(bar.textContent).not.toMatch(/[+−-]\d+\s*[−-]\d+/);
+});
+
+// The design says to measure the bar in the LONGEST team-name state rather than
+// the default. jsdom reports every width as 0, so the fitting itself cannot run
+// here — what is pinnable is that the chip cannot make the bar wrap: it is
+// unshrinkable and nowrap like every other child, so overflow goes to
+// METRIC_RANK's shedding and never to a second line.
+it('carries the longest in-world team name without letting the bar wrap', () => {
+  const longest = MOVIE_THEMES.reduce((a, b) => (b.team.length > a.team.length ? b : a));
+  expect(longest.team).toBe('the fellowship');
+
+  render(
+    <CastContext.Provider value={buildCast([], longest.key)}>
+      <StatusBar
+        state={sampleTeamState()}
+        view="wall"
+        onViewChange={vi.fn()}
+        now={FIXTURE_NOW}
+        teamsOpen={false}
+        onTeamsOpenChange={vi.fn()}
+        onSelectRun={vi.fn()}
+        appearance={APPEARANCE}
+      />
+    </CastContext.Provider>,
+  );
+
+  const bar = screen.getByText('TEAM').parentElement!;
+  expect(bar.style.flexWrap).toBe('nowrap');
+  const chip = screen.getByTestId('team-chip');
+  expect(chip.textContent).toBe('the fellowship');
+  expect(chip.style.whiteSpace).toBe('nowrap');
+  expect(chip.style.flex).toBe('0 0 auto');
+  // The chip widens the trigger instead of evicting the session id from it.
+  expect(screen.getByTestId('team-trigger').style.minWidth).toBe('146px');
+  expect(screen.getByTestId('team-trigger-name').style.textOverflow).toBe('ellipsis');
 });

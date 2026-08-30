@@ -2,6 +2,7 @@ import { memo, useState } from 'react';
 import type { Agent } from '../../shared/domain';
 import { StatusGlyph } from '../components/StatusGlyph';
 import { formatPct } from '../format';
+import { useCast } from '../state/useCast';
 
 const IDLE_COLLAPSE_AT = 3;
 const LEGEND = '↑↓ select · ⏎ open · esc interrupt · x stop · ⌃T tasks · t teams';
@@ -17,6 +18,10 @@ const Chip = memo(function Chip({
   isFocused: boolean;
   onFocus: (name: string) => void;
 }) {
+  // Display only — the chip focuses on the real name, which is what the URL
+  // and the rail both key on.
+  const display = useCast().asChar(agent.name).display;
+
   return (
     <button
       type="button"
@@ -50,7 +55,7 @@ const Chip = memo(function Chip({
           minWidth: 0,
         }}
       >
-        {agent.name}
+        {display}
       </span>
       <span style={{ color: 'var(--color-neutral-600)', flexShrink: 0 }}>
         {formatPct(agent.contextTokens / agent.contextLimit)}
@@ -79,6 +84,7 @@ export function Panel({ agents, focusedAgent, onFocusAgent }: PanelProps) {
   // addressable as chips like any other agent.
   const idleSurplus = expanded ? [] : idle.slice(IDLE_COLLAPSE_AT);
   const collapsed = idleSurplus.length > 0;
+  const { asChar } = useCast();
   const shown = collapsed ? live.filter((a) => !idleSurplus.includes(a)) : live;
 
   return (
@@ -144,7 +150,7 @@ export function Panel({ agents, focusedAgent, onFocusAgent }: PanelProps) {
               data-testid="departed-name"
               style={{ color: 'var(--color-neutral-800)', whiteSpace: 'nowrap' }}
             >
-              {a.name}
+              {asChar(a.name).display}
             </span>
           ))}
       </div>

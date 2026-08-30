@@ -18,6 +18,7 @@ import { StatusGlyph } from '../components/StatusGlyph';
 import { StopControlButton } from '../components/StopButton';
 import { TranscriptFeed } from '../components/TranscriptFeed';
 import { compactionNote, contextBar, costLabel, ctxLabel, pctLabel, warnMark } from '../format';
+import { useCast } from '../state/useCast';
 import { COLUMN_WIDTH } from '../state/useTeamState';
 
 // Matches the --terminal-ground token (theme.css); kept literal so the tint
@@ -125,6 +126,10 @@ const Column = memo(function Column({
   const isLeadColumn = agent.isLead;
   const compaction = compactionNote(agent.contextTokens, agent.contextLimit, agent.compactAt);
 
+  // Display only: focus, drag, mail and every route below still carry the real
+  // name, which is the join key across the frame, the URL and the API.
+  const display = useCast().asChar(agent.name).display;
+
   const shadows: string[] = [];
   if (isLeadColumn) shadows.push('1px 0 0 var(--color-neutral-800)', '8px 0 18px rgba(0,0,0,.5)');
   if (isFocused) shadows.push('inset 0 2px 0 var(--color-accent-600)');
@@ -173,7 +178,7 @@ const Column = memo(function Column({
               data-testid="wall-name"
               style={{ color: 'var(--color-text)', fontWeight: 500, fontSize: '13px' }}
             >
-              {agent.name}
+              {display}
             </span>
             {agent.agentType && (
               <span

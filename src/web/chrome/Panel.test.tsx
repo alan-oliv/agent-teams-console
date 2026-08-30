@@ -2,6 +2,8 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Agent, AgentStatus } from '../../shared/domain';
+import { buildCast } from '../../shared/cast';
+import { CastContext } from '../state/useCast';
 import { Panel } from './Panel';
 
 // This suite renders once per `it`; without explicit cleanup the un-unmounted
@@ -238,4 +240,24 @@ describe('Panel chip memoisation', () => {
     rerender(<Panel agents={agents} focusedAgent="probe-bravo" onFocusAgent={onFocusAgent} />);
     expect(chip.renders).toBe(2);
   });
+});
+
+it('casts the chips and the departed list, and focuses the real name', () => {
+  const onFocusAgent = vi.fn();
+  const roster = [
+    agent('team-lead', 'working', 1_000),
+    agent('probe-alpha', 'idle', 1_000),
+    { ...agent('probe-bravo', 'departed', 1_000) },
+  ];
+  render(
+    <CastContext.Provider value={buildCast(roster, 'inception')}>
+      <Panel agents={roster} focusedAgent={null} onFocusAgent={onFocusAgent} />
+    </CastContext.Provider>,
+  );
+  const chips = screen.getAllByTestId('agent-chip').map((c) => c.textContent);
+  expect(chips.join(' ')).toContain('Cobb');
+  expect(chips.join(' ')).not.toContain('team-lead');
+
+  fireEvent.click(screen.getAllByTestId('agent-chip')[0]);
+  expect(onFocusAgent).toHaveBeenCalledWith('team-lead');
 });

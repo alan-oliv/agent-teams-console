@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { FIXTURE_NOW, sampleTeams } from '../test/state-fixture';
 import { WatchContext, type WatchState } from '../state/useWatch';
+import { buildCast } from '../../shared/cast';
+import { CastContext } from '../state/useCast';
 import { TeamSelect } from './TeamSelect';
 import type { TeamSummary } from '../../shared/domain';
 
@@ -80,6 +82,16 @@ function renderSelect(props: Partial<Parameters<typeof TeamSelect>[0]> = {}, wat
   const rerender = (next: Partial<typeof all> = {}) => view.rerender(<Harness extra={next} />);
   return { onOpenChange, rerender, watch: watchValue };
 }
+
+const WATCH: WatchState = {
+  dismissed: false,
+  requestStopWatching: vi.fn(),
+  watchAgain: vi.fn(),
+  hidden: new Set(),
+  hideSession: vi.fn(),
+  showHidden: vi.fn(),
+  revealed: false,
+};
 
 const SWITCH_TO_B5 = [
   '/api/teams/session-b5129c7b/select',
@@ -701,4 +713,46 @@ it('draws the menu at the width its rows were designed for, with an edge', async
   // A panel floating on the same ground as the bar behind it needs a boundary;
   // the shadow alone leaves the top edge indistinguishable.
   expect(menu.style.border).toBe('1px solid var(--color-neutral-800)');
+});
+
+// The in-world team name is decoration and lives HERE and nowhere else: the
+// session id it sits beside is the real one, in the trigger, the URL and every
+// call the picker makes.
+it('wears the film\'s team name as a chip on the trigger, and only there', () => {
+  render(
+    <CastContext.Provider value={buildCast([], 'lotr')}>
+      <WatchContext.Provider value={WATCH}>
+        <TeamSelect
+          current="session-98b0b4a7"
+          sessionName="agents-team-console"
+          open={false}
+          onOpenChange={vi.fn()}
+          now={FIXTURE_NOW}
+        />
+      </WatchContext.Provider>
+    </CastContext.Provider>,
+  );
+  const chip = screen.getByTestId('team-chip');
+  expect(chip.textContent).toBe('the fellowship');
+  // It bleeds rather than wraps, and it never squeezes the session name out.
+  expect(chip.style.flex).toBe('0 0 auto'); // jsdom's serialisation of `none`
+  expect(chip.style.whiteSpace).toBe('nowrap');
+  expect(screen.getByTestId('team-trigger-name').textContent).toBe('agents-team-console');
+  expect(screen.getByTestId('team-trigger').style.minWidth).toBe('146px');
+});
+
+it('wears no chip with no theme, and keeps the trigger at its fixed width', () => {
+  render(
+    <WatchContext.Provider value={WATCH}>
+      <TeamSelect
+        current="session-98b0b4a7"
+        sessionName="agents-team-console"
+        open={false}
+        onOpenChange={vi.fn()}
+        now={FIXTURE_NOW}
+      />
+    </WatchContext.Provider>,
+  );
+  expect(screen.queryByTestId('team-chip')).toBeNull();
+  expect(screen.getByTestId('team-trigger').style.width).toBe('146px');
 });

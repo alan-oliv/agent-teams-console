@@ -2,6 +2,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import type { Diff } from '../../shared/domain';
+import { buildCast } from '../../shared/cast';
+import { CastContext } from '../state/useCast';
 import { DiffModal } from './DiffModal';
 
 afterEach(cleanup);
@@ -96,6 +98,18 @@ describe('DiffModal', () => {
       expect(screen.getByTestId('diff-stat').textContent).toBe('+14 −2');
       expect(screen.getByTestId('diff-stat').style.color).toBe('var(--json-string)');
       expect(screen.getByTestId('diff-meta').textContent).toBe('lead · 14:22:08 · 9be5ee0');
+    });
+
+    // The agent that made the edit is a name, so it is cast; the path, the
+    // stat and the sha are the patch itself and never move.
+    it('casts the agent in the meta, and nothing else in it', () => {
+      const roster = [{ name: 'lead', agentType: 'team-lead', isLead: true }];
+      render(
+        <CastContext.Provider value={buildCast(roster, 'inception')}>
+          <DiffModal diff={DIFF} onClose={() => {}} />
+        </CastContext.Provider>,
+      );
+      expect(screen.getByTestId('diff-meta').textContent).toBe('Cobb · 14:22:08 · 9be5ee0');
     });
 
     it('leaves the sha out of the meta for an uncommitted edit', () => {

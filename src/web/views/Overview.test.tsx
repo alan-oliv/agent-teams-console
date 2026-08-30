@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { FIXTURE_NOW, fixtureAgents, padAgents } from '../agents.fixture';
 import { Overview } from './Overview';
+import { buildCast } from '../../shared/cast';
+import { CastContext } from '../state/useCast';
 
 afterEach(cleanup);
 
@@ -163,4 +165,19 @@ describe('Overview tile memoisation', () => {
     rerender(<Overview agents={changed} focused={null} onFocus={onFocus} now={FIXTURE_NOW} />);
     expect(feed.renders).toBe(1);
   });
+});
+
+// One cast feeds every view: the same agent is the same character here as on
+// the wall, and the tile still routes by the real name.
+it('draws the character on a themed tile, and focuses the real name', () => {
+  const onFocus = vi.fn();
+  const agents = fixtureAgents();
+  render(
+    <CastContext.Provider value={buildCast(agents, 'inception')}>
+      <Overview agents={agents} focused={null} onFocus={onFocus} now={FIXTURE_NOW} />
+    </CastContext.Provider>,
+  );
+  expect(screen.getAllByTestId('overview-name')[0].textContent).toBe('Cobb');
+  fireEvent.click(screen.getAllByTestId('overview-tile')[0]);
+  expect(onFocus).toHaveBeenCalledWith('team-lead');
 });

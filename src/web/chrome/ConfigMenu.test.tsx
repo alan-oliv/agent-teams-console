@@ -238,6 +238,22 @@ describe('every control changes the render', () => {
     expect(screen.queryAllByTestId('portrait')).toHaveLength(0);
   });
 
+  // The one mapping, seen end to end: the setting reaches the views through the
+  // cast context, and stops at the names.
+  it('movie theme recasts the wall, and leaves the type badge alone', () => {
+    mount();
+    expect(screen.getAllByTestId('wall-name')[0].textContent).toBe('team-lead');
+
+    open();
+    pickMovie('inception');
+    expect(screen.getAllByTestId('wall-name')[0].textContent).toBe('Cobb');
+    expect(screen.getAllByTestId('wall-type')[0].textContent).toBe('team-lead');
+
+    // The panel stays open through a pick, so off is one more pick, not a reopen.
+    pickMovie('off');
+    expect(screen.getAllByTestId('wall-name')[0].textContent).toBe('team-lead');
+  });
+
   it('motion marks the root, which is what kills the blink and the dots', () => {
     const console_ = mount();
     expect(console_.dataset.motion).toBe('on');

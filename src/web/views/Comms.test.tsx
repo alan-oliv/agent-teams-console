@@ -2,6 +2,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { CONSOLE_SENDER, type Agent, type MailMessage, type Task, type TranscriptLine } from '../../shared/domain';
+import { buildCast } from '../../shared/cast';
+import { CastContext } from '../state/useCast';
 import { Comms } from './Comms';
 
 afterEach(() => {
@@ -609,5 +611,49 @@ describe('Comms — the everyone room', () => {
     renderComms({ mail: [] });
     expect(screen.queryByTestId('room-row')).toBeNull();
     expect(screen.queryByTestId('pairs-label')).toBeNull();
+  });
+});
+
+// perf and security are role slots, so a themed comms names both of them the
+// same way the wall does. Routing is untouched: from/to, ids and the wall jump
+// all still carry the real name.
+describe('a themed comms', () => {
+  function renderThemed(over: Partial<Parameters<typeof Comms>[0]> = {}) {
+    const props = {
+      agents: AGENTS, mail: MAIL, tasks: TASKS, openThread: null as string | null,
+      onFocus: vi.fn(), onShowInWall: vi.fn(), now: NOW, ...over,
+    };
+    render(
+      <CastContext.Provider value={buildCast(AGENTS, 'inception')}>
+        <Comms {...props} />
+      </CastContext.Provider>,
+    );
+    return props;
+  }
+
+  it('casts the pair heading in the list', () => {
+    renderThemed();
+    const pairs = screen.getAllByTestId('thread-pair').map((p) => p.textContent);
+    expect(pairs).toContain('Yusuf ⇄ Arthur');
+    expect(pairs.join(' ')).not.toMatch(/perf|security/);
+  });
+
+  it('casts the room sender and the inbox a send reached', () => {
+    renderThemed();
+    const senders = screen.getAllByTestId('room-from').map((f) => f.textContent);
+    expect(senders).toContain('Arthur');
+    expect(senders).not.toContain('security');
+    expect(screen.getAllByTestId('room-to').map((t) => t.textContent)).toContain('→ Yusuf');
+  });
+
+  it('casts a pair bubble sender, and still jumps to the real name', () => {
+    const props = renderThemed();
+    const pair = screen
+      .getAllByTestId('thread-row')
+      .find((row) => within(row).getByTestId('thread-pair').textContent === 'Yusuf ⇄ Arthur')!;
+    fireEvent.click(pair);
+    expect(screen.getAllByTestId('bubble-from').map((b) => b.textContent)).toContain('Arthur');
+    fireEvent.click(screen.getByTestId('show-in-wall'));
+    expect(props.onShowInWall).toHaveBeenCalledWith('perf');
   });
 });

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { TeamSummary, TeamsResponse } from '../../shared/domain';
 import { postJson } from '../api';
 import { diffStat, formatElapsed } from '../format';
+import { useCast } from '../state/useCast';
 import { isEmptySession, isNotShown } from '../state/useHiddenSessions';
 import { useWatch } from '../state/useWatch';
 
@@ -64,6 +65,9 @@ export interface TeamSelectProps {
 }
 
 export function TeamSelect({ current, sessionName, open, onOpenChange, now }: TeamSelectProps) {
+  // The in-world team name, and the only place it appears: the session id below
+  // it, the listing, the URL and every select call stay real.
+  const inWorld = useCast().theme.team;
   const watch = useWatch();
   const [teams, setTeams] = useState<TeamSummary[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -253,7 +257,11 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
           display: 'flex',
           alignItems: 'baseline',
           gap: 7,
-          width: TRIGGER_WIDTH,
+          // The chip is added width, so the trigger grows by it and the bar
+          // sheds a metric to pay — measured in the longest team-name state,
+          // because the alternative is the session id being squeezed out by
+          // decoration.
+          ...(inWorld ? { minWidth: TRIGGER_WIDTH } : { width: TRIGGER_WIDTH }),
           flex: 'none',
           whiteSpace: 'nowrap',
           padding: '3px 8px',
@@ -274,6 +282,22 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
         >
           {watch.dismissed ? 'no session selected' : (sessionName ?? current)}
         </span>
+        {inWorld && !watch.dismissed && (
+          <span
+            data-testid="team-chip"
+            style={{
+              color: 'var(--color-accent-300)',
+              fontSize: 10,
+              border: '1px solid var(--color-accent-700)',
+              borderRadius: 8,
+              padding: '0 7px',
+              whiteSpace: 'nowrap',
+              flex: 'none',
+            }}
+          >
+            {inWorld}
+          </span>
+        )}
         <span aria-hidden="true" style={{ color: 'var(--color-accent-400)', fontSize: 10 }}>
           ▾
         </span>

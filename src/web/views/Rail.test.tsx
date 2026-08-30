@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { FIXTURE_NOW, fixtureAgents } from '../agents.fixture';
 import { Rail } from './Rail';
+import { buildCast } from '../../shared/cast';
+import { CastContext } from '../state/useCast';
 
 afterEach(cleanup);
 
@@ -273,4 +275,15 @@ describe('Rail attached-pane memoisation', () => {
     rerender(<Rail agents={changed} focused="probe-alpha" onFocus={onFocus} now={FIXTURE_NOW} />);
     expect(feed.renders).toBe(1);
   });
+});
+
+it('casts the roster row and the attached header together', () => {
+  const agents = fixtureAgents();
+  render(
+    <CastContext.Provider value={buildCast(agents, 'inception')}>
+      <Rail agents={agents} focused="team-lead" onFocus={vi.fn()} now={FIXTURE_NOW} />
+    </CastContext.Provider>,
+  );
+  expect(screen.getAllByTestId('rail-name')[0].textContent).toBe('Cobb');
+  expect(screen.getByTestId('rail-detail-name').textContent).toBe('Cobb');
 });
