@@ -569,3 +569,44 @@ it('lists the other live sessions on the machine and switches to one on click', 
     body: '{}',
   });
 });
+
+// Workflow mode replaces the whole shell, not the body: `RUN` in place of
+// `TEAM`, and none of the team chrome — no roster, no needs-you, no composer.
+it('draws workflow mode instead of the team shell when the frame says so', () => {
+  render(<App />);
+  act(() =>
+    MockEventSource.last().emit('snapshot', {
+      ...sampleTeamState(),
+      agents: [],
+      mode: 'workflow',
+      workflows: [
+        {
+          runId: 'wf_d36b25c0-f96',
+          name: 'team-selector',
+          status: 'completed',
+          live: false,
+          startedAt: 1_000_000,
+          durationMs: 60_000,
+          logs: [],
+          phases: [{ index: 1, title: 'Build' }],
+          agents: [{ agentId: 'a1', label: 'impl:task-9', phaseIndex: 1, state: 'done' }],
+        },
+      ],
+    }),
+  );
+
+  expect(screen.getByTestId('wf-wordmark').textContent).toBe('RUN');
+  expect(screen.getByTestId('workflow-run')).toBeTruthy();
+  expect(screen.queryByText('NEEDS YOU · 0')).toBeNull();
+});
+
+// A roster always wins, so nothing about workflow mode can regress team mode.
+it('stays in the team shell when a roster exists, runs or not', () => {
+  render(<App />);
+  act(() =>
+    MockEventSource.last().emit('snapshot', { ...sampleTeamState(), mode: 'team', workflows: [] }),
+  );
+
+  expect(screen.queryByTestId('wf-wordmark')).toBeNull();
+  expect(screen.getByText('NEEDS YOU · 0')).toBeTruthy();
+});

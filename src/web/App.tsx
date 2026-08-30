@@ -19,6 +19,7 @@ import { Overview } from './views/Overview';
 import { Rail } from './views/Rail';
 import { Tasks } from './views/Tasks';
 import { Wall } from './views/Wall';
+import { Workflow } from './views/Workflow';
 
 export function App() {
   const store = useTeamState();
@@ -184,6 +185,21 @@ export function App() {
     return (
       <div className="console" style={appearance.vars} data-motion={appearance.settings.motion ? 'on' : 'off'}>
         <main className="console-body" />
+      </div>
+    );
+  }
+
+  // Workflow mode is a different shell, not a different view: no roster, no
+  // task list, no inboxes, no composer, and `RUN` where the team bar says
+  // `TEAM`. The server picks the mode and only ever says 'workflow' when the
+  // roster is empty, so a team always wins and team mode cannot regress.
+  const run = state.mode === 'workflow' ? state.workflows?.[0] : undefined;
+  if (run) {
+    return (
+      <div className="console" style={appearance.vars} data-motion={appearance.settings.motion ? 'on' : 'off'}>
+        <main className="console-body">
+          <Workflow run={run} now={now} />
+        </main>
       </div>
     );
   }
