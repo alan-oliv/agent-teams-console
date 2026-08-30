@@ -46,6 +46,26 @@ const OVERLAP_PX = 14;
 // messages read as a run rather than one wide column.
 const BUBBLE_MAX_WIDTH = '64%';
 
+// Consecutive messages from one sender are one turn of the conversation, so
+// they collapse into a run: the name is drawn once at the top of it, the face
+// once at the bottom, and the bubbles between sit tight. Both the room and the
+// pair thread read these, like BUBBLE_MAX_WIDTH, so the two cannot drift.
+const RUN_GAP = '10px';
+const IN_RUN_GAP = '3px';
+const FACE_PX = 22;
+
+/** The face's place, kept even when it holds nothing, so a run keeps one edge. */
+function Face({ show, agent }: { show: boolean; agent: { name: string; agentType: string; isLead: boolean } }) {
+  return (
+    <div
+      data-testid="face-slot"
+      style={{ width: `${FACE_PX}px`, height: `${FACE_PX}px`, flex: 'none', marginBottom: '2px' }}
+    >
+      {show && <Portrait agent={agent} size={FACE_PX} />}
+    </div>
+  );
+}
+
 /** Portraits key off the roster; a departed agent config no longer lists still has mail. */
 function agentFor(name: string, agents: Agent[]): { name: string; agentType: string; isLead: boolean } {
   return agents.find((a) => a.name === name) ?? { name, agentType: '', isLead: false };
@@ -91,7 +111,15 @@ function Pair({ thread, agents }: { thread: Thread; agents: Agent[] }) {
  * under the text: the room is every direct message read end to end, so without
  * "who it went to" it would look like a group channel the team does not have.
  */
-function RoomBubble({ line, agents, now }: { line: RoomLine; agents: Agent[]; now: number }) {
+function RoomBubble({
+  line, agents, now, runStart, runEnd,
+}: {
+  line: RoomLine;
+  agents: Agent[];
+  now: number;
+  runStart: boolean;
+  runEnd: boolean;
+}) {
   const mine = line.from === CONSOLE_SENDER;
   const recipient = agents.find((a) => a.name === line.to[0]);
   const turn = line.read && line.to.length === 1
@@ -102,11 +130,19 @@ function RoomBubble({ line, agents, now }: { line: RoomLine; agents: Agent[]; no
   return (
     <div
       data-testid="room-line"
-      style={{ display: 'flex', flexDirection: 'column', alignItems: mine ? 'flex-end' : 'flex-start', gap: '4px' }}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: mine ? 'flex-end' : 'flex-start',
+        gap: '4px',
+        marginTop: runStart ? RUN_GAP : IN_RUN_GAP,
+      }}
     >
-      <span data-testid="room-from" style={{ color: 'var(--color-neutral-600)', fontSize: '10px', padding: '0 32px' }}>
-        {mine ? 'you' : line.from}
-      </span>
+      {runStart && (
+        <span data-testid="room-from" style={{ color: 'var(--color-neutral-600)', fontSize: '10px', padding: '0 32px' }}>
+          {mine ? 'you' : line.from}
+        </span>
+      )}
       <div
         style={{
           display: 'flex',
@@ -117,11 +153,7 @@ function RoomBubble({ line, agents, now }: { line: RoomLine; agents: Agent[]; no
         }}
       >
         {/* The operator has no portrait: they are not a team member. */}
-        {!mine && (
-          <div style={{ marginBottom: '2px' }}>
-            <Portrait agent={agentFor(line.from, agents)} size={22} />
-          </div>
-        )}
+        {!mine && <Face show={runEnd} agent={agentFor(line.from, agents)} />}
         <div
           style={{
             background: mine ? 'var(--color-accent-700)' : 'var(--color-neutral-900)',
@@ -136,7 +168,7 @@ function RoomBubble({ line, agents, now }: { line: RoomLine; agents: Agent[]; no
             style={{
               color: mine ? 'var(--color-text)' : 'var(--color-neutral-300)',
               fontSize: '11.5px',
-              lineHeight: 1.55,
+              lineHeight: 1.6,
               textWrap: 'pretty',
             }}
           >
@@ -171,12 +203,14 @@ function RoomBubble({ line, agents, now }: { line: RoomLine; agents: Agent[]; no
 }
 
 function Bubble({
-  message, thread, agents, now,
+  message, thread, agents, now, runStart, runEnd,
 }: {
   message: MailMessage;
   thread: Thread;
   agents: Agent[];
   now: number;
+  runStart: boolean;
+  runEnd: boolean;
 }) {
   // Sides are fixed to the pair, not to the operator: the first participant is
   // always left, so a thread does not flip when a different message arrives.
@@ -192,6 +226,7 @@ function Bubble({
         flexDirection: 'column',
         alignItems: mine ? 'flex-end' : 'flex-start',
         gap: '4px',
+        marginTop: runStart ? RUN_GAP : IN_RUN_GAP,
       }}
     >
       <div
@@ -203,9 +238,7 @@ function Bubble({
           maxWidth: BUBBLE_MAX_WIDTH,
         }}
       >
-        <div style={{ marginBottom: '2px' }}>
-          <Portrait agent={agentFor(message.from, agents)} size={22} />
-        </div>
+        <Face show={runEnd} agent={agentFor(message.from, agents)} />
         <div
           style={{
             background: mine ? 'var(--color-accent-900)' : 'var(--color-bg)',
@@ -216,9 +249,12 @@ function Bubble({
           }}
         >
           <div style={{ display: 'flex', gap: '8px', alignItems: 'baseline', marginBottom: '5px' }}>
-            <span data-testid="bubble-from" style={{ color: 'var(--color-accent-400)', fontSize: '10.5px' }}>
-              {message.from}
-            </span>
+            {/* Once per run — but the clock stays, since a run can span minutes. */}
+            {runStart && (
+              <span data-testid="bubble-from" style={{ color: 'var(--color-accent-400)', fontSize: '10.5px' }}>
+                {message.from}
+              </span>
+            )}
             <span
               data-testid="bubble-ts"
               title={message.tsIsDelivery ? 'delivery time — send time unknown' : undefined}
@@ -591,21 +627,44 @@ function ThreadPane({
           padding: '14px 16px',
           display: 'flex',
           flexDirection: 'column',
-          gap: '14px',
+          // Spacing is the run's, not the list's: see RUN_GAP.
+          gap: 0,
         }}
       >
         {thread.kind === 'everyone'
-          ? roomLines(thread.messages).map((line) => (
-              <RoomBubble key={line.key} line={line} agents={agents} now={now} />
+          ? roomLines(thread.messages).map((line, i, lines) => (
+              <RoomBubble
+                key={line.key}
+                line={line}
+                agents={agents}
+                now={now}
+                runStart={lines[i - 1]?.from !== line.from}
+                runEnd={lines[i + 1]?.from !== line.from}
+              />
             ))
-          : thread.messages.map((message) => (
-              <Bubble key={message.msgId} message={message} thread={thread} agents={agents} now={now} />
+          : thread.messages.map((message, i, messages) => (
+              <Bubble
+                key={message.msgId}
+                message={message}
+                thread={thread}
+                agents={agents}
+                now={now}
+                runStart={messages[i - 1]?.from !== message.from}
+                runEnd={messages[i + 1]?.from !== message.from}
+              />
             ))}
 
         {composing && (
           <div
             data-testid="composing"
-            style={{ display: 'flex', gap: '9px', alignItems: 'center', paddingLeft: '31px', opacity: 0.6 }}
+            style={{
+              display: 'flex',
+              gap: '9px',
+              alignItems: 'center',
+              paddingLeft: '31px',
+              marginTop: '14px',
+              opacity: 0.6,
+            }}
           >
             <span style={{ color: 'var(--color-accent-400)', fontSize: '10.5px' }}>{composing}</span>
             <span style={{ color: 'var(--color-neutral-600)', fontSize: '10.5px' }}>

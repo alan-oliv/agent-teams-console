@@ -339,6 +339,76 @@ describe('Comms — the operator joins the thread', () => {
 // Entering comms is not a request for a particular conversation: the room is
 // the default, and only an explicit open-this-thread intent — the wall's
 // in-flight badge — asks for one agent's messages.
+// Consecutive messages from one sender are one turn of the conversation, so
+// the name is drawn once at the top of the run and the face once at the bottom.
+describe('Comms — sender runs', () => {
+  const run = (msgId: string, from: string, to: string, ts: number): MailMessage => ({
+    msgId, from, to, text: msgId, ts, tsIsDelivery: false, read: true,
+  });
+  // Three from security, then one back from perf — the reply breaks the run.
+  const RUN_MAIL = [
+    run('r1', 'security', 'perf', T0),
+    run('r2', 'security', 'perf', T0 + 5_000),
+    run('r3', 'security', 'perf', T0 + 9_000),
+    run('r4', 'perf', 'security', T0 + 20_000),
+  ];
+  const RUN_PROPS = { mail: RUN_MAIL, agents: [agent('perf'), agent('security')] };
+
+  it('names the sender once at the top of a run, in the room', () => {
+    renderComms(RUN_PROPS);
+    const named = screen.getAllByTestId('room-line')
+      .map((l) => within(l).queryByTestId('room-from')?.textContent ?? '');
+    expect(named).toEqual(['security', '', '', 'perf']);
+  });
+
+  it('hangs the face off the last bubble of a run, in the room', () => {
+    renderComms(RUN_PROPS);
+    const faces = screen.getAllByTestId('face-slot');
+    expect(faces.map((f) => within(f).queryAllByTestId('portrait').length)).toEqual([0, 0, 1, 1]);
+    // The slot stays behind it, so the bubbles of a run keep one edge.
+    expect(faces[0].style.width).toBe('22px');
+  });
+
+  it('tightens the gap inside a run and opens it when the speaker changes', () => {
+    renderComms(RUN_PROPS);
+    expect(screen.getAllByTestId('room-line').map((l) => l.style.marginTop)).toEqual([
+      '10px', '3px', '3px', '10px',
+    ]);
+  });
+
+  // A run is one sender, not one recipient: the room is every direct message
+  // read end to end, and folding the recipients away would invent a channel.
+  it('keeps naming who each line went to inside a run', () => {
+    renderComms({
+      agents: [agent('perf'), agent('security'), agent('tests')],
+      mail: [run('a', 'security', 'perf', T0), run('b', 'security', 'tests', T0 + 5_000)],
+    });
+    expect(screen.getAllByTestId('room-to').map((n) => n.textContent)).toEqual(['→ perf', '→ tests']);
+  });
+
+  it('collapses a run the same way in a pair thread', () => {
+    renderComms({ ...RUN_PROPS, openThread: 'perf' });
+    const bubbles = screen.getAllByTestId('bubble');
+    expect(bubbles.map((b) => within(b).queryByTestId('bubble-from')?.textContent ?? '')).toEqual([
+      'security', '', '', 'perf',
+    ]);
+    expect(bubbles.map((b) => within(b).queryAllByTestId('portrait').length)).toEqual([0, 0, 1, 1]);
+    expect(bubbles.map((b) => b.style.marginTop)).toEqual(['10px', '3px', '3px', '10px']);
+  });
+
+  it('still clocks every message in a run, since a run can span minutes', () => {
+    renderComms({ ...RUN_PROPS, openThread: 'perf' });
+    expect(screen.getAllByTestId('bubble-ts').map((n) => n.textContent)).toEqual([
+      '15:10:00', '15:10:05', '15:10:09', '15:10:20',
+    ]);
+  });
+
+  it('sets a room body on the same line-height as a pair bubble', () => {
+    renderComms();
+    expect(screen.getAllByTestId('room-body')[0].style.lineHeight).toBe('1.6');
+  });
+});
+
 describe('Comms — which thread opens', () => {
   it('opens the room on a plain view switch', () => {
     renderComms();
