@@ -64,6 +64,38 @@ describe('domain contract', () => {
     expect(task.owner).toBe('probe-alpha');
   });
 
+  it('types a task carrying its creation-time metadata, model as a tier name', () => {
+    const task: Task = {
+      id: '2',
+      subject: 'Add the diff payload to the shared domain model',
+      description: 'Add an optional diff field to TranscriptLine.',
+      owner: 'domain',
+      state: 'completed',
+      blocks: ['3', '4'],
+      blockedBy: [],
+      metadata: {
+        complexity: 'judgment',
+        model: 'opus',
+        effort: 'high',
+        why: 'defines the shape #3, #4 and #6 all consume',
+      },
+    };
+    expect(task.metadata?.model).toBe('opus');
+    expect(task.metadata?.complexity).toBe('judgment');
+  });
+
+  it('leaves metadata undefined on a task from a session that never set it', () => {
+    const task: Task = {
+      id: '3',
+      subject: 'no metadata',
+      description: '',
+      state: 'pending',
+      blocks: [],
+      blockedBy: [],
+    };
+    expect(task.metadata).toBeUndefined();
+  });
+
   it('pins the nine transcript markers', () => {
     const markers: Marker[] = ['❯', '⏺', '⎿', '✓', '✗', '+', '!', '▲', '○'];
     expect(markers).toHaveLength(9);

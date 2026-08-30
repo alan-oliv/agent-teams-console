@@ -52,6 +52,7 @@ export function Tasks({
           <span style={{ width: '44px' }}>TASK</span>
           <span style={{ flex: 1 }}>DESCRIPTION</span>
           <span style={{ width: '92px' }}>STATE</span>
+          <span style={{ width: '60px' }}>MODEL</span>
           <span style={{ width: '80px' }}>OWNER</span>
           <span style={{ width: '88px' }}>DEPENDS ON</span>
         </div>
@@ -103,6 +104,9 @@ export function Tasks({
                 >
                   <span style={{ fontSize: '10px' }}>{state.glyph}</span>
                   <span>{state.label}</span>
+                </span>
+                <span data-testid="task-model" style={{ width: '60px', color: 'var(--color-neutral-700)' }}>
+                  {task.metadata?.model ?? '—'}
                 </span>
                 <span data-testid="task-owner" style={{ width: '80px', color: 'var(--color-neutral-500)' }}>
                   {task.owner ?? 'unassigned'}

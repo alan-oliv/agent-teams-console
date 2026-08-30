@@ -92,6 +92,23 @@ export interface Agent {
   error?: string;
 }
 
+/**
+ * Set at task creation, by convention rather than a schema the task store
+ * enforces — a task from another session may carry none of it, or fields
+ * beyond these four.
+ *
+ * `model` is a TIER NAME ('opus', 'sonnet', 'haiku'): what the task is judged
+ * to be worth, not the agent that ends up running it. It is a different
+ * vocabulary from `Agent.model`'s canonical id ('claude-haiku-4-5') and the
+ * two must never be rendered as though they were the same field.
+ */
+export interface TaskMetadata {
+  complexity?: string;
+  model?: string;
+  effort?: string;
+  why?: string;
+}
+
 export interface Task {
   id: string;
   subject: string;
@@ -101,6 +118,7 @@ export interface Task {
   state: TaskState;
   blocks: string[];
   blockedBy: string[];
+  metadata?: TaskMetadata;
 }
 
 export type ProtocolFrameType =

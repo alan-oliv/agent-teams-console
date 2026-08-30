@@ -19,6 +19,7 @@ const TASKS: Task[] = [
     state: 'completed',
     blocks: [],
     blockedBy: [],
+    metadata: { complexity: 'judgment', model: 'opus', effort: 'high', why: 'spike setup' },
   },
   {
     id: '2',
@@ -90,6 +91,7 @@ describe('Tasks — left pane', () => {
     expect(screen.getByText('TASK').style.width).toBe('44px');
     expect(screen.getByText('DESCRIPTION').style.flex).toBe(domFlex('1'));
     expect(screen.getByText('STATE').style.width).toBe('92px');
+    expect(screen.getByText('MODEL').style.width).toBe('60px');
     expect(screen.getByText('OWNER').style.width).toBe('80px');
     expect(screen.getByText('DEPENDS ON').style.width).toBe('88px');
   });
@@ -128,6 +130,15 @@ describe('Tasks — left pane', () => {
     const rows = screen.getAllByTestId('task-row');
     expect(within(rows[0]).getByTestId('task-owner').textContent).toBe('probe-alpha');
     expect(within(rows[1]).getByTestId('task-owner').textContent).toBe('unassigned');
+  });
+
+  // task 2 carries no metadata at all — the common case for a task from
+  // another session, or one created before this field existed.
+  it('shows metadata.model as its tier name, or an em dash when metadata is absent', () => {
+    renderTasks();
+    const rows = screen.getAllByTestId('task-row');
+    expect(within(rows[0]).getByTestId('task-model').textContent).toBe('opus');
+    expect(within(rows[1]).getByTestId('task-model').textContent).toBe('—');
   });
 
   it('shows the state glyph and label, and an em dash for no dependencies', () => {
