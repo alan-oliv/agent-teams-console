@@ -149,6 +149,36 @@ there, only when you ask it to.
 The server exits ten minutes after the last team goes away, and immediately on the
 lead's `SessionEnd`. Start it with `--read-only` to disable every control route.
 
+### A workflow run has no controls, and cannot have any
+
+The design names two, `skip agent` and `stop run`, and neither ships. Not
+because a server route is missing — because there is nothing for a route to
+call.
+
+A dynamic workflow runs inside the Claude Code session process. Both verbs are
+an `AbortController.abort()` and a status write against an in-memory task
+registry, and the only callers are that session's own terminal UI: `x` on a
+running run in the task list, skip and retry in its detail panel. Nothing on
+disk drives them. `journal.jsonl` and the run snapshot this console reads are
+outputs, and the journal is read back only at the start of a
+`Workflow({ resumeFromRunId })` replay.
+
+The one live channel another process can open is the per-session unix socket
+advertised in `sessions/<pid>.json`. It accepts three things: a prompt for the
+session's queue, a rename, and delivery receipts. There is no workflow verb —
+and the prompt is the wrong shape anyway, because a queued prompt is read at a
+turn boundary and the run is happening inside the tool call that turn is
+waiting on. `stop the run` would arrive after the run it was meant to stop. A
+signal to the session's pid would end the whole session and every teammate in
+it, which is a different verb with a different blast radius.
+
+So the console watches a workflow and never touches it. This is the refusal the
+design makes for `Send now` on the in-flight badge: a control whose only effect
+is its own highlight teaches a capability that does not exist, and it does it at
+the moment the operator most needs to trust the screen. Checked against Claude
+Code 2.1.231 — if a run-control call ever ships, this is the paragraph to
+delete.
+
 ## What is left to install: two env vars
 
 The plugin carries its own hooks. All ten observation events — `PreToolUse`,
