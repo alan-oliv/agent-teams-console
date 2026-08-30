@@ -96,6 +96,25 @@ describe('Workflow', () => {
     expect(screen.getByTestId('wf-elapsed').textContent).toBe('1m 00s');
   });
 
+  // The design gives the right side the task id, the run totals and elapsed —
+  // and no status word. The run picker beside the wordmark already carries the
+  // state, so the word was a second readout of one fact.
+  it('carries the run totals, and no status word', () => {
+    renderWorkflow();
+    const totals = screen.getByTestId('wf-run-totals').textContent ?? '';
+
+    expect(totals).toContain('219 tools');
+    expect(totals).toMatch(/699k|698/);
+    expect(screen.queryByTestId('wf-status')).toBeNull();
+  });
+
+  // Tokens and tool calls arrive with the snapshot. Started/returned is the
+  // only total a run in flight actually has.
+  it('totals a live run by what its journal counted', () => {
+    renderWorkflow(LIVE);
+    expect(screen.getByTestId('wf-run-totals').textContent).toBe('1 started · 0 returned');
+  });
+
   // The bar is one 40px line, and a child that can shrink or wrap doubles its
   // height. Four pills is not the team bar's six, but the discipline is the same
   // — and it is the same bar, so the rule is pinned the same way here.
@@ -194,7 +213,10 @@ describe('Workflow', () => {
   // no label on disk, so the grid is not merely empty — it is not derivable.
   it('draws a live run as a flat agent list, not as an empty grid', () => {
     renderWorkflow(LIVE);
-    expect(screen.queryByTestId('workflow-run')).toBeNull();
+    // The run view owns the live/finished split now, so it is mounted either
+    // way — what a live run must not have is the grid or the phase groups.
+    expect(screen.queryByTestId('wf-row')).toBeNull();
+    expect(screen.queryByTestId('wf-phase-group')).toBeNull();
     expect(screen.getByTestId('workflow-agents')).toBeTruthy();
     expect(screen.getByTestId('wf-live-note').textContent).toMatch(/until the run ends/i);
   });

@@ -1,4 +1,5 @@
 import type { WorkflowAgent, WorkflowAgentState, WorkflowPhase, WorkflowRun } from '../../shared/domain';
+import { formatTokens } from '../format';
 
 /**
  * The identity column, MEASURED rather than estimated — the design says an
@@ -118,6 +119,24 @@ export function liveCounts(run: WorkflowRun): { started: number; returned: numbe
     started: run.agents.length,
     returned: run.agents.filter((a) => a.state === 'done').length,
   };
+}
+
+/**
+ * The run totals for the status bar — the design's "run totals on the right".
+ * Two different quantities behind one slot, because a live run and a finished
+ * run genuinely have different totals, and `undefined` rather than a zeroed
+ * string when a finished snapshot carried neither.
+ */
+export function runTotalsText(run: WorkflowRun): string | undefined {
+  if (run.live) {
+    const { started, returned } = liveCounts(run);
+    return `${started} started · ${returned} returned`;
+  }
+  const parts = [
+    run.totalTokens === undefined ? undefined : formatTokens(run.totalTokens),
+    run.totalToolCalls === undefined ? undefined : `${run.totalToolCalls} tools`,
+  ].filter((part): part is string => part !== undefined);
+  return parts.length > 0 ? parts.join(' · ') : undefined;
 }
 
 /**
