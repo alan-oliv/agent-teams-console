@@ -968,6 +968,50 @@ describe('task blocking', () => {
   });
 });
 
+// metadata is set at task creation by convention, not a schema the store
+// enforces — most tasks won't carry it, so the passthrough must not choke on
+// its absence.
+describe('task metadata', () => {
+  const configWith = (names: string[]): TeamConfig => ({
+    name: 'session-metadata',
+    createdAt: 0,
+    leadAgentId: names[0],
+    leadSessionId: names[0],
+    members: names.map((n) => ({ agentId: n, name: n, joinedAt: 0, tmuxPaneId: '', subscriptions: [] })),
+  });
+
+  const taskEvent = (seq: number, task: Partial<TaskPayload> & { id: string }): StoredEvent => ({
+    seq,
+    ts: 0,
+    kind: 'task',
+    payload: { subject: 's', description: 'd', blocks: [], blockedBy: [], status: 'pending', ...task },
+  });
+
+  it('passes metadata through unchanged', () => {
+    const log: StoredEvent[] = [
+      { seq: 1, ts: 0, kind: 'roster', payload: { config: configWith(['worker']), sidecars: [] } },
+      taskEvent(2, {
+        id: '1',
+        metadata: { complexity: 'judgment', model: 'opus', effort: 'high', why: 'defines the shape' },
+      }),
+    ];
+    expect(project(log, false).tasks.find((t) => t.id === '1')!.metadata).toEqual({
+      complexity: 'judgment',
+      model: 'opus',
+      effort: 'high',
+      why: 'defines the shape',
+    });
+  });
+
+  it('leaves metadata undefined on a task that never set it', () => {
+    const log: StoredEvent[] = [
+      { seq: 1, ts: 0, kind: 'roster', payload: { config: configWith(['worker']), sidecars: [] } },
+      taskEvent(2, { id: '1' }),
+    ];
+    expect(project(log, false).tasks.find((t) => t.id === '1')!.metadata).toBeUndefined();
+  });
+});
+
 describe('transcriptHistory', () => {
   const recs = (from: number, to: number): TranscriptRecord[] =>
     Array.from({ length: to - from }, (_, i) => ({

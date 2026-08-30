@@ -6,6 +6,7 @@ import type {
   NeedsYouItem,
   RateLimits,
   Task,
+  TaskMetadata,
   TeamState,
   TranscriptLine,
 } from '../shared/domain';
@@ -83,6 +84,7 @@ export interface TaskPayload {
   status: 'pending' | 'in_progress' | 'completed';
   blocks: string[];
   blockedBy: string[];
+  metadata?: TaskMetadata;
 }
 export type MailPayload =
   | { source: 'inbox'; to: string; entries: InboxEntry[] }
@@ -476,6 +478,7 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
       state: deriveTaskState(t.status, { owner: t.owner, blockedBy: openBlockedBy }, agents),
       blocks: t.blocks ?? [],
       blockedBy: openBlockedBy,
+      metadata: t.metadata,
     };
   });
 
