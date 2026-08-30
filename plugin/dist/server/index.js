@@ -4942,13 +4942,13 @@ async function listTeamSummaries(teamsRoot2, sessionsRoot, current, projectsRoot
       state: leadAlive ? "live" : recent ? "idle" : "done"
     });
   }
-  adoptByCwd(teams, leadCwds, sessions);
+  adoptByCwd(teams, leadCwds, sessions, now);
   teams.sort(
     (a, b) => Number(b.current) - Number(a.current) || Number(b.live) - Number(a.live) || b.lastActivityAt - a.lastActivityAt || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
   );
   return { current, teams };
 }
-function adoptByCwd(teams, leadCwds, sessions) {
+function adoptByCwd(teams, leadCwds, sessions, now) {
   const byCwd = /* @__PURE__ */ new Map();
   const ambiguous = /* @__PURE__ */ new Set();
   for (const sessionId of sessions.live) {
@@ -4961,7 +4961,18 @@ function adoptByCwd(teams, leadCwds, sessions) {
   if (byCwd.size === 0) return;
   const claimed = new Set(teams.filter((t) => t.leadAlive).map((t) => t.name));
   for (const [cwd, sessionId] of byCwd) {
-    const best = teams.filter((t) => !claimed.has(t.name) && leadCwds.get(t.name) === cwd).sort((a, b) => b.lastActivityAt - a.lastActivityAt)[0];
+    const best = teams.filter(
+      (t) => !claimed.has(t.name) && leadCwds.get(t.name) === cwd && // Bounded, and this bound is the whole point. Sharing a working
+      // directory is weak evidence — two sessions open on the same repo is
+      // ordinary — so without it a live session with no team of its own
+      // adopts the most recent LEFTOVER team in that directory and reports
+      // it as live. Observed: a session adopting a team last touched 26
+      // hours earlier, which then showed as `1 agent live` in the picker.
+      // A session genuinely driving a re-keyed team is writing to it, so
+      // requiring recent movement keeps the `/branch` case and drops the
+      // corpses.
+      now - t.lastActivityAt < IDLE_GRACE_MS
+    ).sort((a, b) => b.lastActivityAt - a.lastActivityAt)[0];
     if (!best) continue;
     claimed.add(best.name);
     best.leadAlive = true;

@@ -22,13 +22,23 @@ line all come back.
 ## 1. Stop whatever is on 4823
 
 ```bash
-pkill -f "agent-teams-console.*dist/server/index.js" 2>/dev/null
+pkill -f "dist/server/index.js --port 4823" 2>/dev/null
 sleep 1
 curl -sf -m 2 http://127.0.0.1:4823/health && echo "STILL UP" || echo "port clear"
+pgrep -af "dist/server/index.js" || echo "no console processes left"
 ```
 
-If this prints `STILL UP`, something else holds the port. Say so and stop rather
-than starting a second server against it.
+Match on the PORT, not on the plugin path. A server started from a working copy
+lives at `<repo>/plugin/dist/server/index.js`, which does not contain
+`agent-teams-console` — an earlier version of this command matched the path and
+so killed only the installed build, leaving every locally-built server running.
+Four of them accumulated that way, and whichever held the port answered
+`/health` happily, so nothing looked wrong while the console served an old
+build.
+
+If `STILL UP` is printed, something else holds the port. Say so and stop rather
+than starting a second server against it. If `pgrep` still lists processes after
+the health check fails, they are orphans holding no port — say how many.
 
 ## 2. Which team, if any, is live?
 

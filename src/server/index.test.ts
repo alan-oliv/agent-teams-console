@@ -339,11 +339,14 @@ describe('listTeamSummaries', () => {
 
   it('claims only the newest team in a directory, so yesterday\'s is not revived', async () => {
     const cwd = '/Users/someone/code/proj';
-    for (const [name, createdAt] of [['session-old', 10], ['session-new', 20]] as const) {
-      const config = team(name, { createdAt, leadSessionId: 'no-such-session', members: 1 });
+    // Both inside the grace window — this test is about WHICH of two candidates
+    // is claimed, not about staleness, which has its own test below.
+    const nowSec = Date.now() / 1000;
+    for (const [name, at] of [['session-old', nowSec - 120], ['session-new', nowSec - 30]] as const) {
+      const config = team(name, { createdAt: at * 1000, leadSessionId: 'no-such-session', members: 1 });
       config.members[0] = { ...config.members[0], cwd };
       await writeConfig(name, config);
-      await fs.utimes(path.join(teams(), name, 'config.json'), createdAt, createdAt);
+      await fs.utimes(path.join(teams(), name, 'config.json'), at, at);
     }
     await fs.mkdir(sessions(), { recursive: true });
     await fs.writeFile(
@@ -355,6 +358,33 @@ describe('listTeamSummaries', () => {
     const byName = new Map(listed.teams.map((t) => [t.name, t]));
     expect(byName.get('session-new')?.leadAlive).toBe(true);
     expect(byName.get('session-old')?.leadAlive).toBe(false);
+  });
+
+  // Sharing a working directory is weak evidence — two sessions open on the same
+  // repo is ordinary. Observed on a real machine: a live session whose own team
+  // directory was gone adopted a leftover team last touched 26 hours earlier,
+  // which then showed as "1 agent live" in the picker.
+  it('does not adopt a team in the same directory that stopped moving long ago', async () => {
+    const cwd = '/Users/someone/code/proj';
+    const stale = (Date.now() - IDLE_GRACE_MS * 3) / 1000;
+    const config = team('session-corpse', {
+      createdAt: stale * 1000,
+      leadSessionId: 'no-such-session',
+      members: 1,
+    });
+    config.members[0] = { ...config.members[0], cwd };
+    await writeConfig('session-corpse', config);
+    await fs.utimes(path.join(teams(), 'session-corpse', 'config.json'), stale, stale);
+    await fs.mkdir(sessions(), { recursive: true });
+    await fs.writeFile(
+      path.join(sessions(), `${process.pid}.json`),
+      JSON.stringify({ pid: process.pid, sessionId: 'fresh-1', cwd, name: 'a-live-session' }),
+    );
+
+    const [row] = (await listTeamSummaries(teams(), sessions(), '')).teams;
+    expect(row.leadAlive).toBe(false);
+    expect(row.live).toBe(false);
+    expect(row.state).toBe('done');
   });
 
   // A wrong name is worse than none: two sessions in one directory cannot be
