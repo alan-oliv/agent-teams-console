@@ -32,11 +32,27 @@ const Chip = memo(function Chip({
         gap: 5,
         alignItems: 'baseline',
         whiteSpace: 'nowrap',
+        // The row this sits in is overflow:hidden with no wrap, so a chip that
+        // does not fit is at the row's mercy, not its own — without a real
+        // minWidth a flex item never shrinks past its own content, and the
+        // row slices whatever is left mid-glyph instead. 56px keeps the glyph
+        // and a percent legible even once the name has nothing left to give.
+        minWidth: 56,
       }}
     >
       <StatusGlyph status={agent.status} size={10} />
-      <span style={{ color: 'var(--color-neutral-400)' }}>{agent.name}</span>
-      <span style={{ color: 'var(--color-neutral-600)' }}>
+      <span
+        style={{
+          color: 'var(--color-neutral-400)',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          minWidth: 0,
+        }}
+      >
+        {agent.name}
+      </span>
+      <span style={{ color: 'var(--color-neutral-600)', flexShrink: 0 }}>
         {formatPct(agent.contextTokens / agent.contextLimit)}
       </span>
     </button>

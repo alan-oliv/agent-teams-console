@@ -124,6 +124,37 @@ it('shows the glyph, name and context percent on each chip and focuses on click'
   expect(onFocusAgent).toHaveBeenCalledWith('probe-alpha');
 });
 
+// The row that holds these chips is overflow:hidden with no wrap (Panel.tsx),
+// so a chip too wide for a narrow window is at the mercy of the browser's own
+// layout. Each chip has to be able to shrink and ellipsize its own name
+// legibly, rather than count on the row to never slice it mid-glyph.
+it('lets a squeezed chip ellipsize its name rather than clip raw text', () => {
+  render(
+    <Panel
+      agents={[agent('probe-alpha', 'working', 120_000)]}
+      focusedAgent={null}
+      onFocusAgent={vi.fn()}
+    />,
+  );
+  const chip = screen.getByTestId('agent-chip');
+  // A real minimum, not the browser default of "never shrink below my
+  // content" — that default is exactly what let the row's overflow:hidden
+  // slice a percent sign in half.
+  expect(chip.style.minWidth).not.toBe('');
+  expect(chip.style.minWidth).not.toBe('auto');
+
+  const name = screen.getByText('probe-alpha');
+  expect(name.style.overflow).toBe('hidden');
+  expect(name.style.textOverflow).toBe('ellipsis');
+  expect(name.style.whiteSpace).toBe('nowrap');
+  expect(name.style.minWidth).toBe('0');
+
+  // The percent is the one that got clipped in practice — it must never be
+  // the part that shrinks.
+  const pct = screen.getByText('12%');
+  expect(pct.style.flexShrink).toBe('0');
+});
+
 it('collapses departed agents into their own dashed chip, distinct from idle', () => {
   render(
     <Panel
