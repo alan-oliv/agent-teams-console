@@ -46,8 +46,12 @@ export function NoSessions({ remaining, hiddenCount, onShowHidden, onSwitchTo }:
         minHeight: 0,
         overflowY: 'auto',
         display: 'flex',
+        // Centred on both axes: this is the whole body, not a panel inside one,
+        // and a block pinned to the top of an otherwise empty console reads as
+        // something that failed to load rather than a resting state.
         justifyContent: 'center',
-        padding: '48px 24px',
+        alignItems: 'center',
+        padding: '24px',
       }}
     >
       <div style={{ width: '560px', maxWidth: '100%', display: 'flex', flexDirection: 'column', gap: '22px' }}>

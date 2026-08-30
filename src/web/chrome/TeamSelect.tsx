@@ -177,12 +177,12 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
   // offered as somewhere to switch to.
   const isLeadOnly = (t: TeamSummary) => t.members < 2;
   const listed = (teams ?? []).filter((t) => t.state !== 'done' || t.current);
-  // `|| t.current` for the same reason the `done` filter carries it: dropping
-  // the row you are looking at leaves the picker contradicting the wall behind
-  // it. A lead-only session you are ON stays listed; the body tells you there is
-  // no team in it.
+  // No `|| t.current` exception here, unlike the `done` filter above: this is a
+  // TEAM picker, so a lead-only session is not a row in it even when it is the
+  // one on screen. There is no wall to contradict in that case — the body is the
+  // empty state — and the trigger still names where you are.
   const filteredOut = (t: TeamSummary) =>
-    watch.hidden.has(t.name) || (!revealed && isLeadOnly(t) && !t.current);
+    watch.hidden.has(t.name) || (!revealed && isLeadOnly(t));
   const rows = listed.filter((t) => !filteredOut(t));
   const notShown = listed.filter(filteredOut);
   const hiddenCount = notShown.length;
@@ -297,7 +297,10 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
               letterSpacing: '.12em',
             }}
           >
-            <span>{`SESSIONS ON THIS MACHINE \u00b7 ${rows.length}`}</span>
+            {/* "TEAMS", not the design's "SESSIONS": the list holds only
+                teams now, and calling them sessions is the exact conflation
+                that made four lead-only windows look like four teams. */}
+            <span>{`TEAMS ON THIS MACHINE \u00b7 ${rows.length}`}</span>
             <input
               ref={search}
               data-testid="team-search"

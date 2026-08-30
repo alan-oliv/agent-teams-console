@@ -95,9 +95,9 @@ it('falls back to the directory id when the session was never named', () => {
   expect(screen.getByTestId('team-trigger-name').textContent).toBe('session-98b0b4a7');
 });
 
-it('heads the list with the session count', async () => {
+it('heads the list with the team count', async () => {
   renderSelect();
-  expect(await screen.findByText('SESSIONS ON THIS MACHINE · 2')).toBeTruthy();
+  expect(await screen.findByText('TEAMS ON THIS MACHINE · 2')).toBeTruthy();
   expect(screen.getByText('↑↓ select · ⏎ switch · esc close')).toBeTruthy();
 });
 
@@ -308,7 +308,7 @@ it('hides a team whose session has ended — it is history, not a session on thi
   const rows = await screen.findAllByRole('option');
   expect(rows).toHaveLength(1);
   expect(within(rows[0]).getByText('session-98b0b4a7')).toBeTruthy();
-  expect(screen.getByText('SESSIONS ON THIS MACHINE · 1')).toBeTruthy();
+  expect(screen.getByText('TEAMS ON THIS MACHINE · 1')).toBeTruthy();
 });
 
 it('opens the sessions menu on ⌘K when it is closed', () => {
@@ -388,8 +388,10 @@ it('clears the filter on escape before closing the menu', async () => {
   expect(onOpenChange).toHaveBeenCalledWith(false);
 });
 
+// A TEAM that ended, not a lead-only session: those are dropped even when
+// current, since the picker lists teams and the body says so.
 it('keeps the ended team that is being VIEWED, so the picker cannot contradict the wall', async () => {
-  const teams = sampleTeams().map((t, i) => ({ ...t, current: i === 1 }));
+  const teams = sampleTeams().map((t, i) => ({ ...t, current: i === 1, members: 2 }));
   const viewing = { current: 'session-b5129c7b', teams };
   fetchMock = vi.fn(() => Promise.resolve(new Response(JSON.stringify(viewing), { status: 200 })));
   vi.stubGlobal('fetch', fetchMock);
@@ -423,7 +425,7 @@ it('drops hidden sessions from the list and from the header count', async () => 
   renderSelect({}, { hidden: new Set(['session-b5129c7b']) });
   const rows = await screen.findAllByRole('option');
   expect(rows.map((r) => r.id)).not.toContain('team-option-session-b5129c7b');
-  expect(screen.getByText(/SESSIONS ON THIS MACHINE/).textContent).toContain(
+  expect(screen.getByText(/TEAMS ON THIS MACHINE/).textContent).toContain(
     String(rows.length),
   );
 });
@@ -474,4 +476,24 @@ it('reveals the lead-only rows on demand, without needing them un-hidden', async
   expect(back.textContent).toContain('1 not shown');
   fireEvent.click(back);
   expect(await screen.findAllByRole('option')).toHaveLength(2);
+});
+
+// The picker lists TEAMS. A lead-only session is dropped even when it is the one
+// on screen — there is no wall to contradict, because the body is the empty
+// state, and the trigger still names where you are.
+it('drops a lead-only session even when it is the current one', async () => {
+  const solo = {
+    current: 'session-98b0b4a7',
+    teams: sampleTeams().map((t) => ({ ...t, members: 1, state: 'live' as const })),
+  };
+  vi.stubGlobal('fetch', vi.fn((path: string) =>
+    path === '/api/teams'
+      ? Promise.resolve(new Response(JSON.stringify(solo), { status: 200 }))
+      : Promise.resolve(new Response('{}', { status: 200 })),
+  ));
+  renderSelect();
+
+  expect(await screen.findByTestId('show-hidden-rows')).toBeTruthy();
+  expect(screen.queryAllByRole('option')).toHaveLength(0);
+  expect(screen.getByText('no teams — every session here is a lead on its own')).toBeTruthy();
 });
