@@ -30,6 +30,25 @@ function mount(view = 'wall') {
 
 const open = () => fireEvent.click(screen.getByTestId('config-trigger'));
 
+/** Both pickers are dropdowns now: a closed row, then the menu it opens. */
+const pickTheme = (id: string) => {
+  fireEvent.click(screen.getByTestId('theme-trigger'));
+  fireEvent.click(screen.getByTestId(`theme-${id}`));
+};
+const pickMovie = (key: string) => {
+  fireEvent.click(screen.getByTestId('movie-trigger'));
+  fireEvent.click(screen.getByTestId(`movie-${key}`));
+};
+
+// jsdom normalises a hex background to rgb(), so compare through the DOM.
+const asRendered = (hex: string) => {
+  const probe = document.createElement('span');
+  probe.style.background = hex;
+  return probe.style.background;
+};
+const bandsOf = (row: HTMLElement) =>
+  ([...row.querySelectorAll('span > span')] as HTMLElement[]).map((b) => b.style.background);
+
 describe('the config popover', () => {
   it('opens from the gear and closes again', () => {
     mount();
@@ -49,32 +68,94 @@ describe('the config popover', () => {
     expect(screen.queryByTestId('config-menu')).toBeNull();
   });
 
-  it('offers all six themes, each previewing itself', () => {
+  it('shows the theme as a closed row carrying its own swatch', () => {
     mount();
     open();
+    expect(screen.queryByTestId('theme-menu')).toBeNull();
+    const row = screen.getByTestId('theme-trigger');
+    expect(row.textContent).toContain(THEMES.nocturne.label);
+    // Ground / accent / text, painted in the theme's OWN colours so the
+    // choice is visible before it is applied.
+    expect(bandsOf(row)).toEqual([
+      asRendered(THEMES.nocturne.term),
+      asRendered(THEMES.nocturne.accents.a.steps[0]),
+      asRendered(THEMES.nocturne.text),
+    ]);
+  });
+
+  it('offers all six themes in the menu, each previewing itself', () => {
+    mount();
+    open();
+    fireEvent.click(screen.getByTestId('theme-trigger'));
     for (const id of ['nocturne', 'organic', 'ember', 'frost', 'slate', 'phosphor'] as const) {
-      const tile = screen.getByTestId(`theme-${id}`);
-      expect(tile.title).toBe(THEMES[id].note);
-      // Ground / accent / text, painted in the theme's OWN colours so the
-      // choice is visible before it is applied.
-      const stripes = [...tile.querySelectorAll('span > span')] as HTMLElement[];
-      // jsdom normalises a hex background to rgb(), so compare through the DOM.
-      const asRendered = (hex: string) => {
-        const probe = document.createElement('span');
-        probe.style.background = hex;
-        return probe.style.background;
-      };
-      expect(stripes[0].style.background).toBe(asRendered(THEMES[id].term));
-      expect(stripes[1].style.background).toBe(asRendered(THEMES[id].accents.a.steps[0]));
-      expect(stripes[2].style.background).toBe(asRendered(THEMES[id].text));
+      const option = screen.getByTestId(`theme-${id}`);
+      expect(option.title).toBe(THEMES[id].note);
+      expect(bandsOf(option)).toEqual([
+        asRendered(THEMES[id].term),
+        asRendered(THEMES[id].accents.a.steps[0]),
+        asRendered(THEMES[id].text),
+      ]);
     }
+  });
+
+  it('offers the ten films and off, each named by its lead', () => {
+    mount();
+    open();
+    fireEvent.click(screen.getByTestId('movie-trigger'));
+    const menu = screen.getByTestId('movie-menu');
+    expect(menu.querySelectorAll('[data-testid^="movie-"]')).toHaveLength(11);
+    expect(screen.getByTestId('movie-off').textContent).toContain('off');
+    const inception = screen.getByTestId('movie-inception');
+    expect(inception.textContent).toContain('Inception');
+    expect(inception.textContent).toContain('Cobb');
+  });
+
+  it('keeps the menus off the panel height: both are absolutely positioned', () => {
+    mount();
+    open();
+    fireEvent.click(screen.getByTestId('movie-trigger'));
+    const movie = screen.getByTestId('movie-menu');
+    expect(movie.style.position).toBe('absolute');
+    expect(movie.style.top).toBe('calc(100% + 4px)');
+    expect(movie.style.maxHeight).toBe('186px');
+    fireEvent.click(screen.getByTestId('theme-trigger'));
+    // One at a time, or the two menus overlap.
+    expect(screen.queryByTestId('movie-menu')).toBeNull();
+    expect(screen.getByTestId('theme-menu').style.position).toBe('absolute');
+  });
+
+  // The inline list had grown the panel past the console it hangs in, and a
+  // percentage cap resolves against a positioned wrapper of no height — 1px.
+  it('bounds the panel in px, never as a percentage', () => {
+    mount();
+    open();
+    const menu = screen.getByTestId('config-menu');
+    expect(menu.style.maxHeight).toBe('600px');
+    expect(menu.style.height).not.toContain('%');
+  });
+
+  it('says the theme renames agents and nothing else', () => {
+    mount();
+    open();
+    expect(
+      screen.getByText('Names only. Types, states and metrics keep their real values.'),
+    ).toBeTruthy();
+  });
+
+  it('puts movie theme above theme', () => {
+    mount();
+    open();
+    const labels = [...screen.getByTestId('config-menu').querySelectorAll('span')]
+      .map((s) => s.textContent)
+      .filter((t) => t === 'movie theme' || t === 'theme');
+    expect(labels).toEqual(['movie theme', 'theme']);
   });
 
   it('names the four accents by the picked theme own names', () => {
     mount();
     open();
     expect(screen.getByTestId('scheme-a').getAttribute('aria-label')).toBe('blurple');
-    fireEvent.click(screen.getByTestId('theme-organic'));
+    pickTheme('organic');
     expect(screen.getByTestId('scheme-a').getAttribute('aria-label')).toBe('moss');
     expect(screen.getByTestId('scheme-c').getAttribute('aria-label')).toBe('clay');
   });
@@ -94,7 +175,7 @@ describe('every control changes the render', () => {
     expect(console_.style.getPropertyValue('--term')).toBe(THEMES.nocturne.term);
 
     open();
-    fireEvent.click(screen.getByTestId('theme-organic'));
+    pickTheme('organic');
     expect(console_.style.getPropertyValue('--term')).toBe(THEMES.organic.term);
     expect(console_.style.getPropertyValue('--color-text')).toBe(THEMES.organic.text);
     // The light theme's ramp runs the other way, which is the whole trick.
@@ -184,11 +265,26 @@ describe('persistence', () => {
   it('writes the choice to localStorage under the machine-wide key', () => {
     mount();
     open();
-    fireEvent.click(screen.getByTestId('theme-ember'));
+    pickTheme('ember');
     fireEvent.click(screen.getByTestId('density-roomy'));
     const stored = JSON.parse(window.localStorage.getItem(SETTINGS_KEY)!);
     expect(stored.theme).toBe('ember');
     expect(stored.density).toBe('roomy');
+  });
+
+  it('reads off until a film is picked, then the film, and stores the key', () => {
+    mount();
+    open();
+    expect(screen.getByTestId('movie-trigger').textContent).toContain('off');
+
+    pickMovie('lotr');
+    expect(screen.queryByTestId('movie-menu')).toBeNull();
+    expect(screen.getByTestId('movie-trigger').textContent).toContain('The Lord of the Rings');
+    expect(JSON.parse(window.localStorage.getItem(SETTINGS_KEY)!).movieTheme).toBe('lotr');
+
+    pickMovie('off');
+    expect(screen.getByTestId('movie-trigger').textContent).toContain('off');
+    expect(JSON.parse(window.localStorage.getItem(SETTINGS_KEY)!).movieTheme).toBeNull();
   });
 
   it('opens on the stored theme rather than the default', () => {
@@ -200,7 +296,7 @@ describe('persistence', () => {
   it('reset puts everything back and clears the render with it', () => {
     const console_ = mount();
     open();
-    fireEvent.click(screen.getByTestId('theme-frost'));
+    pickTheme('frost');
     fireEvent.click(screen.getByTestId('toggle-avatars'));
     expect(screen.queryAllByTestId('portrait')).toHaveLength(0);
 
