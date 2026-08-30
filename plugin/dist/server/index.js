@@ -5015,7 +5015,15 @@ async function main(argv) {
     const events = store.replay();
     const team = project(events, cli.readOnly);
     const workflows = foldWorkflows(events);
-    return { ...team, mode: modeOf(team.agents.length, workflows), workflows };
+    return {
+      ...team,
+      // Hook-supplied values win; the disk-derived ones are the floor, so the
+      // header is right whether or not the status line is installed.
+      sessionName: team.sessionName ?? leadFacts.sessionName,
+      branch: team.branch ?? leadFacts.branch,
+      mode: modeOf(team.agents.length, workflows),
+      workflows
+    };
   };
   const hub = createStream(publish);
   const live = {
@@ -5053,12 +5061,14 @@ async function main(argv) {
   await ingest.sweep();
   let switching = false;
   let pinned = false;
+  let leadFacts = {};
   const retarget = async (team, lead) => {
     const gen = ++generation;
     ingest.close();
     store.setTeam(team);
     leadSessionId = lead;
     currentTeam = team;
+    leadFacts = {};
     ingest = startIngest(gen, team, lead);
     await ingest.sweep();
     hub.publish();
@@ -5130,8 +5140,11 @@ async function main(argv) {
   const port = await listen(server, cli.port);
   console.log(`agent teams console on http://127.0.0.1:${port}${cli.readOnly ? " (read-only)" : ""}`);
   const followRealTeam = async () => {
-    if (pinned || switching) return;
+    if (switching) return;
     const { teams } = await listTeamSummaries(teamsRoot2, sessionsRoot, currentTeam, projectsRoot);
+    const mine = teams.find((t) => t.name === currentTeam);
+    leadFacts = { sessionName: mine?.goal, branch: mine?.branch };
+    if (pinned) return;
     if (teams.some((t) => t.name === currentTeam && t.members >= 2)) return;
     const target = teams.find((t) => t.members >= 2 && t.live);
     if (!target || target.name === currentTeam) return;

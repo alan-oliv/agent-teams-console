@@ -43,17 +43,27 @@ const LINE: CSSProperties = { display: 'flex', alignItems: 'baseline', gap: '7px
  * next turn boundary, so a non-zero badge on a busy agent is normal and only
  * means "sent, not yet seen".
  *
- * There is no external way to force that boundary, so this is a readout rather
- * than a button — a "drain now" control would be a lie about what the runtime
- * exposes.
+ * There is no external way to force that boundary, so this does not offer to
+ * drain — a "drain now" control would be a lie about what the runtime exposes.
+ * It DOES open the messages, which is a different thing: the count was
+ * previously the only evidence they existed, so the operator could see that
+ * four things were queued and had no way to find out what they were. Comms
+ * already renders them, including protocol frames like a shutdown request.
  */
-function InFlight({ agent }: { agent: Agent }) {
+function InFlight({ agent, onOpen }: { agent: Agent; onOpen?: (name: string) => void }) {
   if (agent.unread === 0) return null;
   return (
-    <span
+    <button
+      type="button"
       data-testid="in-flight"
-      title="written to this inbox · read at its next turn boundary"
+      title="written to this inbox · read at its next turn boundary · click to read them"
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpen?.(agent.name);
+      }}
       style={{
+        background: 'transparent',
+        cursor: onOpen ? 'pointer' : 'default',
         display: 'flex',
         alignItems: 'baseline',
         gap: '4px',
@@ -67,13 +77,13 @@ function InFlight({ agent }: { agent: Agent }) {
       }}
     >
       {`${agent.unread} in flight`}
-    </span>
+    </button>
   );
 }
 
 const Column = memo(function Column({
   agent, isFocused, isTinted, isDragging, width, readOnly, teamLive, routed,
-  onFocus, onHoverEnter, onHoverLeave, onGrip, onGripReset,
+  onFocus, onHoverEnter, onHoverLeave, onGrip, onGripReset, onOpenMail,
 }: {
   agent: Agent;
   isFocused: boolean;
@@ -107,6 +117,8 @@ const Column = memo(function Column({
   onHoverLeave: (name: string) => void;
   onGrip: (name: string, e: ReactMouseEvent) => void;
   onGripReset: (name: string) => void;
+  /** Opens this agent's queued messages in comms. Absent leaves the badge inert. */
+  onOpenMail?: (name: string) => void;
 }) {
   const status = AGENT_STATUS[agent.status];
   const isLeadColumn = agent.isLead;
@@ -183,7 +195,7 @@ const Column = memo(function Column({
             >
               {agent.model}
             </span>
-            <InFlight agent={agent} />
+            <InFlight agent={agent} onOpen={onOpenMail} />
             <StopControlButton agent={agent} />
           </div>
 
@@ -335,11 +347,13 @@ const Column = memo(function Column({
 });
 
 export function Wall({
-  agents, focused, onFocus, now, readOnly = false, widths = {}, onWidthChange,
+  agents, focused, onFocus, now, readOnly = false, widths = {}, onWidthChange, onOpenMail,
 }: {
   agents: Agent[];
   focused: string | null;
   onFocus: (name: string) => void;
+  /** Jumps to this agent's queued messages. The badge is a readout otherwise. */
+  onOpenMail?: (name: string) => void;
   now: number;
   readOnly?: boolean;
   widths?: Readonly<Record<string, number>>;
@@ -453,6 +467,7 @@ export function Wall({
             teamLive={teamLive}
             routed={agent.isLead}
             onFocus={onFocus}
+            onOpenMail={onOpenMail}
             onHoverEnter={onHoverEnter}
             onHoverLeave={onHoverLeave}
             onGrip={onGrip}

@@ -270,6 +270,10 @@ export function App() {
             readOnly={state.readOnly}
             widths={store.widths}
             onWidthChange={store.setWidth}
+            onOpenMail={(name) => {
+              store.setAgent(name);
+              store.setView('comms');
+            }}
           />
         )}
         {store.view === 'overview' && (

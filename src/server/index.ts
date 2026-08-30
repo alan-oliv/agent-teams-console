@@ -523,7 +523,15 @@ export async function main(argv: string[]): Promise<number> {
     const events = store.replay();
     const team = project(events, cli.readOnly);
     const workflows = foldWorkflows(events);
-    return { ...team, mode: modeOf(team.agents.length, workflows), workflows };
+    return {
+      ...team,
+      // Hook-supplied values win; the disk-derived ones are the floor, so the
+      // header is right whether or not the status line is installed.
+      sessionName: team.sessionName ?? leadFacts.sessionName,
+      branch: team.branch ?? leadFacts.branch,
+      mode: modeOf(team.agents.length, workflows),
+      workflows,
+    };
   };
 
   const hub = createStream(publish);
@@ -582,6 +590,11 @@ export async function main(argv: string[]): Promise<number> {
   // only ever corrects the console's OWN guess — once a human has chosen, a
   // team appearing elsewhere must not yank them off what they are reading.
   let pinned = false;
+  /**
+   * Session name and branch read off disk for the CURRENT team, refreshed by
+   * the follower. A floor under the `statusline` hook, which is optional.
+   */
+  let leadFacts: { sessionName?: string; branch?: string } = {};
 
   /**
    * Only the ingest is rebuilt. The store is RE-POINTED: setTeam already clears
@@ -597,6 +610,11 @@ export async function main(argv: string[]): Promise<number> {
     store.setTeam(team);
     leadSessionId = lead;
     currentTeam = team;
+    // Dropped, not left to the follower's next tick: these are the OLD team's
+    // name and branch, and holding them for even one interval would show the
+    // session you just left in the header of the one you switched to. Cleared
+    // here so the worst case is a blank field for a moment, not a wrong one.
+    leadFacts = {};
     ingest = startIngest(gen, team, lead);
     // Answering before the sweep lands would return a console with no team name
     // — which is also what http.ts's team() reads, so a control request racing
@@ -698,8 +716,19 @@ export async function main(argv: string[]): Promise<number> {
    * steal the view from a team that is actually working.
    */
   const followRealTeam = async (): Promise<void> => {
-    if (pinned || switching) return;
+    if (switching) return;
     const { teams } = await listTeamSummaries(teamsRoot, sessionsRoot, currentTeam, projectsRoot);
+
+    // The listing already resolved both of these off disk for every row, so
+    // caching the current team's costs nothing. The frame's own copies come
+    // from the `statusline` hook, which only fires when the console owns the
+    // `statusLine` key — an optional install step — so on most machines the
+    // header fell back to the directory id while the picker row two lines
+    // below it showed the real name.
+    const mine = teams.find((t) => t.name === currentTeam);
+    leadFacts = { sessionName: mine?.goal, branch: mine?.branch };
+
+    if (pinned) return;
     if (teams.some((t) => t.name === currentTeam && t.members >= 2)) return;
     // Sorted live-first, then by most recent activity, so the first real team
     // is the one worth watching.

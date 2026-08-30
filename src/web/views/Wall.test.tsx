@@ -663,3 +663,24 @@ describe('interactions the wall settles against the README', () => {
     expect(screen.queryByText(/idle agents?$/)).toBeNull();
   });
 });
+
+it('opens the queued messages from the in-flight badge instead of only counting them', () => {
+  const onOpenMail = vi.fn();
+  const agents = [{ ...fixtureAgents()[0], unread: 4 }];
+  render(<Wall agents={agents} focused={null} onFocus={() => {}} now={FIXTURE_NOW} onOpenMail={onOpenMail} />);
+
+  const badge = screen.getByTestId('in-flight');
+  expect(badge.textContent).toBe('4 in flight');
+  fireEvent.click(badge);
+  expect(onOpenMail).toHaveBeenCalledWith(agents[0].name);
+});
+
+// The badge must not double as "focus this column" — it sits inside a row whose
+// own click focuses, and opening the mail is the more specific intent.
+it('does not focus the column when the badge is clicked', () => {
+  const onFocus = vi.fn();
+  const agents = [{ ...fixtureAgents()[0], unread: 2 }];
+  render(<Wall agents={agents} focused={null} onFocus={onFocus} now={FIXTURE_NOW} onOpenMail={() => {}} />);
+  fireEvent.click(screen.getByTestId('in-flight'));
+  expect(onFocus).not.toHaveBeenCalled();
+});
