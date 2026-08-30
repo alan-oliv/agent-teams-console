@@ -226,11 +226,13 @@ describe('Workflow', () => {
     expect(screen.getByTestId('wf-elapsed').textContent).toBe('—');
   });
 
-  it('draws no run control, because no route backs one', () => {
+  it('draws no run control, because none can exist', () => {
     const { container } = renderWorkflow();
-    // `skip agent` and `stop run` wait on a server route, per the console's own
-    // precedent. The chrome's own controls — the picker and the gear — are not
-    // run controls and are exempt.
+    // `skip agent` and `stop run` are refused, not pending: both are an
+    // in-process abort inside the session, reachable only from its own terminal
+    // UI. See the README, "A workflow run has no controls, and cannot have
+    // any". The chrome's own controls — the picker and the gear — are not run
+    // controls and are exempt.
     expect(container.textContent ?? '').not.toMatch(/skip agent|stop run/i);
     expect(screen.queryByRole('button', { name: /skip|stop/i })).toBeNull();
   });
