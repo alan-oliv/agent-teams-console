@@ -893,6 +893,16 @@ describe('task blocking', () => {
     expect(project(log, false).tasks.find((t) => t.id === '2')!.state).toBe('pending');
   });
 
+  it("exposes only the still-open blockers on the task, matching the tool's own contract", () => {
+    const log: StoredEvent[] = [
+      { seq: 1, ts: 0, kind: 'roster', payload: { config: configWith(['worker']), sidecars: [] } },
+      taskEvent(2, { id: '1', status: 'completed' }),
+      taskEvent(3, { id: '2' }),
+      taskEvent(4, { id: '3', owner: 'worker', blockedBy: ['1', '2'] }),
+    ];
+    expect(project(log, false).tasks.find((t) => t.id === '3')!.blockedBy).toEqual(['2']);
+  });
+
   it('still blocks a dependent whose dependency is still open', () => {
     const log: StoredEvent[] = [
       { seq: 1, ts: 0, kind: 'roster', payload: { config: configWith(['worker']), sidecars: [] } },

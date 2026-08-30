@@ -475,7 +475,7 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
       owner: t.owner,
       state: deriveTaskState(t.status, { owner: t.owner, blockedBy: openBlockedBy }, agents),
       blocks: t.blocks ?? [],
-      blockedBy: t.blockedBy ?? [],
+      blockedBy: openBlockedBy,
     };
   });
 
