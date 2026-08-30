@@ -105,6 +105,41 @@ export function unwrapTeammateFrames(text: string): string {
   return text.replace(FRAME_RE, (_frame, _attrs: string, body: string) => body);
 }
 
+/** One delivered message, or a run of the recipient's own prose between two. */
+export interface DeliveryPart {
+  /** The teammate that sent this part. Absent on the surrounding prose. */
+  from?: string;
+  text: string;
+}
+
+/**
+ * The same unwrapping, but keeping who sent what. A record is not a message:
+ * the real lead delivery in the corpus carries six frames from three teammates,
+ * because a lead's queued mail all drains at one turn boundary. Concatenating
+ * the parts' text reproduces {@link unwrapTeammateFrames} exactly, so the two
+ * cannot drift.
+ */
+export function splitTeammateDelivery(text: string): DeliveryPart[] {
+  const parts: DeliveryPart[] = [];
+  FRAME_RE.lastIndex = 0;
+  let at = 0;
+  let frame: RegExpExecArray | null;
+  while ((frame = FRAME_RE.exec(text)) !== null) {
+    const attrs: Record<string, string> = {};
+    ATTR_RE.lastIndex = 0;
+    let attr: RegExpExecArray | null;
+    while ((attr = ATTR_RE.exec(frame[1])) !== null) attrs[attr[1]] = attr[2];
+
+    if (frame.index > at) parts.push({ text: text.slice(at, frame.index) });
+    // An unattributable frame still has to contribute its body, or the parts
+    // stop rejoining to the unwrapped text.
+    parts.push(attrs.teammate_id ? { from: attrs.teammate_id, text: frame[2] } : { text: frame[2] });
+    at = frame.index + frame[0].length;
+  }
+  if (at < text.length) parts.push({ text: text.slice(at) });
+  return parts.length > 0 ? parts : [{ text }];
+}
+
 function contentKey(m: MailMessage): string {
   return `${m.from}\u0000${m.to}\u0000${m.text}`;
 }

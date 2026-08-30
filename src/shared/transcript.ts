@@ -1,6 +1,6 @@
 import type { Diff, DiffHunk, DiffLine, DiffSign, Marker, TranscriptLine } from './domain';
 import { DIFF_LINES_CAP, DIFF_LINE_TEXT_CAP } from './domain';
-import { unwrapTeammateFrames } from './mailbox';
+import { splitTeammateDelivery } from './mailbox';
 import type { Usage } from './usage';
 
 export interface TranscriptRecord {           // one parsed JSONL line, loosely typed
@@ -214,6 +214,38 @@ function diffOfToolUse(name: string, input: unknown, agent: string, ts: number):
   return diff;
 }
 
+/**
+ * One row per delivered message. A record is not a message: a lead's queued
+ * mail all drains at one turn boundary, so a real delivery carries as many
+ * frames as were waiting — six from three different teammates, in the corpus —
+ * and a single row could not say who any of it came from. The recipient's own
+ * prose around the frames keeps its own rows.
+ *
+ * The line the marker draws is authorship, not shape: `❯` is what the operator
+ * typed, which reaches here as bare content with no envelope, and `✉` is what
+ * another agent sent. That covers the spawn prompt too — it is genuinely a
+ * message from whoever spawned this agent, wrapped in the same envelope, and
+ * naming that sender says more than an anonymous prompt glyph did. No
+ * bare-frame heuristic can separate the two: `probe-bravo`'s own transcript
+ * carries a single unwrapped frame that is an ordinary delivery.
+ */
+function deliveryDrafts(content: string): Draft[] {
+  const drafts: Draft[] = [];
+  for (const part of splitTeammateDelivery(content)) {
+    const text = tidy(part.text);
+    if (!text) continue;
+    const marker = markerForUserText(part.text);
+    if (part.from === undefined) {
+      drafts.push({ marker, text });
+      continue;
+    }
+    // A protocol frame keeps the marker that says what it wants from the
+    // operator; ✉ only replaces the ❯ an ordinary message would have taken.
+    drafts.push({ marker: marker === '❯' ? '✉' : marker, text, sender: part.from });
+  }
+  return drafts;
+}
+
 function markerForUserText(body: string): Marker {
   const trimmed = body.trim();
   if (trimmed.startsWith('{')) {
@@ -258,6 +290,7 @@ interface Draft {
   marker: Marker;
   text: string;
   diff?: Diff;
+  sender?: string;
 }
 
 /**
@@ -282,9 +315,7 @@ function draftsOf(rec: TranscriptRecord, agent = ''): { ts: number; drafts: Draf
 
   if (rec.type === 'user') {
     if (typeof content === 'string') {
-      const body = unwrapTeammateFrames(content);
-      const text = tidy(body);
-      if (text) drafts.push({ marker: markerForUserText(body), text });
+      for (const draft of deliveryDrafts(content)) drafts.push(draft);
     } else if (Array.isArray(content)) {
       for (const block of content) {
         if (!block || typeof block !== 'object') continue;
@@ -326,6 +357,7 @@ export function toTranscriptLines(rec: TranscriptRecord, agent = ''): Transcript
     text: capText(draft.text),
     ts: built.ts,
     ...(draft.diff ? { diff: draft.diff } : {}),
+    ...(draft.sender ? { sender: draft.sender } : {}),
   }));
 }
 

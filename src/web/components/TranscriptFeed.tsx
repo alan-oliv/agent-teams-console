@@ -97,6 +97,33 @@ const NEUTRAL_ACTION: CSSProperties = {
   color: 'var(--color-neutral-500)',
 };
 
+/**
+ * Who sent a delivered message. Stripping the envelope off a teammate frame was
+ * right; dropping the attribution with it left 121 of 121 real deliveries
+ * anonymous. A filled pill rather than an outlined one because the row it sits
+ * on can be at 0.38 down the fade ladder, where a hairline border dissolves;
+ * `flex: none` because the row is nowrap and the body, not the name, is what
+ * should give way when the column is narrow.
+ */
+function Sender({ name, size }: { name: string; size: string }) {
+  return (
+    <span
+      data-testid="transcript-sender"
+      style={{
+        background: 'var(--color-accent-900)',
+        color: 'var(--color-accent-300)',
+        borderRadius: 'var(--radius-sm)',
+        padding: '0 5px',
+        fontSize: size,
+        whiteSpace: 'nowrap',
+        flex: 'none',
+      }}
+    >
+      {name}
+    </span>
+  );
+}
+
 function Spans({ spans }: { spans: Inline[] }) {
   return (
     <>
@@ -585,6 +612,7 @@ export function TranscriptFeed({
                 >
                   {line.marker}
                 </span>
+                {line.sender && <Sender name={line.sender} size={s.markerSize} />}
                 <span
                   data-testid="transcript-text"
                   style={{
@@ -718,6 +746,7 @@ export function TranscriptFeed({
                 >
                   {line.marker}
                 </span>
+                {line.sender && <Sender name={line.sender} size={s.markerSize} />}
                 <span
                   data-testid="transcript-text"
                   style={{
@@ -822,6 +851,7 @@ export function TranscriptFeed({
             >
               {line.marker}
             </span>
+            {line.sender && <Sender name={line.sender} size={s.markerSize} />}
             <span
               data-testid="transcript-text"
               style={{

@@ -1,7 +1,10 @@
 export type AgentStatus = 'working' | 'idle' | 'plan_pending' | 'failed' | 'blocked' | 'departed';
 export type TaskState = 'pending' | 'in_progress' | 'completed' | 'plan_pending' | 'failed' | 'blocked';
 export type ViewId = 'wall' | 'overview' | 'comms' | 'tasks' | 'rail' | 'grid';
-export type Marker = '❯' | '⏺' | '⎿' | '✓' | '✗' | '+' | '!' | '▲' | '○';
+// `✉` is beyond the design README's own list — sanctioned by the CHANGELOG
+// entry "Received messages carry attribution", which gives a delivered
+// teammate message a marker of its own.
+export type Marker = '❯' | '⏺' | '⎿' | '✓' | '✗' | '+' | '!' | '▲' | '○' | '✉';
 export type PortraitId = 'lead' | 'security' | 'perf' | 'tests' | 'architect' | 'repro';
 
 export interface TranscriptLine {
@@ -10,6 +13,7 @@ export interface TranscriptLine {
   text: string;        // single line, flattened, capped at TRANSCRIPT_TEXT_CAP
   ts: number;          // epoch ms
   diff?: Diff;         // present only on a line that reports an edit
+  sender?: string;     // teammate this row was delivered FROM; absent on the agent's own lines
 }
 
 export type DiffSign = ' ' | '-' | '+';
