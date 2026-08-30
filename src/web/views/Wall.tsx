@@ -57,7 +57,7 @@ function InFlight({ agent, onOpen }: { agent: Agent; onOpen?: (name: string) => 
     <button
       type="button"
       data-testid="in-flight"
-      title="written to this inbox · read at its next turn boundary · click to read them"
+      title="written to this inbox · read at its next turn boundary"
       onClick={(e) => {
         e.stopPropagation();
         onOpen?.(agent.name);
@@ -192,12 +192,10 @@ const Column = memo(function Column({
             <span style={{ flex: 1 }} />
             <span
               data-testid="wall-model"
-              style={{ color: 'var(--color-neutral-700)', fontSize: '10.5px' }}
+              style={{ color: 'var(--color-neutral-600)', fontSize: '10.5px' }}
             >
               {agent.model}
             </span>
-            <InFlight agent={agent} onOpen={onOpenMail} />
-            <StopControlButton agent={agent} />
           </div>
 
           <div style={LINE}>
@@ -217,10 +215,12 @@ const Column = memo(function Column({
             <span style={{ flex: 1 }} />
             <span
               data-testid="wall-elapsed"
-              style={{ color: 'var(--color-neutral-700)', fontSize: '10.5px' }}
+              style={{ color: 'var(--color-neutral-600)', fontSize: '10.5px' }}
             >
               <Elapsed startedAt={agent.startedAt} />
             </span>
+            <InFlight agent={agent} onOpen={onOpenMail} />
+            <StopControlButton agent={agent} />
           </div>
 
           <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
@@ -296,7 +296,7 @@ const Column = memo(function Column({
         style={{
           borderTop: '1px solid var(--color-neutral-900)',
           padding: '7px 12px',
-          color: 'var(--color-neutral-700)',
+          color: 'var(--color-neutral-600)',
           fontSize: '10.5px',
           whiteSpace: 'nowrap',
           overflow: 'hidden',
@@ -324,7 +324,7 @@ const Column = memo(function Column({
           style={{
             borderTop: '1px solid var(--color-neutral-900)',
             padding: '8px 12px',
-            color: 'var(--color-neutral-700)',
+            color: 'var(--color-neutral-600)',
             fontSize: '10.5px',
             whiteSpace: 'nowrap',
             overflow: 'hidden',

@@ -17,7 +17,7 @@ const VARIANT: Record<'wall' | 'rail' | 'thread' | 'everyone', Variant> = {
     padding: '8px 12px', gap: '7px',
     promptColor: 'var(--color-accent-600)', promptSize: '11px',
     placeholder: (n) => `message ${n}`,
-    placeholderColor: 'var(--color-neutral-700)',
+    placeholderColor: 'var(--color-neutral-600)',
   },
   rail: {
     padding: '11px 18px', gap: '9px',
@@ -375,11 +375,11 @@ export function Composer({
       )}
       {variant === 'wall' ? (
         // `⌘⏎` still sends, but naming it here taught the one key that did NOT.
-        <span style={{ color: 'var(--color-neutral-800)', fontSize: '10px' }}>⏎</span>
+        <span style={{ color: 'var(--color-neutral-600)', fontSize: '10px' }}>⏎</span>
       ) : variant === 'thread' || variant === 'everyone' ? (
         <span
           data-testid="composer-note"
-          style={{ color: 'var(--color-neutral-700)', fontSize: '10px', whiteSpace: 'nowrap' }}
+          style={{ color: 'var(--color-neutral-600)', fontSize: '10px', whiteSpace: 'nowrap' }}
         >
           a message wakes an idle recipient
         </span>
@@ -387,7 +387,7 @@ export function Composer({
         <span
           data-testid="composer-tool"
           style={{
-            color: 'var(--color-neutral-700)',
+            color: 'var(--color-neutral-600)',
             fontSize: '11px',
             whiteSpace: 'nowrap',
             overflow: 'hidden',

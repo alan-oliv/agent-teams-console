@@ -76,7 +76,7 @@ describe('Rail — left list', () => {
     expect(alpha.getByTestId('rail-type').textContent).toBe('general-purpose');
     expect(alpha.getByTestId('rail-model').textContent).toBe('claude-opus-5');
     expect(alpha.getByTestId('rail-model').style.fontSize).toBe('10.5px');
-    expect(alpha.getByTestId('rail-model').style.color).toBe('var(--color-neutral-700)');
+    expect(alpha.getByTestId('rail-model').style.color).toBe('var(--color-neutral-600)');
     expect(alpha.getByTestId('rail-elapsed').textContent).toBe('0m 42s');
     // 34_469 / 1_000_000 * 16 cells rounds to 1 filled cell, plus the forced compactAt tick at
     // floor(967_000 / 1_000_000 * 16) = index 15.

@@ -45,7 +45,7 @@ describe('Overview', () => {
     expect(alpha.getByTestId('overview-type').textContent).toBe('general-purpose');
     expect(alpha.getByTestId('overview-model').textContent).toBe('claude-opus-5');
     expect(alpha.getByTestId('overview-model').style.fontSize).toBe('10.5px');
-    expect(alpha.getByTestId('overview-model').style.color).toBe('var(--color-neutral-700)');
+    expect(alpha.getByTestId('overview-model').style.color).toBe('var(--color-neutral-600)');
     expect(alpha.getByTestId('overview-pct').textContent).toBe('3%');
     expect(alpha.getByTestId('overview-status').style.fontSize).toBe('');
     expect(alpha.getByTestId('overview-status-row').style.justifyContent).toBe('space-between');

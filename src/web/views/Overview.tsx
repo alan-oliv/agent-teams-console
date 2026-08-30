@@ -100,7 +100,7 @@ const Tile = memo(function Tile({
                 data-testid="overview-model"
                 style={{
                   flex: 'none',
-                  color: 'var(--color-neutral-700)',
+                  color: 'var(--color-neutral-600)',
                   fontSize: '10.5px',
                   whiteSpace: 'nowrap',
                 }}

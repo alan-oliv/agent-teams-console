@@ -61,13 +61,13 @@ const Row = memo(function Row({
           <span style={{ flex: 1 }} />
           <span
             data-testid="rail-model"
-            style={{ color: 'var(--color-neutral-700)', fontSize: '10.5px' }}
+            style={{ color: 'var(--color-neutral-600)', fontSize: '10.5px' }}
           >
             {agent.model}
           </span>
           <span
             data-testid="rail-elapsed"
-            style={{ color: 'var(--color-neutral-700)', fontSize: '10.5px' }}
+            style={{ color: 'var(--color-neutral-600)', fontSize: '10.5px' }}
           >
             <Elapsed startedAt={agent.startedAt} />
           </span>
@@ -161,7 +161,7 @@ const Attached = memo(function Attached(
         <span style={{ flex: 1 }} />
         <span
           data-testid="rail-detail-model"
-          style={{ color: 'var(--color-neutral-700)', fontSize: '10.5px' }}
+          style={{ color: 'var(--color-neutral-600)', fontSize: '10.5px' }}
         >
           {agent.model}
         </span>
@@ -318,7 +318,7 @@ export function Rail({
           style={{
             padding: '9px 16px',
             borderTop: '1px solid var(--color-neutral-900)',
-            color: 'var(--color-neutral-700)',
+            color: 'var(--color-neutral-600)',
             fontSize: '10.5px',
             display: 'flex',
             gap: '12px',

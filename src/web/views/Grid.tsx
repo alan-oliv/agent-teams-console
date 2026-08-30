@@ -68,7 +68,7 @@ const Pane = memo(function Pane({
             <span style={{ flex: 1 }} />
             <span
               data-testid="grid-model"
-              style={{ color: 'var(--color-neutral-700)', fontSize: '10px' }}
+              style={{ color: 'var(--color-neutral-600)', fontSize: '10px' }}
             >
               {agent.model}
             </span>
@@ -85,7 +85,7 @@ const Pane = memo(function Pane({
             <span style={{ flex: 1 }} />
             <span
               data-testid="grid-elapsed"
-              style={{ color: 'var(--color-neutral-700)', fontSize: '10px' }}
+              style={{ color: 'var(--color-neutral-600)', fontSize: '10px' }}
             >
               <Elapsed startedAt={agent.startedAt} />
             </span>
@@ -104,7 +104,7 @@ const Pane = memo(function Pane({
         style={{
           borderTop: '1px solid var(--color-neutral-900)',
           padding: '6px 11px',
-          color: 'var(--color-neutral-700)',
+          color: 'var(--color-neutral-600)',
           fontSize: '10px',
           whiteSpace: 'nowrap',
           overflow: 'hidden',
@@ -165,7 +165,7 @@ export function Grid({
             border: '1px dashed var(--color-neutral-800)',
             borderRadius: 'var(--radius-sm)',
             padding: '2px 7px',
-            color: 'var(--color-neutral-700)',
+            color: 'var(--color-neutral-600)',
             fontSize: '10.5px',
             background: 'var(--color-bg)',
           }}

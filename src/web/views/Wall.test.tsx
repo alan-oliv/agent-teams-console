@@ -534,6 +534,26 @@ describe('in-flight badge', () => {
     render(<Wall agents={agents} focused={null} onFocus={vi.fn()} now={now} />);
     expect(screen.queryAllByTestId('in-flight')).toHaveLength(0);
   });
+
+  // The badge claims nothing about delivery, so the title says only what is
+  // true: it was written, and it is read at a boundary nothing can force.
+  it('says what the count means without promising when it is read', () => {
+    const queued = agents.map((a) => (a.name === 'probe-alpha' ? { ...a, unread: 2 } : a));
+    render(<Wall agents={queued} focused={null} onFocus={vi.fn()} now={now} />);
+    expect(screen.getByTestId('in-flight').title).toBe(
+      'written to this inbox · read at its next turn boundary',
+    );
+  });
+
+  // Header line 1 is identity — name, type, model. The badge and the stop
+  // control are about the agent's current turn, which is line 2's subject.
+  it('sits on the status line, not the identity line', () => {
+    const queued = agents.map((a) => (a.name === 'probe-alpha' ? { ...a, unread: 2 } : a));
+    render(<Wall agents={queued} focused={null} onFocus={vi.fn()} now={now} />);
+    const line = screen.getByTestId('in-flight').parentElement!;
+    expect(within(line).getByTestId('wall-elapsed')).toBeTruthy();
+    expect(within(line).queryByTestId('wall-model')).toBeNull();
+  });
 });
 
 describe('compaction note', () => {
