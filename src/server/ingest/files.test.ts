@@ -16,7 +16,7 @@ import { dedupeUsage, tokensOf, totalCost, usageRecordsOf } from '../../shared/u
 import { buildRoster } from '../../shared/roster';
 import { toTranscriptLines, type TranscriptRecord } from '../../shared/transcript';
 import { project } from '../project';
-import type { Agent } from '../../shared/domain';
+import type { Agent, WorkflowRun } from '../../shared/domain';
 import type { RosterPayload, TranscriptPayload, TaskPayload, MailPayload } from '../project';
 
 const FIXTURES = path.resolve(process.cwd(), 'fixtures');
@@ -1925,5 +1925,93 @@ describe("the lead session's own file", () => {
       ingest.close();
     }
     expect(project(store.replay(), false).sessionName).toBeUndefined();
+  });
+});
+
+// Workflow mode. The scope rule above stays exactly as it was — a workflow
+// subagent must never reach the roster — and these paths feed a SEPARATE model
+// instead of being dropped on the floor.
+describe('workflow runs', () => {
+  let ingest: FileIngest;
+  const RUN = 'wf_d36b25c0-f96';
+
+  beforeEach(() => {
+    ingest = startFileIngest(store, {
+      paths,
+      teamName: TEAM,
+      leadSessionId: LEAD_SESSION,
+      leadName: 'team-lead',
+      sweepIntervalMs: 200,
+    });
+  });
+
+  afterEach(() => {
+    ingest.close();
+  });
+
+  const snapshotJson = async (session: string, runId: string) => {
+    const dir = path.join(paths.projects, SLUG, session, 'workflows');
+    await fs.mkdir(dir, { recursive: true });
+    const raw = JSON.parse(await fs.readFile(path.join(FIXTURES, 'workflow-run.json'), 'utf8'));
+    await fs.writeFile(path.join(dir, `${runId}.json`), JSON.stringify({ ...raw, runId }));
+  };
+
+  const runs = () => store.replay().filter((e) => e.kind === 'workflow');
+
+  it('reads a run snapshot under the lead session into the run model', async () => {
+    await snapshotJson(LEAD_SESSION, RUN);
+
+    const stored = await waitFor(() => (runs().length > 0 ? runs() : undefined));
+    const run = stored.at(-1)!.payload as WorkflowRun;
+    expect(run.runId).toBe(RUN);
+    expect(run.name).toBe('team-selector');
+    expect(run.agents).toHaveLength(4);
+    expect(run.phases.map((p) => p.title)).toEqual(['Design', 'Build', 'Verify']);
+  });
+
+  it('carries no script, so a run costs the frame a tenth of what it would', async () => {
+    await snapshotJson(LEAD_SESSION, RUN);
+
+    const stored = await waitFor(() => (runs().length > 0 ? runs() : undefined));
+    expect(stored.at(-1)!.payload).not.toHaveProperty('script');
+  });
+
+  it('still keeps the run\'s own subagents out of the team roster', async () => {
+    const wfDir = path.join(paths.projects, SLUG, LEAD_SESSION, 'subagents', 'workflows', RUN);
+    await fs.mkdir(wfDir, { recursive: true });
+    await fs.writeFile(
+      path.join(wfDir, 'agent-a2a07e2a8ef27d692.jsonl'),
+      JSON.stringify({ type: 'user', uuid: 'w1', timestamp: new Date().toISOString() }) + '\n',
+    );
+    await fs.writeFile(
+      path.join(wfDir, 'agent-a2a07e2a8ef27d692.meta.json'),
+      JSON.stringify({ agentType: 'workflow-subagent', spawnDepth: 1 }),
+    );
+    await settle();
+
+    expect(store.replay().filter((e) => e.kind === 'transcript')).toHaveLength(0);
+    expect(store.replay().filter((e) => e.kind === 'roster')).toHaveLength(0);
+  });
+
+  it('ignores a run belonging to another session', async () => {
+    await snapshotJson('5cd370e5-2d86-4b64-878e-095f726aea82', 'wf_stranger');
+    await settle();
+
+    expect(runs()).toHaveLength(0);
+  });
+
+  it('reads a run with no snapshot yet from its journal alone, as live', async () => {
+    const wfDir = path.join(paths.projects, SLUG, LEAD_SESSION, 'subagents', 'workflows', 'wf_live');
+    await fs.mkdir(wfDir, { recursive: true });
+    await fs.writeFile(
+      path.join(wfDir, 'journal.jsonl'),
+      JSON.stringify({ type: 'started', key: 'v2:a', agentId: 'a1234567890abcdef' }) + '\n',
+    );
+
+    const stored = await waitFor(() => (runs().length > 0 ? runs() : undefined));
+    const run = stored.at(-1)!.payload as WorkflowRun;
+    expect(run.live).toBe(true);
+    expect(run.status).toBe('running');
+    expect(run.agents).toEqual([{ agentId: 'a1234567890abcdef', state: 'run' }]);
   });
 });

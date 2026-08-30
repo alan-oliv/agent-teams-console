@@ -186,6 +186,15 @@ export interface TeamState {
   mail: MailMessage[];
   needsYou: NeedsYouItem[];
   readOnly: boolean;
+  /**
+   * Which shell to draw. Optional because `project()` builds a team's state
+   * without knowing about workflows at all — the server stamps both of these on
+   * at the publish boundary, so a frame off the wire always carries them.
+   * Absent means `'team'`, which is what every pre-workflow frame was.
+   */
+  mode?: ConsoleMode;
+  /** Newest first. Present in both modes: a team can have run workflows too. */
+  workflows?: WorkflowRun[];
 }
 
 /**
@@ -215,4 +224,105 @@ export interface TeamSummary {
 export interface TeamsResponse {
   current: string;           // '' when the console has not resolved a team yet
   teams: TeamSummary[];      // current first, then live, then lastActivityAt desc, then name
+}
+
+/**
+ * Which shell the browser draws. A dynamic workflow is not a team — its agents
+ * never enter `members[]` — so the two are separate modes over one connection
+ * rather than one screen that tries to be both.
+ */
+export type ConsoleMode = 'team' | 'workflow';
+
+/**
+ * The runtime emits `start | progress | done | error` plus the orthogonal flags
+ * `cached` / `skipped` / `blocked`; this is the design's five-value vocabulary
+ * those map onto. `null` is the design's name for "the agent returned null",
+ * which is what the script sees for a skipped, blocked or thrown agent alike —
+ * so `WorkflowAgent.error` carries the distinction the squash would lose.
+ */
+export type WorkflowAgentState = 'done' | 'run' | 'cache' | 'null' | 'wait';
+
+/**
+ * A `phase()` grouping, as DECLARED in the script's `meta.phases`. Every
+ * declared phase is recorded whether or not it ran, so a phase with no agents
+ * under it is one the run never reached — not missing data.
+ *
+ * There is deliberately no `kind` and no barrier flag. The runtime models a
+ * phase as a title and a detail and nothing else: a barrier belongs to an
+ * individual `parallel()`/`pipeline()` call, and one phase can hold several.
+ * See agents-team-ui-docs/WORKFLOW-STATE.md §7.
+ */
+export interface WorkflowPhase {
+  index: number;             // 1-based, matches WorkflowAgent.phaseIndex
+  title: string;
+  detail?: string;
+}
+
+/**
+ * One `agent()` call. Only the id and the state are guaranteed, and that is not
+ * defensiveness: on a LIVE run the journal carries nothing else, so everything
+ * below `state` is exactly the set of fields that arrive with the snapshot at
+ * termination. Optional means absent rather than defaulted — a running agent
+ * genuinely has no duration, and writing 0 would render as "finished instantly".
+ */
+export interface WorkflowAgent {
+  agentId: string;           // `a` + 16 hex — names its own transcript file
+  state: WorkflowAgentState;
+  label?: string;            // opts.label, else the prompt's first 60 chars
+  model?: string;            // resolved id, e.g. 'claude-sonnet-5'
+  queuedAt?: number;         // epoch ms
+  tokens?: number;
+  toolCalls?: number;
+  attempt?: number;
+  prompt?: string;           // promptPreview — truncated by the runtime
+  phaseIndex?: number;       // absent when the script called no phase()
+  phaseTitle?: string;
+  startedAt?: number;        // absent while still queued for a concurrency slot
+  durationMs?: number;       // absent while running
+  result?: string;           // resultPreview; on a live run, the journal's FULL text
+  lastTool?: string;
+  error?: string;            // the runtime's message, incl. 'skipped by user'
+  isolation?: string;        // only ever 'worktree' in this build
+  agentType?: string;        // set only when the script passed opts.agentType
+}
+
+/**
+ * One workflow run. Built from `workflows/wf_<runId>.json`, which the runtime
+ * writes ONCE, at termination — so a run with `live: true` was assembled from
+ * `journal.jsonl` alone and carries only what the journal knows.
+ *
+ * `budget` is absent by design, not by omission: it exists nowhere on disk, and
+ * `totalTokens` is this run's own agents rather than the session-level counter
+ * `budget.spent()` reports. See WORKFLOW-STATE.md §7.
+ */
+export interface WorkflowRun {
+  runId: string;
+  status: 'completed' | 'killed' | 'failed' | 'running';
+  agents: WorkflowAgent[];
+  /**
+   * `meta.name`. Absent on a live run: the name reaches disk in the snapshot,
+   * and in the persisted script's FILENAME — which exists only for a run
+   * launched with an inline `script`, not one launched with `{scriptPath}`.
+   */
+  name?: string;
+  startedAt?: number;        // epoch ms; absent on a live run
+  phases: WorkflowPhase[];
+  logs: string[];            // the log() narration, in order
+  /**
+   * True while the snapshot does not exist yet. Everything the snapshot alone
+   * carries — phases, labels, tokens, durations — is missing or empty on a live
+   * run, so this is the flag a view degrades on rather than a decoration.
+   */
+  live: boolean;
+  taskId?: string;
+  description?: string;      // meta.description, via the snapshot's `summary`
+  scriptPath?: string;       // a pointer, and not unique across runs
+  script?: string;           // the source AS EXECUTED — prefer this to the path
+  durationMs?: number;       // absent while running
+  agentCount?: number;
+  totalTokens?: number;
+  totalToolCalls?: number;
+  defaultModel?: string;
+  result?: string;
+  error?: string;
 }

@@ -477,3 +477,67 @@ describe('push -> pull wiring', () => {
     expect(agentNameFrom(`${AGENT}@${TEAM}`)).toBe(AGENT);
   });
 });
+
+// The frame has to say WHICH shell to draw, or the browser has to guess from
+// the shape of the payload — which is how a team with zero agents and a team
+// that is really a workflow become indistinguishable.
+describe('workflow mode on the wire', () => {
+  async function addRun(claudeHome: string, runId: string): Promise<void> {
+    const runDir = path.join(claudeHome, 'projects', SLUG, LEAD_SESSION, 'workflows');
+    await fs.mkdir(runDir, { recursive: true });
+    const raw = JSON.parse(await fs.readFile(path.join(FIXTURES, 'workflow-run.json'), 'utf8'));
+    await fs.writeFile(path.join(runDir, `${runId}.json`), JSON.stringify({ ...raw, runId }));
+  }
+
+  /** A session that ran workflows and never formed a team. */
+  async function homeWithRun(runId: string): Promise<string> {
+    const claudeHome = await fs.mkdtemp(path.join(os.tmpdir(), 'claude-wf-'));
+    home = claudeHome;
+    for (const d of ['teams', 'tasks', 'sessions']) {
+      await fs.mkdir(path.join(claudeHome, d), { recursive: true });
+    }
+    await addRun(claudeHome, runId);
+    return claudeHome;
+  }
+
+  // A session that never formed a team has no config.json to resolve, so
+  // `--session` is the only thing that can tell the console whose runs these
+  // are. Without it the scope check fails closed and workflow mode is
+  // unreachable — which is what the launcher passes when it sees a Workflow.
+  it('publishes the run and says the mode is workflow when there is no team', async () => {
+    const url = await boot(await homeWithRun('wf_d36b25c0-f96'), [
+      '--session',
+      LEAD_SESSION,
+    ]);
+
+    const state = await (async () => {
+      for (;;) {
+        const s = await snapshot(url);
+        if ((s.workflows?.length ?? 0) > 0) return s;
+        await new Promise((r) => setTimeout(r, 25));
+      }
+    })();
+
+    expect(state.mode).toBe('workflow');
+    expect(state.workflows?.[0].runId).toBe('wf_d36b25c0-f96');
+    expect(state.workflows?.[0].agents).toHaveLength(4);
+  }, 20_000);
+
+  it('stays in team mode once a roster exists, still carrying the run', async () => {
+    const claudeHome = await layout();
+    home = claudeHome;
+    await addRun(claudeHome, 'wf_d36b25c0-f96');
+    const url = await boot(claudeHome);
+
+    const state = await (async () => {
+      for (;;) {
+        const s = await snapshot(url);
+        if (s.agents.length > 0 && (s.workflows?.length ?? 0) > 0) return s;
+        await new Promise((r) => setTimeout(r, 25));
+      }
+    })();
+
+    expect(state.mode).toBe('team');
+    expect(state.workflows).toHaveLength(1);
+  }, 20_000);
+});

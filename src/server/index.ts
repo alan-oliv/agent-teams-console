@@ -8,13 +8,14 @@ import { createHookHandlers } from './ingest/hooks';
 import { createPermits } from './control/permits';
 import { setTeamsRoot } from './control/mailbox';
 import { createStream } from './stream';
+import { foldWorkflows, modeOf } from './workflow';
 import { createHttpServer, listen, type SelectTeamOutcome } from './http';
 import { readJsonSafe } from './watch/jsonfile';
 import { checkClaudeVersion, readClaudeVersion, runSetup } from './setup';
 import { isPidAlive, recycledSpares, startIdleReaper } from './lifecycle';
 import { logError, logInfo } from './log';
 import type { TeamConfig } from '../shared/roster';
-import type { TeamsResponse, TeamSummary } from '../shared/domain';
+import type { TeamsResponse, TeamSummary, TeamState } from '../shared/domain';
 
 export const DEFAULT_PORT = 4823;
 /**
@@ -40,6 +41,12 @@ export interface Cli {
   settingsPath: string;
   dbPath: string;
   team?: string;
+  /**
+   * The session whose workflow runs to read. A session that never formed a team
+   * has no config.json to discover, so this is the only way to scope its runs —
+   * without it the ingest fails closed and workflow mode is unreachable.
+   */
+  session?: string;
 }
 
 export function parseArgs(argv: string[]): Cli {
@@ -54,6 +61,7 @@ export function parseArgs(argv: string[]): Cli {
   // The launcher already knows which team it announced; --team lets it tell
   // the server directly instead of trusting discovery to land on the same one.
   let team: string | undefined;
+  let session: string | undefined;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -66,6 +74,8 @@ export function parseArgs(argv: string[]): Cli {
     else if (arg.startsWith('--claude-home=')) claudeHome = arg.slice('--claude-home='.length);
     else if (arg === '--team') team = argv[++i];
     else if (arg.startsWith('--team=')) team = arg.slice('--team='.length);
+    else if (arg === '--session') session = argv[++i];
+    else if (arg.startsWith('--session=')) session = arg.slice('--session='.length);
   }
 
   return {
@@ -77,6 +87,7 @@ export function parseArgs(argv: string[]): Cli {
     settingsPath: path.join(claudeHome, 'settings.json'),
     dbPath: path.join(claudeHome, 'agent-teams-console', 'events.db'),
     team,
+    session,
   };
 }
 
@@ -498,11 +509,24 @@ export async function main(argv: string[]): Promise<number> {
   // reports unknown rather than guessing, so fall back to the name itself —
   // the ingest below picks up the directory once it appears.
   const teamName = discovered?.teamName ?? cli.team;
-  let leadSessionId = discovered?.leadSessionId;
+  let leadSessionId = discovered?.leadSessionId ?? cli.session;
 
   const store = openStore(cli.dbPath, teamName ?? '');
   const permits = createPermits();
-  const hub = createStream(() => project(store.replay(), cli.readOnly));
+
+  /**
+   * The published frame. `project()` folds a TEAM and knows nothing about
+   * workflows, so mode and runs are layered on here rather than threaded
+   * through it — one replay, one place where the two modes meet.
+   */
+  const publish = (): TeamState => {
+    const events = store.replay();
+    const team = project(events, cli.readOnly);
+    const workflows = foldWorkflows(events);
+    return { ...team, mode: modeOf(team.agents.length, workflows), workflows };
+  };
+
+  const hub = createStream(publish);
 
   // Every append is a state change, so the store is the single publish point;
   // the fold runs per coalesced flush rather than being cached, which at a few
@@ -547,7 +571,10 @@ export async function main(argv: string[]): Promise<number> {
 
   // `let`, so the closures below — and `stop`'s close, and the hook's drain —
   // follow the rebind instead of staying frozen on the boot ingest.
-  let ingest = startIngest(generation, teamName, discovered?.leadSessionId);
+  // `leadSessionId`, not `discovered?.leadSessionId`: with no team to discover
+  // the only session id we have is the one `--session` named, and the ingest
+  // scopes workflow runs on it.
+  let ingest = startIngest(generation, teamName, leadSessionId);
   await ingest.sweep();
 
   let switching = false;
@@ -646,7 +673,7 @@ export async function main(argv: string[]): Promise<number> {
       onShutdown: stop,
     }),
     stream: hub,
-    state: () => project(store.replay(), cli.readOnly),
+    state: publish,
     readOnly: cli.readOnly,
     listTeams: () => listTeamSummaries(teamsRoot, sessionsRoot, currentTeam, projectsRoot),
     history: (agent: string) => transcriptHistory(store.replay(), agent),

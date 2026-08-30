@@ -138,8 +138,13 @@ export function hookBlock(port: number): HookBlock {
       },
     ],
   };
-  hooks.PreToolUse = [...(hooks.PreToolUse ?? []), launcher];
-  hooks.PostToolUse = [...(hooks.PostToolUse ?? []), { ...launcher }];
+  // A dynamic workflow is a DIFFERENT tool, so the Agent matcher above never
+  // sees one and the launcher's name gate is never reached. A run creates no
+  // team either, which is why it needs its own matcher rather than a looser
+  // one: the launcher points the console at the session instead.
+  const workflowLauncher: HookEntry = { ...launcher, matcher: 'Workflow' };
+  hooks.PreToolUse = [...(hooks.PreToolUse ?? []), launcher, workflowLauncher];
+  hooks.PostToolUse = [...(hooks.PostToolUse ?? []), { ...launcher }, { ...workflowLauncher }];
 
   return {
     hooks,
