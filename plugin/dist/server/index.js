@@ -2372,151 +2372,10 @@ function buildRoster(config, sidecars) {
   return roster;
 }
 
-// src/shared/transcript.ts
-var TRANSCRIPT_TEXT_CAP = 1e3;
-var TEAMMATE_OPEN = /^<teammate-message\s[^>]*>\r?\n?/;
-var TEAMMATE_CLOSE = /\r?\n?<\/teammate-message>\s*$/;
-var TOOL_INPUT_KEYS = [
-  "command",
-  "file_path",
-  "path",
-  "pattern",
-  "query",
-  "url",
-  "prompt",
-  "message",
-  "subject",
-  "description",
-  "taskId"
-];
-function tidy(s) {
-  return s.replace(/[^\S\n]+/g, " ").replace(/ ?\n ?/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
-}
-var LEADING_CD = /^cd[^\S\n]+("[^"]*"|'[^']*'|\S+)[^\S\n]*(?:&&|;|\n)\s*/;
-function capText(s) {
-  if (s.length <= TRANSCRIPT_TEXT_CAP) return s;
-  return `${s.slice(0, TRANSCRIPT_TEXT_CAP - 1).replace(/[\uD800-\uDBFF]$/, "")}\u2026`;
-}
-function parseLine(raw) {
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  let parsed;
-  try {
-    parsed = JSON.parse(trimmed);
-  } catch {
-    return null;
-  }
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-  return parsed;
-}
-function describeTool(name, input) {
-  if (!input || typeof input !== "object") return name;
-  const fields = input;
-  for (const key of TOOL_INPUT_KEYS) {
-    const value = fields[key];
-    if (typeof value === "string" && value.trim()) {
-      const shown = name === "Bash" ? value.replace(LEADING_CD, "") : value;
-      return capText(`${name}(${tidy(shown)})`);
-    }
-  }
-  return name;
-}
-function markerForUserText(body) {
-  const trimmed = body.trim();
-  if (trimmed.startsWith("{")) {
-    try {
-      const frame2 = JSON.parse(trimmed);
-      if (frame2.type === "idle_notification") return "\u25CB";
-      if (typeof frame2.type === "string" && frame2.type.endsWith("_request")) return "\u25B2";
-    } catch {
-    }
-  }
-  return "\u276F";
-}
-function markerForResult(text, isError) {
-  if (isError) return "\u2717";
-  if (/\b\d+ insertions?\(\+\)|\b\d+ deletions?\(-\)/.test(text)) return "+";
-  if (/^(error|warning|failed|found \d+)/i.test(text)) return "!";
-  if (/^(updated|created|wrote|applied|added|completed|done|success)/i.test(text)) return "\u2713";
-  return "\u23BF";
-}
-function resultText(content) {
-  if (typeof content === "string") return tidy(content);
-  if (Array.isArray(content)) {
-    return tidy(
-      content.map((block) => {
-        if (block && typeof block === "object") {
-          const text = block.text;
-          if (typeof text === "string") return text;
-        }
-        return JSON.stringify(block);
-      }).join(" ")
-    );
-  }
-  return tidy(JSON.stringify(content ?? ""));
-}
-function draftsOf(rec) {
-  if (!rec.uuid || !rec.timestamp) return null;
-  const ts = Date.parse(rec.timestamp);
-  if (Number.isNaN(ts)) return null;
-  const drafts = [];
-  const content = rec.message?.content;
-  if (rec.type === "user") {
-    if (typeof content === "string") {
-      const body = content.replace(TEAMMATE_OPEN, "").replace(TEAMMATE_CLOSE, "");
-      const text = tidy(body);
-      if (text) drafts.push({ marker: markerForUserText(body), text });
-    } else if (Array.isArray(content)) {
-      for (const block of content) {
-        if (!block || typeof block !== "object") continue;
-        const b = block;
-        if (b.type === "tool_result") {
-          const text = resultText(b.content);
-          if (text) drafts.push({ marker: markerForResult(text, b.is_error === true), text });
-        } else if (b.type === "text" && typeof b.text === "string") {
-          const text = tidy(b.text);
-          if (text) drafts.push({ marker: "\u276F", text });
-        }
-      }
-    }
-  } else if (rec.type === "assistant" && Array.isArray(content)) {
-    for (const block of content) {
-      if (!block || typeof block !== "object") continue;
-      const b = block;
-      if (b.type === "text" && typeof b.text === "string") {
-        const text = tidy(b.text);
-        if (text) drafts.push({ marker: "\u23FA", text });
-      } else if (b.type === "tool_use" && typeof b.name === "string") {
-        drafts.push({ marker: "\u23FA", text: describeTool(b.name, b.input) });
-      }
-    }
-  }
-  return { ts, drafts };
-}
-function toTranscriptLines(rec) {
-  const built = draftsOf(rec);
-  if (!built) return [];
-  return built.drafts.map((draft, i) => ({
-    id: `${rec.uuid}#${i}`,
-    marker: draft.marker,
-    text: capText(draft.text),
-    ts: built.ts
-  }));
-}
-function fullLineText(rec, index) {
-  return draftsOf(rec)?.drafts[index]?.text;
-}
-function currentToolOf(rec) {
-  const content = rec.message?.content;
-  if (rec.type !== "assistant" || !Array.isArray(content)) return void 0;
-  let found;
-  for (const block of content) {
-    if (!block || typeof block !== "object") continue;
-    const b = block;
-    if (b.type === "tool_use" && typeof b.name === "string") found = describeTool(b.name, b.input);
-  }
-  return found;
-}
+// src/shared/domain.ts
+var DIFF_LINES_CAP = 300;
+var DIFF_LINE_TEXT_CAP = 200;
+var CONSOLE_SENDER = "console";
 
 // src/shared/mailbox.ts
 var PROTOCOL_TYPES = /* @__PURE__ */ new Set([
@@ -2606,6 +2465,10 @@ function parseTeammateFrames(text, deliveredAt, to) {
   }
   return out;
 }
+function unwrapTeammateFrames(text) {
+  FRAME_RE.lastIndex = 0;
+  return text.replace(FRAME_RE, (_frame, _attrs, body) => body);
+}
 function contentKey(m) {
   return `${m.from}\0${m.to}\0${m.text}`;
 }
@@ -2630,6 +2493,235 @@ function mergeMail(existing, incoming) {
   return [...kept.values()].sort((a, b) => a.ts - b.ts);
 }
 
+// src/shared/transcript.ts
+var TRANSCRIPT_TEXT_CAP = 1e3;
+var TOOL_INPUT_KEYS = [
+  "command",
+  "file_path",
+  "path",
+  "pattern",
+  "query",
+  "url",
+  "prompt",
+  "message",
+  "subject",
+  "description",
+  "taskId"
+];
+var INDENT = /^[^\S\n]*/;
+function tidy(s) {
+  return s.split("\n").map((line) => {
+    const indent = INDENT.exec(line)[0];
+    const body = line.slice(indent.length).replace(/[^\S\n]+/g, " ").trimEnd();
+    return body ? indent + body : "";
+  }).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+var LEADING_CD = /^cd[^\S\n]+("[^"]*"|'[^']*'|\S+)[^\S\n]*(?:&&|;|\n)\s*/;
+function capText(s) {
+  if (s.length <= TRANSCRIPT_TEXT_CAP) return s;
+  return `${s.slice(0, TRANSCRIPT_TEXT_CAP - 1).replace(/[\uD800-\uDBFF]$/, "")}\u2026`;
+}
+function parseLine(raw) {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  return parsed;
+}
+function describeTool(name, input) {
+  if (!input || typeof input !== "object") return name;
+  const fields = input;
+  for (const key of TOOL_INPUT_KEYS) {
+    const value = fields[key];
+    if (typeof value === "string" && value.trim()) {
+      const shown = name === "Bash" ? value.replace(LEADING_CD, "") : value;
+      return capText(`${name}(${tidy(shown)})`);
+    }
+  }
+  return name;
+}
+function lineDiff(oldText, newText) {
+  const oldLines = oldText.split("\n");
+  const newLines = newText.split("\n");
+  const n = oldLines.length;
+  const m = newLines.length;
+  const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i2 = n - 1; i2 >= 0; i2--) {
+    for (let j2 = m - 1; j2 >= 0; j2--) {
+      dp[i2][j2] = oldLines[i2] === newLines[j2] ? dp[i2 + 1][j2 + 1] + 1 : Math.max(dp[i2 + 1][j2], dp[i2][j2 + 1]);
+    }
+  }
+  const ops = [];
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (oldLines[i] === newLines[j]) {
+      ops.push({ sign: " ", text: oldLines[i] });
+      i++;
+      j++;
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      ops.push({ sign: "-", text: oldLines[i] });
+      i++;
+    } else {
+      ops.push({ sign: "+", text: newLines[j] });
+      j++;
+    }
+  }
+  while (i < n) ops.push({ sign: "-", text: oldLines[i++] });
+  while (j < m) ops.push({ sign: "+", text: newLines[j++] });
+  return ops;
+}
+var LCS_CELL_BUDGET = 5e5;
+function diffOfToolUse(name, input, agent, ts) {
+  if (!input || typeof input !== "object") return void 0;
+  const fields = input;
+  const filePath = fields.file_path;
+  if (typeof filePath !== "string" || !filePath) return void 0;
+  let ops;
+  if (name === "Edit" && typeof fields.old_string === "string" && typeof fields.new_string === "string") {
+    const oldText = fields.old_string;
+    const newText = fields.new_string;
+    ops = (oldText.split("\n").length + 1) * (newText.split("\n").length + 1) <= LCS_CELL_BUDGET ? lineDiff(oldText, newText) : [
+      ...oldText.split("\n").map((text) => ({ sign: "-", text })),
+      ...newText.split("\n").map((text) => ({ sign: "+", text }))
+    ];
+  } else if (name === "Write" && typeof fields.content === "string") {
+    ops = fields.content.split("\n").map((text) => ({ sign: "+", text }));
+  } else {
+    return void 0;
+  }
+  const added = ops.filter((o) => o.sign === "+").length;
+  const removed = ops.filter((o) => o.sign === "-").length;
+  const lineCapped = ops.length > DIFF_LINES_CAP;
+  const kept = lineCapped ? ops.slice(0, DIFF_LINES_CAP) : ops;
+  let textCapped = false;
+  let oldLine = 1;
+  let newLine = 1;
+  const lines = kept.map(({ sign, text }) => {
+    const oldLineNo = sign === "+" ? null : oldLine;
+    const newLineNo = sign === "-" ? null : newLine;
+    if (sign !== "+") oldLine++;
+    if (sign !== "-") newLine++;
+    let shown = text;
+    if (shown.length > DIFF_LINE_TEXT_CAP) {
+      textCapped = true;
+      shown = `${shown.slice(0, DIFF_LINE_TEXT_CAP - 1)}\u2026`;
+    }
+    return { sign, oldLineNo, newLineNo, text: shown };
+  });
+  const oldCount = lines.filter((l) => l.sign !== "+").length;
+  const newCount = lines.filter((l) => l.sign !== "-").length;
+  const hunk = { header: `@@ -1,${oldCount} +1,${newCount} @@`, lines };
+  const diff = { path: filePath, added, removed, agent, ts, hunks: [hunk] };
+  if (lineCapped || textCapped) diff.truncated = true;
+  return diff;
+}
+function markerForUserText(body) {
+  const trimmed = body.trim();
+  if (trimmed.startsWith("{")) {
+    try {
+      const frame2 = JSON.parse(trimmed);
+      if (frame2.type === "idle_notification") return "\u25CB";
+      if (typeof frame2.type === "string" && frame2.type.endsWith("_request")) return "\u25B2";
+    } catch {
+    }
+  }
+  return "\u276F";
+}
+function markerForResult(text, isError) {
+  if (isError) return "\u2717";
+  if (/\b\d+ insertions?\(\+\)|\b\d+ deletions?\(-\)/.test(text)) return "+";
+  if (/^(error|warning|failed|found \d+)/i.test(text)) return "!";
+  if (/^(updated|created|wrote|applied|added|completed|done|success)/i.test(text)) return "\u2713";
+  return "\u23BF";
+}
+function resultText(content) {
+  if (typeof content === "string") return tidy(content);
+  if (Array.isArray(content)) {
+    return tidy(
+      content.map((block) => {
+        if (block && typeof block === "object") {
+          const text = block.text;
+          if (typeof text === "string") return text;
+        }
+        return JSON.stringify(block);
+      }).join(" ")
+    );
+  }
+  return tidy(JSON.stringify(content ?? ""));
+}
+function draftsOf(rec, agent = "") {
+  if (!rec.uuid || !rec.timestamp) return null;
+  const ts = Date.parse(rec.timestamp);
+  if (Number.isNaN(ts)) return null;
+  const drafts = [];
+  const content = rec.message?.content;
+  if (rec.type === "user") {
+    if (typeof content === "string") {
+      const body = unwrapTeammateFrames(content);
+      const text = tidy(body);
+      if (text) drafts.push({ marker: markerForUserText(body), text });
+    } else if (Array.isArray(content)) {
+      for (const block of content) {
+        if (!block || typeof block !== "object") continue;
+        const b = block;
+        if (b.type === "tool_result") {
+          const text = resultText(b.content);
+          if (text) drafts.push({ marker: markerForResult(text, b.is_error === true), text });
+        } else if (b.type === "text" && typeof b.text === "string") {
+          const text = tidy(b.text);
+          if (text) drafts.push({ marker: "\u276F", text });
+        }
+      }
+    }
+  } else if (rec.type === "assistant" && Array.isArray(content)) {
+    for (const block of content) {
+      if (!block || typeof block !== "object") continue;
+      const b = block;
+      if (b.type === "text" && typeof b.text === "string") {
+        const text = tidy(b.text);
+        if (text) drafts.push({ marker: "\u23FA", text });
+      } else if (b.type === "tool_use" && typeof b.name === "string") {
+        const diff = diffOfToolUse(b.name, b.input, agent, ts);
+        const draft = { marker: "\u23FA", text: describeTool(b.name, b.input) };
+        if (diff) draft.diff = diff;
+        drafts.push(draft);
+      }
+    }
+  }
+  return { ts, drafts };
+}
+function toTranscriptLines(rec, agent = "") {
+  const built = draftsOf(rec, agent);
+  if (!built) return [];
+  return built.drafts.map((draft, i) => ({
+    id: `${rec.uuid}#${i}`,
+    marker: draft.marker,
+    text: capText(draft.text),
+    ts: built.ts,
+    ...draft.diff ? { diff: draft.diff } : {}
+  }));
+}
+function fullLineText(rec, index) {
+  return draftsOf(rec)?.drafts[index]?.text;
+}
+function currentToolOf(rec) {
+  const content = rec.message?.content;
+  if (rec.type !== "assistant" || !Array.isArray(content)) return void 0;
+  let found;
+  for (const block of content) {
+    if (!block || typeof block !== "object") continue;
+    const b = block;
+    if (b.type === "tool_use" && typeof b.name === "string") found = describeTool(b.name, b.input);
+  }
+  return found;
+}
+
 // src/shared/status.ts
 var AGENT_STALE_MS = 30 * 60 * 1e3;
 function deriveTaskState(raw, task, agents) {
@@ -2637,7 +2729,8 @@ function deriveTaskState(raw, task, agents) {
   const owner = task.owner ? agents.find((a) => a.name === task.owner) : void 0;
   if (owner?.status === "plan_pending") return "plan_pending";
   if (owner?.status === "failed") return "failed";
-  if (task.blockedBy.length > 0 || owner?.status === "blocked") return "blocked";
+  if (owner?.status === "blocked") return "blocked";
+  if (raw === "pending" && task.blockedBy.length > 0) return "blocked";
   return raw;
 }
 
@@ -2654,12 +2747,14 @@ function memoisable(rec) {
   return rec !== null && typeof rec === "object";
 }
 var lineMemo = /* @__PURE__ */ new WeakMap();
-function linesOf(rec) {
-  if (!memoisable(rec)) return toTranscriptLines(rec);
-  let lines = lineMemo.get(rec);
+function linesOf(rec, agent) {
+  if (!memoisable(rec)) return toTranscriptLines(rec, agent);
+  const byAgent = lineMemo.get(rec) ?? /* @__PURE__ */ new Map();
+  let lines = byAgent.get(agent);
   if (!lines) {
-    lines = toTranscriptLines(rec);
-    lineMemo.set(rec, lines);
+    lines = toTranscriptLines(rec, agent);
+    byAgent.set(agent, lines);
+    lineMemo.set(rec, byAgent);
   }
   return lines;
 }
@@ -2692,7 +2787,7 @@ function transcriptHistory(events, agent) {
     }
   }
   const lines = [];
-  for (const rec of records) lines.push(...linesOf(rec));
+  for (const rec of records) lines.push(...linesOf(rec, agent));
   return lines;
 }
 function transcriptLineText(events, agent, id) {
@@ -2763,7 +2858,7 @@ function project(events, readOnly) {
           }
           if (rec.type === "assistant") {
             if (rec.isApiErrorMessage) {
-              errors.set(p.agent, linesOf(rec)[0]?.text ?? "api error");
+              errors.set(p.agent, linesOf(rec, p.agent)[0]?.text ?? "api error");
             } else {
               errors.delete(p.agent);
             }
@@ -2850,7 +2945,7 @@ function project(events, readOnly) {
     const tail = [];
     let have = 0;
     for (let i = recs.length - 1; i >= 0 && have < PROJECTED_TRANSCRIPT_LINES; i--) {
-      const some = linesOf(recs[i]);
+      const some = linesOf(recs[i], id.name);
       if (some.length === 0) continue;
       tail.push(some);
       have += some.length;
@@ -2887,19 +2982,25 @@ function project(events, readOnly) {
       error: errors.get(id.name)
     };
   });
-  const tasks = [...tasksRaw.values()].map((t) => ({
-    id: t.id,
-    subject: t.subject,
-    description: t.description,
-    activeForm: t.activeForm,
-    owner: t.owner,
-    state: deriveTaskState(t.status, { owner: t.owner, blockedBy: t.blockedBy ?? [] }, agents),
-    blocks: t.blocks ?? [],
-    blockedBy: t.blockedBy ?? []
-  }));
+  const tasks = [...tasksRaw.values()].map((t) => {
+    const openBlockedBy = (t.blockedBy ?? []).filter((id) => tasksRaw.get(id)?.status !== "completed");
+    return {
+      id: t.id,
+      subject: t.subject,
+      description: t.description,
+      activeForm: t.activeForm,
+      owner: t.owner,
+      state: deriveTaskState(t.status, { owner: t.owner, blockedBy: openBlockedBy }, agents),
+      blocks: t.blocks ?? [],
+      blockedBy: openBlockedBy,
+      metadata: t.metadata
+    };
+  });
   for (const agent of agents) {
     if (agent.status !== "working") continue;
-    if (tasks.some((t) => t.owner === agent.name && t.state === "blocked")) agent.status = "blocked";
+    const owned = tasks.filter((t) => t.owner === agent.name);
+    if (owned.some((t) => t.state === "in_progress")) continue;
+    if (owned.some((t) => t.state === "blocked")) agent.status = "blocked";
   }
   return {
     teamName: config?.name ?? "",
@@ -3853,11 +3954,6 @@ function createStream(snapshot, coalesceMs = COALESCE_MS) {
 import http from "node:http";
 import { promises as fs6 } from "node:fs";
 import path7 from "node:path";
-
-// src/shared/domain.ts
-var CONSOLE_SENDER = "console";
-
-// src/server/http.ts
 var READ_ONLY_BODY = {
   error: "read-only",
   message: "the console was started with --read-only; control routes are disabled"
