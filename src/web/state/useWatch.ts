@@ -13,6 +13,17 @@ export interface WatchState {
   requestStopWatching(): void;
   /** Resumes watching — picking the already-current session out of the picker. */
   watchAgain(): void;
+  /**
+   * Sessions taken out of the picker with its `✕`. Same browser-local rule as
+   * `dismissed`, and distinct from it: dismissing KEEPS the row (marked
+   * `running · not watching`) because paging back in is the picker's purpose,
+   * while hiding removes it for the sessions that are only clutter.
+   */
+  hidden: ReadonlySet<string>;
+  /** Takes one session out of the picker. Never touches `~/.claude`. */
+  hideSession(name: string): void;
+  /** Puts every hidden session back — the way out of an empty picker. */
+  showHidden(): void;
 }
 
 // A safe no-op default so a component reading it outside a Provider — most
@@ -22,6 +33,9 @@ export const WatchContext = createContext<WatchState>({
   dismissed: false,
   requestStopWatching: () => {},
   watchAgain: () => {},
+  hidden: new Set(),
+  hideSession: () => {},
+  showHidden: () => {},
 });
 
 export function useWatch(): WatchState {

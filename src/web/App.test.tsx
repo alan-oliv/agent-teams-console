@@ -9,6 +9,10 @@ import { sampleTeamState, sampleTeams } from './test/state-fixture';
 beforeEach(() => {
   installMockEventSource();
   window.history.replaceState(null, '', '/');
+  // Hidden sessions and appearance both persist per browser, so without this a
+  // test that hides a session leaves it hidden for every test after it — which
+  // shows up as an empty picker several cases later, nowhere near the cause.
+  window.localStorage.clear();
 });
 
 // This suite renders once per `it`; without explicit cleanup the un-unmounted
@@ -609,4 +613,58 @@ it('stays in the team shell when a roster exists, runs or not', () => {
 
   expect(screen.queryByTestId('wf-wordmark')).toBeNull();
   expect(screen.getByText('NEEDS YOU · 0')).toBeTruthy();
+});
+
+async function openAndHideCurrent() {
+  fireEvent.keyDown(document.body, { key: 't' });
+  const rows = await screen.findAllByRole('option');
+  fireEvent.click(within(rows[0]).getByTestId('row-hide'));
+}
+
+it('empties the body into the no-sessions screen once the session on screen is hidden', async () => {
+  stubTeamsFetch();
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+
+  expect(screen.queryByTestId('no-sessions')).toBeNull();
+  await openAndHideCurrent();
+  expect(screen.getByTestId('no-sessions')).toBeTruthy();
+  // Chrome stays: hiding empties the body, it does not tear the console down.
+  expect(screen.getByTestId('team-trigger')).toBeTruthy();
+});
+
+// The whole point of the control is that it never touches the engine.
+it('hiding writes nothing to the server', async () => {
+  const fetchMock = stubTeamsFetch();
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+  await openAndHideCurrent();
+
+  // Reading the listing is the only traffic hiding may cause. Anything else —
+  // a select, a stop — would mean it had reached into the engine.
+  const paths = fetchMock.mock.calls.map((c) => c[0] as string);
+  expect([...new Set(paths)]).toEqual(['/api/teams']);
+});
+
+it('offers the way back on the empty screen and restores the session', async () => {
+  stubTeamsFetch();
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+  await openAndHideCurrent();
+
+  fireEvent.click(screen.getByTestId('show-hidden'));
+  expect(screen.queryByTestId('no-sessions')).toBeNull();
+  expect(screen.getByTestId('wall')).toBeTruthy();
+});
+
+it('remembers hidden sessions across a reload, per browser', async () => {
+  stubTeamsFetch();
+  const first = render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+  await openAndHideCurrent();
+  first.unmount();
+
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+  expect(screen.getByTestId('no-sessions')).toBeTruthy();
 });

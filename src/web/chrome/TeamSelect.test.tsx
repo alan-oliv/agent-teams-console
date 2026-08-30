@@ -42,7 +42,15 @@ afterEach(() => {
 function renderSelect(props: Partial<Parameters<typeof TeamSelect>[0]> = {}, watch: Partial<WatchState> = {}) {
   const onOpenChange = vi.fn();
   const all = { current: 'session-98b0b4a7', open: true, onOpenChange, now: FIXTURE_NOW, ...props };
-  const watchValue: WatchState = { dismissed: false, requestStopWatching: vi.fn(), watchAgain: vi.fn(), ...watch };
+  const watchValue: WatchState = {
+    dismissed: false,
+    requestStopWatching: vi.fn(),
+    watchAgain: vi.fn(),
+    hidden: new Set(),
+    hideSession: vi.fn(),
+    showHidden: vi.fn(),
+    ...watch,
+  };
   const view = render(
     <WatchContext.Provider value={watchValue}>
       <TeamSelect {...all} />
@@ -387,4 +395,49 @@ it('keeps the ended team that is being VIEWED, so the picker cannot contradict t
   renderSelect({ current: 'session-b5129c7b' });
   const rows = await screen.findAllByRole('option');
   expect(rows.map((r) => r.getAttribute('id'))).toContain('team-option-session-b5129c7b');
+});
+
+it('offers the hide control on every row, current one included', async () => {
+  renderSelect();
+  const rows = await screen.findAllByRole('option');
+  expect(within(rows[0]).getByTestId('row-hide')).toBeTruthy();
+  expect(within(rows[1]).getByTestId('row-hide')).toBeTruthy();
+});
+
+it('hides without switching to the session or closing the menu', async () => {
+  const hideSession = vi.fn();
+  const { onOpenChange } = renderSelect({}, { hideSession });
+  const rows = await screen.findAllByRole('option');
+  fireEvent.click(within(rows[1]).getByTestId('row-hide'));
+  expect(hideSession).toHaveBeenCalledWith('session-b5129c7b');
+  expect(fetchMock).not.toHaveBeenCalledWith(
+    '/api/teams/session-b5129c7b/select',
+    expect.anything(),
+  );
+  expect(onOpenChange).not.toHaveBeenCalledWith(false);
+});
+
+it('drops hidden sessions from the list and from the header count', async () => {
+  renderSelect({}, { hidden: new Set(['session-b5129c7b']) });
+  const rows = await screen.findAllByRole('option');
+  expect(rows.map((r) => r.id)).not.toContain('team-option-session-b5129c7b');
+  expect(screen.getByText(/SESSIONS ON THIS MACHINE/).textContent).toContain(
+    String(rows.length),
+  );
+});
+
+// Hiding the last row would otherwise be a one-way door: an empty list with no
+// control left in it to undo the hiding.
+it('keeps a way back in the menu once anything is hidden', async () => {
+  const showHidden = vi.fn();
+  renderSelect({}, { hidden: new Set(['session-b5129c7b']), showHidden });
+  const back = await screen.findByTestId('show-hidden-rows');
+  expect(back.textContent).toContain('1 hidden');
+  fireEvent.click(back);
+  expect(showHidden).toHaveBeenCalled();
+});
+
+it('says every session is hidden rather than "no live teams" when that is why the list is empty', async () => {
+  renderSelect({}, { hidden: new Set(['session-98b0b4a7', 'session-b5129c7b']) });
+  expect(await screen.findByText('every session is hidden')).toBeTruthy();
 });

@@ -162,7 +162,12 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
   // claims otherwise. The team being VIEWED stays listed even once it ends —
   // dropping the row you are looking at would leave the picker contradicting
   // the wall behind it.
-  const rows = (teams ?? []).filter((t) => t.state !== 'done' || t.current);
+  // Hidden sessions come out before anything else counts them, so the header
+  // total, the search results and the cursor all agree with what is drawn.
+  const rows = (teams ?? []).filter(
+    (t) => (t.state !== 'done' || t.current) && !watch.hidden.has(t.name),
+  );
+  const hiddenCount = (teams ?? []).filter((t) => watch.hidden.has(t.name)).length;
   const filteredRows = rows.filter((t) => matchesQuery(t, query));
   const cursorTeam = filteredRows[Math.min(cursor, filteredRows.length - 1)];
 
@@ -394,6 +399,33 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
                         stop watching
                       </button>
                     )}
+                    {/* Removes the row from this browser's picker. Deliberately
+                        offered on every row including the current one — the
+                        sessions worth clearing are usually the stale ones you
+                        are looking at. Hiding the current session empties the
+                        body to `NoSessions`, which carries the way back. */}
+                    <button
+                      type="button"
+                      data-testid="row-hide"
+                      aria-label={`hide ${team.goal ?? team.name}`}
+                      title="hide from this picker · nothing is stopped"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        watch.hideSession(team.name);
+                      }}
+                      style={{
+                        fontSize: '11px',
+                        lineHeight: 1,
+                        color: 'var(--color-neutral-700)',
+                        background: 'transparent',
+                        border: 'none',
+                        padding: '0 2px',
+                        cursor: 'pointer',
+                        flex: 'none',
+                      }}
+                    >
+                      {'✕'}
+                    </button>
                   </div>
                   <div
                     data-testid="team-meta"
@@ -466,9 +498,38 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
                   : unreadable
                     ? 'could not read teams'
                     : rows.length === 0
-                      ? 'no live teams'
+                      ? hiddenCount > 0
+                        ? 'every session is hidden'
+                        : 'no live teams'
                       : 'no matches'}
               </div>
+            )}
+
+            {/* The way back, in the picker itself as well as on the empty
+                screen — hiding the last row otherwise leaves a list with no
+                control in it at all. */}
+            {hiddenCount > 0 && (
+              <button
+                type="button"
+                data-testid="show-hidden-rows"
+                onClick={() => {
+                  watch.showHidden();
+                  setCursor(0);
+                }}
+                style={{
+                  margin: '2px 2px 0',
+                  padding: '6px 8px',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px dashed var(--color-neutral-800)',
+                  background: 'transparent',
+                  color: 'var(--color-neutral-600)',
+                  fontSize: '10.5px',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                }}
+              >
+                {`${hiddenCount} hidden · show ${hiddenCount === 1 ? 'it' : 'them'}`}
+              </button>
             )}
           </div>
 

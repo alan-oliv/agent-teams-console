@@ -8,6 +8,7 @@ import { StatusBar } from './chrome/StatusBar';
 import { StopConfirm, WatchConfirm } from './chrome/StopConfirm';
 import { DiffModal } from './components/DiffModal';
 import { StopContext } from './components/StopButton';
+import { useHiddenSessions } from './state/useHiddenSessions';
 import { useKeyboard } from './state/useKeyboard';
 import { SettingsContext, useSettings } from './state/useSettings';
 import { DiffContext, useTeamState } from './state/useTeamState';
@@ -15,6 +16,7 @@ import { WatchContext } from './state/useWatch';
 import { Comms } from './views/Comms';
 import { Grid } from './views/Grid';
 import { LeftSession } from './views/LeftSession';
+import { NoSessions } from './views/NoSessions';
 import { Overview } from './views/Overview';
 import { Rail } from './views/Rail';
 import { Tasks } from './views/Tasks';
@@ -55,10 +57,16 @@ export function App() {
     setDismissed(false);
   }, [state?.teamName]);
 
+  const { hidden, hide, showAll } = useHiddenSessions();
+  // Hiding the session on screen leaves the body with nothing to draw. The
+  // picker keeps working — the remaining rows are still switchable — so this is
+  // an empty BODY, not an empty console.
+  const currentHidden = state ? hidden.has(state.teamName) : false;
+
   // Fetched only once there's something to show — the same "on open" rule the
   // picker's own listing follows.
   useEffect(() => {
-    if (!dismissed || !state) return;
+    if ((!dismissed && !currentHidden) || !state) return;
     let live = true;
     fetch('/api/teams')
       .then((res) => (res.ok ? (res.json() as Promise<TeamsResponse>) : Promise.reject(res.status)))
@@ -72,7 +80,7 @@ export function App() {
     return () => {
       live = false;
     };
-  }, [dismissed, state?.teamName]);
+  }, [dismissed, currentHidden, state?.teamName]);
 
   const watchAgain = useCallback(() => {
     setDismissed(false);
@@ -80,8 +88,15 @@ export function App() {
   }, []);
 
   const watchState = useMemo(
-    () => ({ dismissed, requestStopWatching: () => setPendingDismiss(true), watchAgain }),
-    [dismissed, watchAgain],
+    () => ({
+      dismissed,
+      requestStopWatching: () => setPendingDismiss(true),
+      watchAgain,
+      hidden,
+      hideSession: hide,
+      showHidden: showAll,
+    }),
+    [dismissed, watchAgain, hidden, hide, showAll],
   );
 
   // The launcher announces a new team at a console that is already running for
@@ -224,7 +239,17 @@ export function App() {
         appearance={appearance}
       />
       <main className="console-body">
-        {dismissed ? (
+        {/* Hiding wins over dismissal: a session taken out of the picker has no
+            row left to page back into, so LeftSession's "watch again" would
+            point at nothing. */}
+        {currentHidden ? (
+          <NoSessions
+            remaining={elsewhere.filter((t) => !hidden.has(t.name))}
+            hiddenCount={hidden.size}
+            onShowHidden={showAll}
+            onSwitchTo={(name) => void postJson(`/api/teams/${encodeURIComponent(name)}/select`)}
+          />
+        ) : dismissed ? (
           <LeftSession
             state={state}
             now={now}

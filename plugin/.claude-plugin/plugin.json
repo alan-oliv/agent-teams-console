@@ -1,6 +1,6 @@
 {
   "name": "agent-teams-console",
-  "version": "0.5.5",
+  "version": "0.6.0",
   "description": "A live browser console for Claude Code agent teams — every teammate's transcript, tasks, mail and status in one window. Starts itself the first time a team is spawned.",
   "author": {
     "name": "alan-oliv",
