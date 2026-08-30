@@ -281,6 +281,46 @@ describe('listTeamSummaries', () => {
     await fs.writeFile(path.join(sessions(), `${pid}.json`), JSON.stringify({ pid, sessionId }));
   }
 
+  const sessionDirOf = (projects: string, cwd: string, sessionId: string) =>
+    path.join(projects, cwd.replace(/[^a-zA-Z0-9]/g, '-'), sessionId);
+
+  // Written WHILE a run is in flight, and the only file a live run leaves.
+  async function writeJournal(
+    projects: string,
+    cwd: string,
+    sessionId: string,
+    runId: string,
+    mtimeMs?: number,
+  ) {
+    const runDir = path.join(sessionDirOf(projects, cwd, sessionId), 'subagents', 'workflows', runId);
+    await fs.mkdir(runDir, { recursive: true });
+    const journal = path.join(runDir, 'journal.jsonl');
+    await fs.writeFile(journal, '{"type":"started","agentId":"a1"}\n');
+    if (mtimeMs !== undefined) await fs.utimes(journal, mtimeMs / 1000, mtimeMs / 1000);
+  }
+
+  // The other subtree of the same session, written only at termination.
+  async function writeSnapshot(
+    projects: string,
+    cwd: string,
+    sessionId: string,
+    runId: string,
+    workflowName?: string,
+  ) {
+    const runs = path.join(sessionDirOf(projects, cwd, sessionId), 'workflows');
+    await fs.mkdir(runs, { recursive: true });
+    await fs.writeFile(
+      path.join(runs, `${runId}.json`),
+      JSON.stringify(workflowName ? { runId, workflowName } : { runId }),
+    );
+  }
+
+  async function leadOnlyAt(name: string, sessionId: string, cwd: string) {
+    const config = team(name, { createdAt: 10, leadSessionId: sessionId, members: 1 });
+    config.members[0] = { ...config.members[0], cwd };
+    await writeConfig(name, config);
+  }
+
   // config.leadSessionId is a fresh id belonging to no session once a team has
   // been re-keyed, so joining live sessions on it marked a working team `done`.
   // The teammates' sidecars sit under the lead session's OWN directory and name
@@ -500,6 +540,69 @@ describe('listTeamSummaries', () => {
     expect(only.name).toBe('session-noneled1');
     expect(only.leadSessionId).toBe('');
     expect(only.leadAlive).toBe(false);
+  });
+
+  // A session running a dynamic workflow has no team — its agents never enter
+  // members[] — so a row with no run signal on it is indistinguishable from an
+  // empty window, and the picker has no reason to offer it.
+  it('carries the session live workflow run on the row', async () => {
+    const projects = path.join(dir, 'projects');
+    const cwd = '/Users/someone/code/proj';
+    const sessionId = 'wf000000-1111-2222-3333-444444444444';
+    await leadOnlyAt('session-wfrun001', sessionId, cwd);
+    await writeJournal(projects, cwd, sessionId, 'wf_abc123');
+
+    const [row] = (await listTeamSummaries(teams(), sessions(), '', projects)).teams;
+    // No name: it arrives with the snapshot, and inventing one is the thing
+    // that would make the row lie.
+    expect(row.workflow).toEqual({ runId: 'wf_abc123', live: true });
+  });
+
+  it('leaves the workflow field off a session that has never run one', async () => {
+    const projects = path.join(dir, 'projects');
+    await leadOnlyAt('session-noruns01', 'noruns-session', '/Users/someone/code/proj');
+
+    const [row] = (await listTeamSummaries(teams(), sessions(), '', projects)).teams;
+    expect(row.workflow).toBeUndefined();
+  });
+
+  // The snapshot is written at termination and bumps nothing in the journal's
+  // directory, so its existence — not the journal's age — is what ends a run.
+  it('reads the run as ended, and named, once its snapshot has landed', async () => {
+    const projects = path.join(dir, 'projects');
+    const cwd = '/Users/someone/code/proj';
+    const sessionId = 'wf000000-5555-6666-7777-888888888888';
+    await leadOnlyAt('session-wfrun002', sessionId, cwd);
+    await writeJournal(projects, cwd, sessionId, 'wf_def456');
+    await writeSnapshot(projects, cwd, sessionId, 'wf_def456', 'agents-team-ui-plan');
+
+    const [row] = (await listTeamSummaries(teams(), sessions(), '', projects)).teams;
+    expect(row.workflow).toEqual({ runId: 'wf_def456', name: 'agents-team-ui-plan', live: false });
+  });
+
+  // A run killed mid-flight leaves a journal and no snapshot forever. The
+  // journal's age is what stops it being reported as running for good.
+  it('does not call a stale journal with no snapshot a running workflow', async () => {
+    const projects = path.join(dir, 'projects');
+    const cwd = '/Users/someone/code/proj';
+    const sessionId = 'wf000000-9999-aaaa-bbbb-cccccccccccc';
+    await leadOnlyAt('session-wfrun003', sessionId, cwd);
+    await writeJournal(projects, cwd, sessionId, 'wf_old789', Date.now() - IDLE_GRACE_MS - 1000);
+
+    const [row] = (await listTeamSummaries(teams(), sessions(), '', projects)).teams;
+    expect(row.workflow).toEqual({ runId: 'wf_old789', live: false });
+  });
+
+  it('reports the newest run when the session has several', async () => {
+    const projects = path.join(dir, 'projects');
+    const cwd = '/Users/someone/code/proj';
+    const sessionId = 'wf000000-dddd-eeee-ffff-000000000000';
+    await leadOnlyAt('session-wfrun004', sessionId, cwd);
+    await writeJournal(projects, cwd, sessionId, 'wf_first00', Date.now() - 60_000);
+    await writeJournal(projects, cwd, sessionId, 'wf_latest0');
+
+    const [row] = (await listTeamSummaries(teams(), sessions(), '', projects)).teams;
+    expect(row.workflow?.runId).toBe('wf_latest0');
   });
 
   it('returns an empty listing when there is no teams directory at all', async () => {

@@ -90,6 +90,14 @@ describe('threadsOf', () => {
     expect(threadsOf([mail({ from: 'perf', to: 'perf' })])).toEqual([]);
   });
 
+  it('leaves the operator out, so no sixth agent appears under PAIRS', () => {
+    const threads = threadsOf([
+      mail({ from: CONSOLE_SENDER, to: 'team-lead', ts: T0 + 2000 }),
+      mail({ from: 'perf', to: 'security', ts: T0 }),
+    ]);
+    expect(threads.map((t) => t.pair)).toEqual(['perf ⇄ security']);
+  });
+
   it('takes the topic from the newest message summary, then its protocol, then its body', () => {
     const [summarised] = threadsOf([
       mail({ from: 'perf', to: 'security', summary: 'batching vs rotation' }),

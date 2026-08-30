@@ -260,12 +260,13 @@ function Bubble({
 }
 
 export function Comms({
-  agents, mail, tasks, focused, onFocus, onShowInWall, now, readOnly = false,
+  agents, mail, tasks, openThread, onFocus, onShowInWall, now, readOnly = false,
 }: {
   agents: Agent[];
   mail: MailMessage[];
   tasks: Task[];
-  focused: string | null;
+  /** An agent whose messages comms was asked to open — see the `picked` state. */
+  openThread: string | null;
   onFocus: (name: string) => void;
   onShowInWall: (name: string) => void;
   now: number;
@@ -278,22 +279,19 @@ export function Comms({
   // The whole team's traffic, pinned above the pairs. Not a seventh inbox — the
   // same messages, read end to end instead of two at a time.
   const room = useMemo(() => everyoneThread(settled), [settled]);
-  const [picked, setPicked] = useState<string | null>(null);
+  // An open-this-thread intent, consumed once: entering comms is not a request
+  // for a particular conversation, so the room opens on every plain view switch
+  // and a pair only when one was actually asked for — the wall's in-flight
+  // badge, which has to land on the messages it counted.
+  const [picked, setPicked] = useState<string | null>(
+    () => threads.find((t) => t.a === openThread || t.b === openThread)?.id ?? null,
+  );
 
-  // The room holds every agent, so a focused agent never pulls the view off it.
-  const holds = (t: Thread, name: string) =>
-    t.kind === 'everyone' || t.a === name || t.b === name;
-  // Derived rather than cleared in an effect, like the focused agent in
-  // useTeamState: a thread stays open until the focused agent moves somewhere
-  // it has no part in — the panel, the rail, the wall — and comms follows it.
+  // The room first, so it is what `open` falls back to.
   const all = room ? [room, ...threads] : threads;
-  const pickedThread = all.find((t) => t.id === picked);
-  const open =
-    pickedThread && (!focused || holds(pickedThread, focused))
-      ? pickedThread
-      : (focused ? threads.find((t) => t.a === focused || t.b === focused) : undefined) ?? all[0];
+  const open = all.find((t) => t.id === picked) ?? all[0];
 
-  function openThread(thread: Thread) {
+  function openPair(thread: Thread) {
     setPicked(thread.id);
     onFocus(focusTargetOf(thread, agents));
   }
@@ -403,7 +401,7 @@ export function Comms({
                 data-testid="thread-row"
                 role="option"
                 aria-selected={selected}
-                onClick={() => openThread(thread)}
+                onClick={() => openPair(thread)}
                 style={{
                   padding: '8px 9px',
                   borderRadius: 'var(--radius-sm)',

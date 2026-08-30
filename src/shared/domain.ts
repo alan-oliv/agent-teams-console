@@ -219,6 +219,16 @@ export interface TeamSummary {
   branch?: string;           // read from <cwd>/.git/HEAD, not the statusline hook
   goal?: string;             // the lead session's name (`/branch` sets it)
   state: 'live' | 'idle' | 'done';
+  /**
+   * The newest dynamic-workflow run in this session, when there is one.
+   *
+   * A workflow's agents never enter `members[]`, so a session running one looks
+   * exactly like an empty window on every other field here — and the picker,
+   * which drops rosters under two, had no reason to offer it. `name` arrives
+   * with the run's snapshot, which is written only at termination: a live run
+   * genuinely has no name yet, and one must not be invented for it.
+   */
+  workflow?: { runId: string; name?: string; live: boolean };
 }
 
 export interface TeamsResponse {

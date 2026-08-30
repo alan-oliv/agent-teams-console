@@ -43,6 +43,14 @@ export function App() {
   const state = store.state;
   const toggleTeams = useCallback(() => setTeamsOpen((open) => !open), []);
 
+  // An open-this-thread intent, not a selection: comms opens the everyone room
+  // on any plain view switch, and only the in-flight badge asks it for one
+  // agent's messages. Dropped on the way out, so the next visit is plain again.
+  const [mailFor, setMailFor] = useState<string | null>(null);
+  useEffect(() => {
+    if (store.view !== 'comms') setMailFor(null);
+  }, [store.view]);
+
   // "Stop watching" is a view-local dismissal, never written to `~/.claude` and
   // scoped to this tab — the team keeps running and this state is the only
   // place that knows the console stopped following it.
@@ -286,6 +294,7 @@ export function App() {
             widths={store.widths}
             onWidthChange={store.setWidth}
             onOpenMail={(name) => {
+              setMailFor(name);
               store.setAgent(name);
               store.setView('comms');
             }}
@@ -299,7 +308,7 @@ export function App() {
             agents={state.agents}
             mail={state.mail}
             tasks={state.tasks}
-            focused={store.agent}
+            openThread={mailFor}
             onFocus={store.setAgent}
             onShowInWall={(name) => {
               store.setAgent(name);

@@ -270,6 +270,81 @@ async function lastActivityOf(teamDir: string, configMtimeMs: number): Promise<n
 }
 
 /**
+ * The newest workflow run in one session, for the picker's row.
+ *
+ * A run leaves two files, in two DIFFERENT subtrees of the same session:
+ *
+ *   <session>/subagents/workflows/<runId>/journal.jsonl   while it runs
+ *   <session>/workflows/<runId>.json                      once it terminates
+ *
+ * so the snapshot's existence, not the journal's age, is what ends a run — a
+ * run that finished a minute ago has a journal as fresh as a running one's.
+ * The age is only here for the run killed mid-flight, whose snapshot never
+ * lands and which would otherwise read as running for good.
+ *
+ * One stat per run directory, and for the winner alone one stat and one small
+ * read — the snapshot is the only place the run's name exists.
+ */
+async function workflowOf(
+  projectsRoot: string,
+  cwd: string,
+  sessionId: string,
+  now: number,
+): Promise<TeamSummary['workflow']> {
+  if (!cwd || !sessionId) return undefined;
+  const sessionDir = path.join(projectsRoot, cwd.replace(/[^a-zA-Z0-9]/g, '-'), sessionId);
+  const runsDir = path.join(sessionDir, 'subagents', 'workflows');
+  let entries: string[];
+  try {
+    entries = await fs.readdir(runsDir);
+  } catch {
+    return undefined;
+  }
+  let runId = '';
+  let journalMtimeMs = 0;
+  for (const entry of entries) {
+    try {
+      const st = await fs.stat(path.join(runsDir, entry, 'journal.jsonl'));
+      if (st.mtimeMs > journalMtimeMs) {
+        journalMtimeMs = st.mtimeMs;
+        runId = entry;
+      }
+    } catch {
+      // Not a run directory, or its journal is gone — either way, not a run.
+    }
+  }
+  if (!runId) return undefined;
+
+  const snapshot = path.join(sessionDir, 'workflows', `${runId}.json`);
+  let ended = false;
+  try {
+    ended = (await fs.stat(snapshot)).isFile();
+  } catch {
+    // No snapshot: still running, or killed before it could write one.
+  }
+  const name = ended ? await workflowNameOf(snapshot) : undefined;
+  return {
+    runId,
+    ...(name ? { name } : {}),
+    live: !ended && now - journalMtimeMs < IDLE_GRACE_MS,
+  };
+}
+
+/**
+ * Deliberately not `readJsonSafe`: its retry exists for files rewritten under
+ * us, and a snapshot is written once. A torn or nameless one simply has no name
+ * to give, which the row already renders as the run id.
+ */
+async function workflowNameOf(snapshot: string): Promise<string | undefined> {
+  try {
+    const raw = JSON.parse(await fs.readFile(snapshot, 'utf8')) as { workflowName?: unknown };
+    return typeof raw.workflowName === 'string' && raw.workflowName ? raw.workflowName : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Every team on the machine, dead ones included — paging back through a team
  * that has ended is the point of the selector, and `departed` already renders
  * one. Metadata only: folding each team's log to report cost or tokens measured
@@ -367,6 +442,12 @@ export async function listTeamSummaries(
     const recent = now - lastActivityAt < IDLE_GRACE_MS;
     const lead = config.members.find((m) => m.agentId === config.leadAgentId) ?? config.members[0];
     leadCwds.set(name, lead?.cwd ?? '');
+    // The session's own cwd first: it is the directory whose slug names the
+    // project dir the run writes into, and a re-keyed team's members[] can name
+    // a different one.
+    const workflow = projectsRoot
+      ? await workflowOf(projectsRoot, sessions.cwds.get(leadSession) ?? lead?.cwd ?? '', leadSession, now)
+      : undefined;
     teams.push({
       // The DIRECTORY name, not config.name: the ingest gates its own team's
       // config.json on the directory, so a mismatch would make the team
@@ -387,6 +468,7 @@ export async function listTeamSummaries(
       // `idle` is a team whose lead process is gone but whose files moved
       // recently — it can still be paged back into; `done` is finished.
       state: leadAlive ? 'live' : recent ? 'idle' : 'done',
+      ...(workflow ? { workflow } : {}),
     });
   }
 

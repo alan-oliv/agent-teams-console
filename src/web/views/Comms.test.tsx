@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import type { Agent, MailMessage, Task, TranscriptLine } from '../../shared/domain';
+import { CONSOLE_SENDER, type Agent, type MailMessage, type Task, type TranscriptLine } from '../../shared/domain';
 import { Comms } from './Comms';
 
 afterEach(() => {
@@ -88,6 +88,17 @@ const MAIL: MailMessage[] = [
   },
 ];
 
+// Stamped `console` server-side: a message to the LEAD cannot arrive as the lead.
+const OPERATOR_TO_LEAD: MailMessage = {
+  msgId: 'm5',
+  from: CONSOLE_SENDER,
+  to: 'team-lead',
+  text: 'ship what you have',
+  ts: T0 + 20_000,
+  tsIsDelivery: false,
+  read: true,
+};
+
 const TASKS: Task[] = [
   { id: 'T-07', subject: 'batch the lookup', description: '', state: 'pending', blocks: [], blockedBy: [] },
 ];
@@ -97,7 +108,7 @@ function renderComms(over: Partial<Parameters<typeof Comms>[0]> = {}) {
     agents: AGENTS,
     mail: MAIL,
     tasks: TASKS,
-    focused: null as string | null,
+    openThread: null as string | null,
     onFocus: vi.fn(),
     onShowInWall: vi.fn(),
     now: NOW,
@@ -176,11 +187,11 @@ describe('Comms — thread list', () => {
 });
 
 
-// `everyone` is what opens with nothing focused, so a test about the PAIR pane
-// has to say which pair it means. Focusing a participant is how every other
-// view does it, and it survives a re-render where a click would not.
+// The room is what opens on its own, so a test about the PAIR pane has to say
+// which pair it means. The in-flight badge's open-this-thread intent is how the
+// app asks for one, and it survives a re-render where a click would not.
 function renderPair(over: Partial<Parameters<typeof Comms>[0]> = {}) {
-  return renderComms({ focused: 'perf', ...over });
+  return renderComms({ openThread: 'perf', ...over });
 }
 
 describe('Comms — thread pane', () => {
@@ -325,25 +336,32 @@ describe('Comms — the operator joins the thread', () => {
   });
 });
 
-describe('Comms — shared state', () => {
-  it('opens the focused agent thread, so a pick made in another view carries', () => {
-    renderComms({ focused: 'team-lead' });
+// Entering comms is not a request for a particular conversation: the room is
+// the default, and only an explicit open-this-thread intent — the wall's
+// in-flight badge — asks for one agent's messages.
+describe('Comms — which thread opens', () => {
+  it('opens the room on a plain view switch', () => {
+    renderComms();
+    expect(within(screen.getByTestId('thread-head')).getByText('all messages')).toBeTruthy();
+  });
+
+  it('opens that agent thread when comms is asked for one agent messages', () => {
+    renderComms({ openThread: 'team-lead' });
     expect(within(screen.getByTestId('thread-head')).getByText('security ⇄ team-lead')).toBeTruthy();
   });
 
+  it('opens the room when the intent names an agent nobody has written to', () => {
+    renderComms({ openThread: 'nobody' });
+    expect(within(screen.getByTestId('thread-head')).getByText('all messages')).toBeTruthy();
+  });
+});
+
+describe('Comms — shared state', () => {
   it('sets the focused agent when a thread is opened, and keeps it off the lead', () => {
     const props = renderComms();
     fireEvent.click(screen.getAllByTestId('thread-row')[1]);
     // The wall pins the lead, so focusing it navigates nowhere.
     expect(props.onFocus).toHaveBeenCalledWith('security');
-    expect(within(screen.getByTestId('thread-head')).getByText('security ⇄ team-lead')).toBeTruthy();
-  });
-
-  it('follows the focused agent away when it moves out of the open thread', () => {
-    const props = renderComms({ focused: 'perf' });
-    expect(within(screen.getByTestId('thread-head')).getByText('perf ⇄ security')).toBeTruthy();
-    cleanup();
-    render(<Comms {...props} focused="team-lead" />);
     expect(within(screen.getByTestId('thread-head')).getByText('security ⇄ team-lead')).toBeTruthy();
   });
 
@@ -368,11 +386,29 @@ describe('Comms — the everyone room', () => {
     expect(order[0].getAttribute('data-testid')).toBe('room-row');
   });
 
-  it('is what opens when no agent is focused', () => {
+  it('marks its own row selected when it opens, and heads the pane with the membership', () => {
     renderComms();
     expect(screen.getByTestId('room-row').getAttribute('aria-selected')).toBe('true');
-    expect(within(screen.getByTestId('thread-head')).getByText('all messages')).toBeTruthy();
     expect(screen.getByTestId('room-members').textContent).toBe('3 members');
+  });
+
+  // The operator is not a member of the team, so a `console ⇄ team-lead` row
+  // would read as a sixth agent having joined it.
+  it('is where the operator own messages live, never a pair row of their own', () => {
+    renderComms({ mail: [...MAIL, OPERATOR_TO_LEAD] });
+    expect(screen.getAllByTestId('thread-pair').map((n) => n.textContent)).toEqual([
+      'perf ⇄ security',
+      'security ⇄ team-lead',
+    ]);
+    expect(screen.getAllByTestId('room-from').map((n) => n.textContent)).toContain('you');
+  });
+
+  it('gives the operator line no face, on the side the operator writes from', () => {
+    renderComms({ mail: [...MAIL, OPERATOR_TO_LEAD] });
+    const mine = screen.getAllByTestId('room-line')
+      .find((l) => within(l).getByTestId('room-from').textContent === 'you')!;
+    expect(mine.style.alignItems).toBe('flex-end');
+    expect(within(mine).queryByTestId('portrait')).toBeNull();
   });
 
   it('carries every message the team exchanged, not just one pair', () => {
