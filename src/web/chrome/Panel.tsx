@@ -36,7 +36,7 @@ const Chip = memo(function Chip({
     >
       <StatusGlyph status={agent.status} size={10} />
       <span style={{ color: 'var(--color-neutral-400)' }}>{agent.name}</span>
-      <span style={{ color: 'var(--color-neutral-700)' }}>
+      <span style={{ color: 'var(--color-neutral-600)' }}>
         {formatPct(agent.contextTokens / agent.contextLimit)}
       </span>
     </button>
@@ -77,7 +77,7 @@ export function Panel({ agents, focusedAgent, onFocusAgent }: PanelProps) {
         fontSize: 10.5,
       }}
     >
-      <span style={{ color: 'var(--color-neutral-700)', letterSpacing: '.12em' }}>PANEL</span>
+      <span style={{ color: 'var(--color-neutral-600)', letterSpacing: '.12em' }}>PANEL</span>
       <div style={{ display: 'flex', gap: 6, flex: 1, overflow: 'hidden' }}>
         {shown.map((a) => (
           <Chip
@@ -97,7 +97,7 @@ export function Panel({ agents, focusedAgent, onFocusAgent }: PanelProps) {
               border: '1px dashed var(--color-neutral-800)',
               borderRadius: 'var(--radius-sm)',
               padding: '2px 7px',
-              color: 'var(--color-neutral-700)',
+              color: 'var(--color-neutral-600)',
               whiteSpace: 'nowrap',
             }}
           >
@@ -114,7 +114,7 @@ export function Panel({ agents, focusedAgent, onFocusAgent }: PanelProps) {
               border: '1px dashed var(--color-neutral-800)',
               borderRadius: 'var(--radius-sm)',
               padding: '2px 7px',
-              color: 'var(--color-neutral-700)',
+              color: 'var(--color-neutral-600)',
               whiteSpace: 'nowrap',
             }}
           >
@@ -132,7 +132,7 @@ export function Panel({ agents, focusedAgent, onFocusAgent }: PanelProps) {
             </span>
           ))}
       </div>
-      <span style={{ color: 'var(--color-neutral-700)', whiteSpace: 'nowrap' }}>{LEGEND}</span>
+      <span style={{ color: 'var(--color-neutral-600)', whiteSpace: 'nowrap' }}>{LEGEND}</span>
     </div>
   );
 }

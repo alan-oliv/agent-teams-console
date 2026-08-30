@@ -155,7 +155,7 @@ it('collapses departed agents into their own dashed chip, distinct from idle', (
 it('renders the PANEL label and the key legend', () => {
   render(<Panel agents={[]} focusedAgent={null} onFocusAgent={vi.fn()} />);
   const label = screen.getByText('PANEL');
-  expect(label.style.color).toBe('var(--color-neutral-700)');
+  expect(label.style.color).toBe('var(--color-neutral-600)');
   expect(label.style.letterSpacing).toBe('.12em');
   expect(
     screen.getByText('↑↓ select · ⏎ open · esc interrupt · x stop · ⌃T tasks · t teams'),

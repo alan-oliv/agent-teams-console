@@ -243,7 +243,10 @@ export function Tasks({
                     {state.label}
                   </span>
                 </span>
-                <span data-testid="task-model" style={{ width: '60px', color: 'var(--color-neutral-700)' }}>
+                <span
+                  data-testid="task-model"
+                  style={{ width: '60px', color: task.metadata?.model ? 'var(--color-neutral-500)' : 'var(--color-neutral-700)' }}
+                >
                   {task.metadata?.model ?? '—'}
                 </span>
                 <span data-testid="task-owner" style={{ width: '80px', color: 'var(--color-neutral-500)' }}>

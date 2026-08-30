@@ -129,7 +129,7 @@ export function NoSessions({ remaining, notShownCount, onShowHidden, onSwitchTo 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
             <span
               style={{
-                color: 'var(--color-neutral-700)',
+                color: 'var(--color-neutral-600)',
                 fontSize: '10px',
                 letterSpacing: '.12em',
               }}
@@ -165,7 +165,7 @@ export function NoSessions({ remaining, notShownCount, onShowHidden, onSwitchTo 
                   </span>
                   <span style={{ flex: 1 }} />
                   <span
-                    style={{ color: 'var(--color-neutral-700)', fontSize: '10px', flex: 'none' }}
+                    style={{ color: 'var(--color-neutral-600)', fontSize: '10px', flex: 'none' }}
                   >
                     {`${t.members} agent${t.members === 1 ? '' : 's'}`}
                   </span>

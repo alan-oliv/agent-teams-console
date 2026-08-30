@@ -257,7 +257,8 @@ describe('Comms — delivery state', () => {
     // m2 went to perf at T0+60s; perf's turns opened at T0+30s and T0+90s, so
     // the second one is where it landed.
     expect(deliveries[1].textContent).toBe('read at turn 2');
-    expect(deliveries[1].style.color).toBe('var(--color-neutral-700)');
+    // Ruling 1: the read receipt is the quiet register, not README:105's -700.
+    expect(deliveries[1].style.color).toBe('var(--color-neutral-600)');
   });
 
   it('says plainly `read` rather than guessing a turn the transcript cannot place', () => {

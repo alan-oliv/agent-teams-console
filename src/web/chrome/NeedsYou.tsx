@@ -159,7 +159,7 @@ export function NeedsYou({ items, readOnly, now }: NeedsYouProps) {
       </span>
       <div style={{ flex: 1, display: 'flex', gap: 8, minWidth: 0, alignItems: 'center' }}>
         {items.length === 0 ? (
-          <span style={{ color: 'var(--color-neutral-700)', fontSize: 11 }}>nothing waiting</span>
+          <span style={{ color: 'var(--color-neutral-600)', fontSize: 11 }}>nothing waiting</span>
         ) : (
           items.map((item) => <Card key={item.id} item={item} readOnly={readOnly} now={now} />)
         )}

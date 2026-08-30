@@ -466,7 +466,7 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
                       style={{
                         fontSize: '11px',
                         lineHeight: 1,
-                        color: 'var(--color-neutral-700)',
+                        color: 'var(--color-neutral-600)',
                         background: 'transparent',
                         border: 'none',
                         padding: '0 2px',
@@ -549,7 +549,7 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
                     <span style={{ flex: 1 }} />
                     <span
                       style={{
-                        color: 'var(--color-neutral-700)',
+                        color: 'var(--color-neutral-600)',
                         fontSize: '10px',
                         whiteSpace: 'nowrap',
                         flex: 'none',
@@ -583,7 +583,7 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
                 style={{
                   padding: '6px 10px 4px',
                   fontSize: '11px',
-                  color: unreadable && !loading ? 'var(--fail)' : 'var(--color-neutral-700)',
+                  color: unreadable && !loading ? 'var(--fail)' : 'var(--color-neutral-600)',
                 }}
               >
                 {loading
@@ -630,7 +630,7 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
             style={{
               padding: '9px 16px',
               borderTop: '1px solid var(--color-neutral-900)',
-              color: 'var(--color-neutral-700)',
+              color: 'var(--color-neutral-600)',
               fontSize: '10.5px',
             }}
           >

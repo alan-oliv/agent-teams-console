@@ -19,7 +19,7 @@ import { briefAge, clockLabel } from '../format';
 
 const PANE_HEAD: CSSProperties = {
   padding: '10px 14px 8px',
-  color: 'var(--color-neutral-700)',
+  color: 'var(--color-neutral-600)',
   fontSize: '10.5px',
   letterSpacing: '.12em',
   borderBottom: '1px solid var(--color-neutral-900)',
@@ -29,7 +29,7 @@ const PANE_HEAD: CSSProperties = {
 const FOOT_NOTE: CSSProperties = {
   borderTop: '1px solid var(--color-neutral-900)',
   padding: '9px 14px',
-  color: 'var(--color-neutral-700)',
+  color: 'var(--color-neutral-600)',
   fontSize: '10px',
   lineHeight: 1.5,
 };
@@ -208,7 +208,7 @@ function RoomBubble({
         </span>
         <span
           data-testid="room-receipt"
-          style={{ color: line.read ? 'var(--color-neutral-700)' : 'var(--warn)', fontSize: '10px' }}
+          style={{ color: line.read ? 'var(--color-neutral-600)' : 'var(--warn)', fontSize: '10px' }}
         >
           {line.read
             ? turn === undefined
@@ -300,7 +300,7 @@ function Bubble({
       <span
         data-testid="bubble-delivery"
         style={{
-          color: message.read ? 'var(--color-neutral-700)' : 'var(--warn)',
+          color: message.read ? 'var(--color-neutral-600)' : 'var(--warn)',
           fontSize: '10px',
           padding: '0 32px',
         }}
@@ -443,7 +443,7 @@ export function Comms({
               data-testid="pairs-label"
               style={{
                 padding: '8px 9px 2px',
-                color: 'var(--color-neutral-700)',
+                color: 'var(--color-neutral-600)',
                 fontSize: '10px',
                 letterSpacing: '.12em',
               }}
@@ -528,7 +528,7 @@ export function Comms({
           {threads.length === 0 && (
             <div
               data-testid="threads-empty"
-              style={{ padding: '8px 9px', color: 'var(--color-neutral-700)', fontSize: '11px' }}
+              style={{ padding: '8px 9px', color: 'var(--color-neutral-600)', fontSize: '11px' }}
             >
               no threads — nobody on this team has written to anybody
             </div>
@@ -621,7 +621,7 @@ function ThreadPane({
         {taskIds.length > 0 && (
           <span
             data-testid="thread-tasks"
-            style={{ color: 'var(--color-neutral-700)', fontSize: '10.5px', flex: 'none' }}
+            style={{ color: 'var(--color-neutral-600)', fontSize: '10.5px', flex: 'none' }}
           >
             {taskIds.join(' · ')}
           </span>
