@@ -78,18 +78,20 @@ Check it any time with the `/console` slash command (`/agent-teams-console:conso
 if another plugin already owns that name). It reports whether the console is
 running, prints its URL, and starts it if a team is live but the server is down.
 
-## It only wakes for a real team
+## It only wakes for a real team, or a workflow
 
-The launcher runs on **every** `Agent` tool call, so it is written to be cheap and
-to do nothing almost every time. It reads `~/.claude/teams/<team>/config.json` and
-gives up unless that file lists **two or more members**.
+The launcher runs on **every** `Agent` or `Workflow` tool call, so it is written
+to be cheap and to do nothing almost every time. For an `Agent` call it reads
+`~/.claude/teams/<team>/config.json` and gives up unless that file lists **two
+or more members**. A `Workflow` call has no such gate — a run forms no team, so
+every one wakes the console and points it at the session that ran it instead.
 
 Ordinary subagents, `Explore`, workflow fan-outs and parallel search agents never
 appear in `members[]` — verified during the capture spike, where six workflow
 subagents were live and `members[]` still held only the lead. So they cost one
 short-lived shell process and nothing else: no server, no window, no message.
 
-Only teammates spawned onto a team count.
+Only teammates spawned onto a team, or a workflow's own top-level call, count.
 
 ## What it reads and writes
 
