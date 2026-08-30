@@ -4,9 +4,11 @@ import { formatTokens } from '../format';
 import { phaseTally, workflowGrid, WORK_ITEM_WIDTH } from './workflow-grid';
 
 /**
- * The design's cell vocabulary. `∅` is a returned null — an agent the user
- * skipped, or one dead after retries — and is a STATE, not an error row: the
- * script saw `null` and carried on, which is what `.filter(Boolean)` is for.
+ * The design's cell vocabulary. `∅` is a returned null — an agent the operator
+ * skipped — and is a STATE, not an error row: the script saw `null` and carried
+ * on, which is what `.filter(Boolean)` is for. A thrown agent is a different
+ * cell and borrows the console's own failed treatment, because a decision and a
+ * failure drawn identically is the one thing this cell cannot do.
  */
 const GLYPH: Record<WorkflowAgentState, string> = {
   done: '✓',
@@ -14,6 +16,8 @@ const GLYPH: Record<WorkflowAgentState, string> = {
   cache: '⤿',
   null: '∅',
   wait: '·',
+  fail: '✗',
+  block: '⊘',
 };
 
 const GLYPH_COLOR: Record<WorkflowAgentState, string> = {
@@ -22,6 +26,8 @@ const GLYPH_COLOR: Record<WorkflowAgentState, string> = {
   cache: 'var(--color-neutral-500)',
   null: 'var(--color-neutral-600)',
   wait: 'var(--color-neutral-700)',
+  fail: 'var(--fail)',
+  block: 'var(--color-neutral-600)',
 };
 
 const PHASE_MIN = 132;

@@ -83,6 +83,26 @@ describe('WorkflowRun', () => {
     expect(second[1].textContent).toBe('●');
   });
 
+  // A decision and a failure drawn as the same ∅ is exactly the collapse the
+  // design names: only one of the two wants the operator.
+  it('separates a skipped agent from one that threw', () => {
+    const run: Run = {
+      ...RUN,
+      phases: [{ index: 1, title: 'Design' }],
+      agents: [
+        agent({ agentId: 'a1', label: 'x:skipped', phaseIndex: 1, state: 'null' }),
+        agent({ agentId: 'a2', label: 'x:threw', phaseIndex: 1, state: 'fail' }),
+        agent({ agentId: 'a3', label: 'x:refused', phaseIndex: 1, state: 'block' }),
+      ],
+    };
+    render(<WorkflowRun run={run} />);
+    const cells = screen.getAllByTestId('wf-cell');
+
+    expect(cells.map((c) => c.textContent)).toEqual(['∅', '✗', '⊘']);
+    expect(cells[1].style.color).toBe('var(--fail)');
+    expect(cells[0].style.color).not.toBe(cells[1].style.color);
+  });
+
   it('shows the run totals that exist, and says why there is no budget', () => {
     render(<WorkflowRun run={RUN} />);
     const totals = screen.getByTestId('wf-totals').textContent ?? '';

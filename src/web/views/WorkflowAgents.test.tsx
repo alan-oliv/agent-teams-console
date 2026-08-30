@@ -59,6 +59,23 @@ describe('WorkflowAgents', () => {
     expect(within(row).getByTestId('wf-agent-model').textContent).toBe('—');
   });
 
+  it('names a failure as failed and colours it, where a skip stays quiet', () => {
+    render(
+      <WorkflowAgents
+        agents={[
+          { agentId: 'a1', state: 'fail', error: 'Error: ENOENT' },
+          { agentId: 'a2', state: 'null', error: 'skipped by user' },
+          { agentId: 'a3', state: 'block' },
+        ]}
+      />,
+    );
+    const states = screen.getAllByTestId('wf-agent-state');
+
+    expect(states.map((s) => s.textContent)).toEqual(['failed', 'returned null', 'blocked']);
+    expect(states[0].style.color).toBe('var(--fail)');
+    expect(states[1].style.color).not.toBe('var(--fail)');
+  });
+
   it('says nothing here is addressable by name', () => {
     render(<WorkflowAgents agents={AGENTS} />);
     expect(screen.getByTestId('wf-agents-footer').textContent).toMatch(/not addressable/i);

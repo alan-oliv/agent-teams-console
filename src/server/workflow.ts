@@ -34,8 +34,9 @@ function resultText(v: unknown): string | undefined {
 const RUN_STATUS = new Set(['completed', 'killed', 'failed', 'running']);
 
 /**
- * The runtime's four states plus its flags, onto the design's five. `cached`
- * rides on a `done` record, so it has to be read before the state is.
+ * The runtime's four states plus its flags. Both `cached` and `skipped` ride on
+ * a record whose `state` says something else, so the flags have to be read
+ * before the state is.
  */
 function agentStateOf(rec: Bag): WorkflowAgentState {
   if (rec.cached === true) return 'cache';
@@ -48,6 +49,12 @@ function agentStateOf(rec: Bag): WorkflowAgentState {
     // spawned"; `startedAt` is the only thing that separates them.
     case 'start':
       return num(rec.startedAt) === undefined ? 'wait' : 'run';
+    // `error` is the runtime's one bucket for three different things: the
+    // operator skipped it, the classifier refused it, or it threw. Only the
+    // last is a failure, and it is the one the console must not bury.
+    case 'error':
+      if (rec.skipped === true) return 'null';
+      return rec.blocked === true ? 'block' : 'fail';
     default:
       return 'null';
   }

@@ -245,12 +245,13 @@ export type ConsoleMode = 'team' | 'workflow';
 
 /**
  * The runtime emits `start | progress | done | error` plus the orthogonal flags
- * `cached` / `skipped` / `blocked`; this is the design's five-value vocabulary
- * those map onto. `null` is the design's name for "the agent returned null",
- * which is what the script sees for a skipped, blocked or thrown agent alike —
- * so `WorkflowAgent.error` carries the distinction the squash would lose.
+ * `cached` / `skipped` / `blocked`. The script sees `null` for a skipped,
+ * blocked or thrown agent alike, but the console must not: `null` is reserved
+ * for the operator's own decision to skip, `fail` is a thrown agent and `block`
+ * a classifier refusal. Only one of the three wants attention, and squashing
+ * them made all three look like the same shrug.
  */
-export type WorkflowAgentState = 'done' | 'run' | 'cache' | 'null' | 'wait';
+export type WorkflowAgentState = 'done' | 'run' | 'cache' | 'null' | 'wait' | 'fail' | 'block';
 
 /**
  * A `phase()` grouping, as DECLARED in the script's `meta.phases`. Every

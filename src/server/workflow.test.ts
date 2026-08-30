@@ -79,10 +79,26 @@ describe('parseWorkflowRun', () => {
       expect(bare).not.toHaveProperty('model');
     });
 
-    it('reads an errored agent as null, keeping why', () => {
-      const skipped = withAgent({ state: 'error', error: 'skipped by user' });
+    it('reads an operator skip as null, keeping why', () => {
+      const skipped = withAgent({ state: 'error', skipped: true, error: 'skipped by user' });
       expect(skipped?.state).toBe('null');
       expect(skipped?.error).toBe('skipped by user');
+    });
+
+    it('reads an agent that threw as a failure, not as a returned null', () => {
+      const threw = withAgent({ state: 'error', error: 'Error: ENOENT' });
+      expect(threw?.state).toBe('fail');
+      expect(threw?.error).toBe('Error: ENOENT');
+    });
+
+    it('reads a classifier refusal as blocked, which is neither', () => {
+      expect(withAgent({ state: 'error', blocked: true })?.state).toBe('block');
+    });
+
+    // The flags are orthogonal to `state`, so a skip that also errored is still
+    // a decision the operator made — that is the reading that survives.
+    it('lets a skip win over a failure when a record carries both', () => {
+      expect(withAgent({ state: 'error', skipped: true, blocked: true })?.state).toBe('null');
     });
   });
 });

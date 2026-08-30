@@ -103,6 +103,11 @@ describe('phaseTally', () => {
     expect(phaseTally(withStates('cache', 'null'), 1)).toBe('1 cached · 1 returned null');
   });
 
+  it('counts a failure and a refusal apart from a returned null', () => {
+    expect(phaseTally(withStates('fail', 'block', 'null'), 1))
+      .toBe('1 failed · 1 blocked · 1 returned null');
+  });
+
   it('counts only the phase asked for', () => {
     const mixed = [
       agent({ agentId: 'a1', state: 'done', phaseIndex: 1 }),

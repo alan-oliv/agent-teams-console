@@ -18,7 +18,12 @@ const FOOTER: CSSProperties = {
  *     runtime's own warning exists.
  */
 function resultOf(agent: WorkflowAgent): { text: string; muted: boolean } {
-  if (agent.state === 'null') return { text: 'null', muted: true };
+  // A skip, a refusal and a throw all hand the script null — the runtime
+  // appends no result line for any of the three — so the journal reads the same
+  // for all three. Which one it was is on the entry's own `error`.
+  if (agent.state === 'null' || agent.state === 'fail' || agent.state === 'block') {
+    return { text: 'null', muted: true };
+  }
   if (agent.result === undefined) return { text: '—', muted: true };
   if (agent.result === '') return { text: '(empty)', muted: true };
   return { text: agent.result, muted: false };

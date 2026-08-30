@@ -71,14 +71,16 @@ export function workflowGrid(run: WorkflowRun): WorkflowGrid {
 
 /**
  * The reader's word for each state. `null` is spelled out because "returned
- * null" is a RESULT — the agent was skipped or died after retries and the
- * script saw null — and the design is explicit that it is a state and not an
- * error row.
+ * null" is a RESULT — the operator skipped it and the script saw null — and the
+ * design is explicit that it is a state and not an error row. A count of
+ * `failed` is an error row, so it is read out before it.
  */
 const TALLY_ORDER: Array<[WorkflowAgentState, string]> = [
   ['done', 'returned'],
   ['run', 'running'],
   ['cache', 'cached'],
+  ['fail', 'failed'],
+  ['block', 'blocked'],
   ['null', 'returned null'],
   ['wait', 'waiting'],
 ];

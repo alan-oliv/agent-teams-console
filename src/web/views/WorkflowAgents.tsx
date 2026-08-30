@@ -8,7 +8,12 @@ const STATE_WORD: Record<WorkflowAgentState, string> = {
   cache: 'cached',
   null: 'returned null',
   wait: 'waiting',
+  fail: 'failed',
+  block: 'blocked',
 };
+
+/** Only a failure is coloured. Dimming the row that wants a human is backwards. */
+const STATE_COLOR: Partial<Record<WorkflowAgentState, string>> = { fail: 'var(--fail)' };
 
 const HEAD: CSSProperties = {
   flex: 'none',
@@ -81,7 +86,10 @@ export function WorkflowAgents({ agents }: { agents: WorkflowAgent[] }) {
             <span data-testid="wf-agent-model" style={{ width: MODEL_W, flex: 'none', color: 'var(--color-neutral-600)' }}>
               {agent.model ?? '—'}
             </span>
-            <span data-testid="wf-agent-state" style={{ width: STATE_W, flex: 'none', color: 'var(--color-neutral-500)' }}>
+            <span
+              data-testid="wf-agent-state"
+              style={{ width: STATE_W, flex: 'none', color: STATE_COLOR[agent.state] ?? 'var(--color-neutral-500)' }}
+            >
               {STATE_WORD[agent.state]}
             </span>
             <span
