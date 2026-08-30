@@ -237,6 +237,19 @@ export interface TeamSummary {
    * genuinely has no name yet, and one must not be invented for it.
    */
   workflow?: { runId: string; name?: string; live: boolean };
+  /**
+   * Work sitting uncommitted in the lead's tree, against HEAD.
+   *
+   * The narrowest reading of the design's "diffstat", and the only one with a
+   * source that survives standing rule 3: a branch-against-base figure needs a
+   * base branch, which means guessing `main` or reading an `origin/HEAD` most
+   * clones never set — blank or wrong for most operators.
+   *
+   * Absent on a clean tree as well as on a directory that is not a repo. `+0
+   * −0` on every well-committed team would read as "did nothing", which is the
+   * opposite of what a clean tree means.
+   */
+  diffstat?: { added: number; removed: number };
 }
 
 export interface TeamsResponse {

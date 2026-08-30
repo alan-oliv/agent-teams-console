@@ -667,3 +667,25 @@ it('shows lead-only rows when the lifted state says they are revealed', async ()
   renderSelect({}, { revealed: true });
   expect(await screen.findAllByRole('option')).toHaveLength(2);
 });
+
+// The design pairs a diffstat with the branch on every row. It says how much is
+// sitting UNCOMMITTED, which is not self-evident from `+14 −2` — so the row
+// carries the reading in its title rather than leaving it to be assumed.
+it('shows what is uncommitted in the tree, and says that is what it is', async () => {
+  const [team, other] = sampleTeams();
+  listOf([{ ...team, diffstat: { added: 14, removed: 2 } }, { ...other, members: 3 }]);
+  renderSelect();
+
+  const [row] = await screen.findAllByRole('option');
+  const stat = within(row).getByTestId('team-diffstat');
+  expect(stat.textContent).toBe('+14 −2');
+  expect(stat.getAttribute('title')).toBe('uncommitted in the working tree, against HEAD');
+});
+
+it('spends no row width on a team with nothing uncommitted', async () => {
+  listOf(sampleTeams().map((t) => ({ ...t, members: 3, state: 'live' as const })));
+  renderSelect();
+
+  const rows = await screen.findAllByRole('option');
+  expect(within(rows[0]).queryByTestId('team-diffstat')).toBeNull();
+});

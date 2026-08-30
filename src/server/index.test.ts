@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { execFile } from 'node:child_process';
 import { promises as fs } from 'node:fs';
+import { promisify } from 'node:util';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -13,6 +15,7 @@ import {
 import type { EventKind, StoredEvent, Store } from './store';
 
 const FIXTURES = path.resolve(process.cwd(), 'fixtures');
+const execFileAsync = promisify(execFile);
 
 let dir: string;
 
@@ -315,6 +318,17 @@ describe('listTeamSummaries', () => {
     );
   }
 
+  // A real repository: a diffstat is git's own arithmetic, and a hand-written
+  // fixture would only prove the parser reads what this test wrote.
+  async function initRepo(root: string, seed: string) {
+    await fs.mkdir(root, { recursive: true });
+    await fs.writeFile(path.join(root, 'file.txt'), seed);
+    const git = (...args: string[]) => execFileAsync('git', args, { cwd: root });
+    await git('init', '-q');
+    await git('add', 'file.txt');
+    await git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'seed');
+  }
+
   async function leadOnlyAt(name: string, sessionId: string, cwd: string) {
     const config = team(name, { createdAt: 10, leadSessionId: sessionId, members: 1 });
     config.members[0] = { ...config.members[0], cwd };
@@ -603,6 +617,32 @@ describe('listTeamSummaries', () => {
 
     const [row] = (await listTeamSummaries(teams(), sessions(), '', projects)).teams;
     expect(row.workflow?.runId).toBe('wf_latest0');
+  });
+
+  // The design pairs a diffstat with the branch on every row. Uncommitted work
+  // is the only reading of it whose source survives standing rule 3 — a
+  // branch-vs-base figure needs a base branch, which means guessing `main` or
+  // reading an `origin/HEAD` most clones never set.
+  it('reports what is sitting uncommitted in the team working tree', async () => {
+    const repo = path.join(dir, 'repo');
+    await initRepo(repo, 'one\ntwo\nthree\n');
+    await fs.writeFile(path.join(repo, 'file.txt'), 'one\nTWO\nthree\nfour\n');
+    await leadOnlyAt('session-stat0001', 'stat-session', repo);
+
+    const [row] = (await listTeamSummaries(teams(), sessions(), '')).teams;
+    expect(row.diffstat).toEqual({ added: 2, removed: 1 });
+  });
+
+  // `+0 −0` on every well-committed team reads as "did nothing", which is the
+  // opposite of what a clean tree means.
+  it('leaves the diffstat off a clean tree, and off a directory with no repo', async () => {
+    const repo = path.join(dir, 'clean');
+    await initRepo(repo, 'one\n');
+    await leadOnlyAt('session-stat0002', 'stat-session', repo);
+    await leadOnlyAt('session-stat0003', 'stat-session', path.join(dir, 'not-a-repo'));
+
+    const rows = (await listTeamSummaries(teams(), sessions(), '')).teams;
+    expect(rows.map((r) => r.diffstat)).toEqual([undefined, undefined]);
   });
 
   it('returns an empty listing when there is no teams directory at all', async () => {

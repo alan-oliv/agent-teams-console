@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { TeamSummary, TeamsResponse } from '../../shared/domain';
 import { postJson } from '../api';
-import { formatElapsed } from '../format';
+import { diffStat, formatElapsed } from '../format';
 import { isEmptySession, isNotShown } from '../state/useHiddenSessions';
 import { useWatch } from '../state/useWatch';
 
@@ -521,6 +521,24 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
                         }}
                       >
                         {team.branch}
+                      </span>
+                    )}
+                    {/* The design pairs this with the branch. It reads the
+                        narrowest thing a local console can know for certain —
+                        which is not self-evident from `+14 −2`, so the row says
+                        so rather than leaving it to be assumed. */}
+                    {team.diffstat && (
+                      <span
+                        data-testid="team-diffstat"
+                        title="uncommitted in the working tree, against HEAD"
+                        style={{
+                          color: 'var(--color-neutral-600)',
+                          fontSize: '10.5px',
+                          whiteSpace: 'nowrap',
+                          flex: 'none',
+                        }}
+                      >
+                        {diffStat(team.diffstat.added, team.diffstat.removed)}
                       </span>
                     )}
                     <span style={{ flex: 1 }} />
