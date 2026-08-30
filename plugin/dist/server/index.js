@@ -3327,7 +3327,7 @@ function foldWorkflows(events) {
   return [...byRun.values()].sort((a, b) => (b.startedAt ?? -1) - (a.startedAt ?? -1));
 }
 function modeOf(teamAgents, runs) {
-  return teamAgents === 0 && runs.length > 0 ? "workflow" : "team";
+  return teamAgents < 2 && runs.length > 0 ? "workflow" : "team";
 }
 function leanRun(run2) {
   const { script: _script, ...lean } = run2;

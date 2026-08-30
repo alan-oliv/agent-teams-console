@@ -196,14 +196,20 @@ export function foldWorkflows(events: readonly StoredEvent[]): WorkflowRun[] {
 }
 
 /**
- * Which shell to draw. A team WINS whenever it has one, so nothing about
+ * Which shell to draw. A team WINS whenever there is one, so nothing about
  * workflow mode can regress the console's existing behaviour: a session that
- * ran a workflow alongside a team still renders as the team it is. Workflow
- * mode is what a console pointed at a session with runs and no roster shows,
- * instead of the empty wall it shows today.
+ * ran a workflow alongside a team still renders as the team it is.
+ *
+ * "A team" is the two-member bar, not "any agents at all" — the same bar the
+ * launcher and the picker use. That distinction is the whole feature: Claude
+ * Code writes a `teams/<session>/config.json` for EVERY session, holding just
+ * that session's own lead, so a roster of one is what a session with no team
+ * looks like, and it is never absent. Keyed on zero this returned `team` for
+ * every real session on disk and workflow mode was unreachable — the console
+ * ingested the runs, held them on the frame, and drew the empty wall anyway.
  */
 export function modeOf(teamAgents: number, runs: readonly WorkflowRun[]): ConsoleMode {
-  return teamAgents === 0 && runs.length > 0 ? 'workflow' : 'team';
+  return teamAgents < 2 && runs.length > 0 ? 'workflow' : 'team';
 }
 
 /**

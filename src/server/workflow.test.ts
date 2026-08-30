@@ -181,17 +181,23 @@ describe('modeOf', () => {
   const run = (runId: string): WorkflowRun =>
     ({ runId, status: 'completed', agents: [], phases: [], logs: [], live: false });
 
-  it('stays in team mode whenever a team has members, runs or not', () => {
-    expect(modeOf(1, [run('wf_a')])).toBe('team');
+  it('stays in team mode whenever a REAL team is there, runs or not', () => {
+    expect(modeOf(2, [run('wf_a')])).toBe('team');
     expect(modeOf(2, [])).toBe('team');
+    expect(modeOf(4, [run('wf_a')])).toBe('team');
   });
 
-  it('switches to workflow mode only when there is no team to draw', () => {
+  // One agent is a session's own lead, not a team: Claude Code writes a team
+  // directory for every session. Keyed on zero this never fired on a real
+  // machine — the console ingested the runs and drew the empty wall anyway.
+  it('switches to workflow mode for a lead-only session with runs', () => {
+    expect(modeOf(1, [run('wf_a')])).toBe('workflow');
     expect(modeOf(0, [run('wf_a')])).toBe('workflow');
   });
 
-  it('stays in team mode when there is neither, so an empty console is unchanged', () => {
+  it('stays in team mode when there are no runs, so an empty console is unchanged', () => {
     expect(modeOf(0, [])).toBe('team');
+    expect(modeOf(1, [])).toBe('team');
   });
 });
 
