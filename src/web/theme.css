@@ -125,6 +125,9 @@ button {
   font-family: "JetBrains Mono", ui-monospace, monospace;
   font-size: 12px;
   line-height: 1.55;
+  /* The diff modal's scrim is `position: absolute; inset: 0` over the whole
+     console, not the viewport. */
+  position: relative;
 }
 
 .console-body {

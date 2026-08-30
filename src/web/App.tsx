@@ -6,10 +6,11 @@ import { NeedsYou } from './chrome/NeedsYou';
 import { Panel } from './chrome/Panel';
 import { StatusBar } from './chrome/StatusBar';
 import { StopConfirm } from './chrome/StopConfirm';
+import { DiffModal } from './components/DiffModal';
 import { StopContext } from './components/StopButton';
 import { useKeyboard } from './state/useKeyboard';
 import { SettingsContext, useSettings } from './state/useSettings';
-import { useTeamState } from './state/useTeamState';
+import { DiffContext, useTeamState } from './state/useTeamState';
 import { Comms } from './views/Comms';
 import { Grid } from './views/Grid';
 import { Overview } from './views/Overview';
@@ -134,6 +135,7 @@ export function App() {
   return (
     <StopContext.Provider value={stopControl}>
     <SettingsContext.Provider value={appearance.settings}>
+    <DiffContext.Provider value={store.setOpenDiff}>
     <div
       className="console"
       style={appearance.vars}
@@ -192,10 +194,12 @@ export function App() {
           <Grid agents={state.agents} focused={store.agent} onFocus={store.setAgent} now={now} />
         )}
       </main>
+      <DiffModal diff={store.openDiff} onClose={() => store.setOpenDiff(null)} />
       <StopConfirm target={stopping} onConfirm={confirmStop} onCancel={() => setStopping(null)} />
       <NeedsYou items={state.needsYou} readOnly={state.readOnly} now={now} />
       <Panel agents={state.agents} focusedAgent={store.agent} onFocusAgent={store.setAgent} />
     </div>
+    </DiffContext.Provider>
     </SettingsContext.Provider>
     </StopContext.Provider>
   );

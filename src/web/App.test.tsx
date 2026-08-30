@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import type { Diff } from '../shared/domain';
 import { App } from './App';
 import { MockEventSource, installMockEventSource } from './test/mockEventSource';
 import { sampleTeamState, sampleTeams } from './test/state-fixture';
@@ -417,4 +418,36 @@ it('a read-only console shows the control but will not arm it', () => {
   fireEvent.click(button);
   expect(screen.queryByTestId('stop-confirm')).toBeNull();
   expect(fetchMock).not.toHaveBeenCalled();
+});
+
+// The diff modal reads the store's openDiff, which any view's TranscriptFeed
+// can set — proof the App-level wiring (DiffContext.Provider + the mount
+// point) actually connects a click on a real row to the shared store.
+it('opens a diff-bearing row into the modal, from the same store every view shares', () => {
+  const diff: Diff = {
+    path: 'src/web/state/useTeamState.ts',
+    added: 14,
+    removed: 2,
+    agent: 'probe-alpha',
+    ts: Date.parse('2026-08-27T14:22:08.000Z'),
+    commit: '9be5ee0',
+    hunks: [],
+  };
+  const withDiff = {
+    ...sampleTeamState(),
+    agents: sampleTeamState().agents.map((a) =>
+      a.name === 'probe-alpha'
+        ? { ...a, transcript: [...a.transcript, { id: 'edit#0', marker: '⎿' as const, text: 'Update(x)', ts: 1, diff }] }
+        : a,
+    ),
+  };
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', withDiff));
+
+  expect(screen.queryByTestId('diff-modal')).toBeNull();
+  fireEvent.click(screen.getByTestId('diff-chip'));
+
+  expect(screen.getByTestId('diff-path').textContent).toBe(diff.path);
+  fireEvent.click(screen.getByTestId('diff-close'));
+  expect(screen.queryByTestId('diff-modal')).toBeNull();
 });
