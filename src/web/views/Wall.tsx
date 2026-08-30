@@ -306,7 +306,10 @@ const Column = memo(function Column({
         {agent.currentTool ?? ''}
       </div>
 
-      {routed && (
+      {/* The console has one composer and it is the lead's, so every other
+          column says so — an absent composer on its own reads as a column that
+          somehow carries less, rather than as the routing rule it is. */}
+      {routed ? (
         <Composer
           agent={agent}
           routed
@@ -314,6 +317,22 @@ const Column = memo(function Column({
           readOnly={readOnly}
           teamLive={teamLive}
         />
+      ) : (
+        <div
+          data-testid="wall-read-only"
+          title="one composer, in the lead's column · @ addresses any teammate"
+          style={{
+            borderTop: '1px solid var(--color-neutral-900)',
+            padding: '8px 12px',
+            color: 'var(--color-neutral-700)',
+            fontSize: '10.5px',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          read-only
+        </div>
       )}
 
       <div

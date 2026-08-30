@@ -318,6 +318,10 @@ export function Composer({
         placeholder={
           readOnly
             ? 'read-only — control routes are disabled'
+            // Disabled rather than removed, so the box has to say why: every
+            // reader has departed and nothing is left to collect a message.
+            : recipients.length === 0
+            ? 'nobody is left to read it'
             : recipients.some((to) => to.isLead) && !teamLive
               ? `${v.placeholder(named)} · queued until a teammate is live`
               : routed && !chip

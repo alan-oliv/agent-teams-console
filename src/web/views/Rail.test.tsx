@@ -159,13 +159,29 @@ describe('Rail — attached pane', () => {
     expect(header.queryByTestId('context-warn')).toBeNull();
   });
 
-  it('renders the attached transcript at rail size and a rail composer', () => {
+  it('renders the attached transcript at rail size', () => {
     renderRail(vi.fn(), 'probe-charlie');
     expect(screen.getAllByTestId('transcript-marker')[0].style.width).toBe('10px');
+  });
+
+  // One composer, and it is the lead's. A composer under a teammate's
+  // transcript implies a channel that does not exist: every send is a direct
+  // inbox write, and a message to any agent enters the run through the lead.
+  it('ends a teammate pane read-only, with the tool it is running', () => {
+    renderRail(vi.fn(), 'probe-alpha');
+    const foot = screen.getByTestId('rail-read-only');
+    expect(within(foot).getByText("read-only · the composer lives in the lead's column")).toBeTruthy();
+    expect(within(foot).getByTestId('rail-current-tool').textContent).toBe('Bash(sleep 20)');
+    expect(screen.queryByTestId('composer-input')).toBeNull();
+  });
+
+  it('keeps the composer when the lead itself is attached', () => {
+    renderRail(vi.fn(), 'team-lead');
     expect(screen.getByTestId('composer-input')).toHaveProperty(
-      'placeholder', 'message probe-charlie directly',
+      'placeholder', 'message team-lead directly',
     );
     expect(screen.getByTestId('composer-caret')).toBeTruthy();
+    expect(screen.queryByTestId('rail-read-only')).toBeNull();
   });
 
   it('dims a departed agent row to opacity .55', () => {

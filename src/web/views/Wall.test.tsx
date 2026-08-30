@@ -105,6 +105,15 @@ describe('Wall', () => {
     expect(within(lead).getByTestId('composer-input')).toBeTruthy();
   });
 
+  // The other half of the same rule: a column with no composer has to say why
+  // it has none, or its absence reads as a column that is somehow less loaded.
+  it('marks every column without the composer read-only', () => {
+    renderWall();
+    const columns = screen.getAllByTestId('wall-column');
+    expect(within(columns[0]).queryByTestId('wall-read-only')).toBeNull();
+    expect(within(columns[1]).getByTestId('wall-read-only').textContent).toBe('read-only');
+  });
+
   // At rest it is a prompt and a hint. No @ means the lead, which is the common
   // case, so there is nothing to pick and nothing on screen to pick it with.
   it('shows no chip and no picker until an @ is typed', () => {

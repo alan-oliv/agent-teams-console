@@ -384,6 +384,22 @@ describe('Comms — the operator joins the thread', () => {
     renderPair({ readOnly: true });
     expect((screen.getByTestId('composer-input') as HTMLTextAreaElement).disabled).toBe(true);
   });
+
+  // A departed agent has no inbox reader left, so the composer is disabled
+  // rather than accepting a message nothing will collect. Taking it away
+  // instead reads as the console having lost the thread.
+  it('disables rather than removes the room composer once everyone has departed', () => {
+    renderComms({ agents: AGENTS.map((a) => ({ ...a, status: 'departed' as const })) });
+    expect((screen.getByTestId('composer-input') as HTMLTextAreaElement).disabled).toBe(true);
+  });
+
+  it('disables rather than removes a pair composer once both sides have departed', () => {
+    renderComms({
+      openThread: 'perf',
+      agents: AGENTS.map((a) => ({ ...a, status: 'departed' as const })),
+    });
+    expect((screen.getByTestId('composer-input') as HTMLTextAreaElement).disabled).toBe(true);
+  });
 });
 
 // Entering comms is not a request for a particular conversation: the room is

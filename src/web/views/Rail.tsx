@@ -192,7 +192,37 @@ const Attached = memo(function Attached(
         working={agent.status === 'working'}
       />
 
-      <Composer agent={agent} variant="rail" readOnly={readOnly} teamLive={teamLive} />
+      {/* One composer, and it is the lead's. A composer under a teammate's
+          transcript implies a channel this model does not have — every send is
+          a direct inbox write, and a message to any agent enters the run
+          through the lead. */}
+      {agent.isLead ? (
+        <Composer agent={agent} variant="rail" readOnly={readOnly} teamLive={teamLive} />
+      ) : (
+        <div
+          data-testid="rail-read-only"
+          style={{
+            borderTop: '1px solid var(--color-neutral-900)',
+            background: 'var(--color-bg)',
+            padding: '11px 18px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '9px',
+            color: 'var(--color-neutral-600)',
+            fontSize: '11px',
+            overflow: 'hidden',
+          }}
+        >
+          <span style={{ flex: 'none' }}>read-only · the composer lives in the lead&apos;s column</span>
+          <span style={{ flex: 1 }} />
+          <span
+            data-testid="rail-current-tool"
+            style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+          >
+            {agent.currentTool ?? ''}
+          </span>
+        </div>
+      )}
     </div>
   );
 });

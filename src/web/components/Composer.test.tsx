@@ -84,6 +84,17 @@ describe('Composer', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  // The box stays where it was — it is disabled, not taken away — so it has to
+  // say why, or a prompt still reading "message the team" invites a message
+  // nothing is left to collect.
+  it('says nobody is left to read it rather than keeping its prompt', () => {
+    const gone = { ...alpha, status: 'departed' as const };
+    render(<Composer agent={gone} alsoTo={[{ ...gone, name: 'probe-bravo' }]} variant="everyone" />);
+    expect(screen.getByTestId('composer-input')).toHaveProperty(
+      'placeholder', 'nobody is left to read it',
+    );
+  });
+
   it('disables the composer in read-only mode and says why', () => {
     // Without this the textarea looks live, ⌘⏎ fires, the server 409s and the
     // text just sits there with no error shown.

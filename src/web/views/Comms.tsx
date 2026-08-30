@@ -571,8 +571,10 @@ function ThreadPane({
     .filter((a): a is Agent => a !== undefined);
   // See Composer: the lead's inbox is drained by the team loop, not by the lead.
   const teamLive = agents.some((a) => !a.isLead && a.status !== 'departed');
-  // Everyone still able to read an inbox — who "message the team" actually reaches.
-  const members = agents.filter((a) => a.status !== 'departed');
+  // The whole roster goes to the composer, which drops the departed itself:
+  // a team with no reader left gets a DISABLED composer, not a vanished one —
+  // taking it away reads as the console having lost the thread, where disabled
+  // says the one true thing, that nothing is left to collect a message.
 
   return (
     <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -714,10 +716,10 @@ function ThreadPane({
       </div>
 
       {thread.kind === 'everyone'
-        ? members.length > 0 && (
+        ? agents.length > 0 && (
             <Composer
-              agent={members[0]}
-              alsoTo={members.slice(1)}
+              agent={agents[0]}
+              alsoTo={agents.slice(1)}
               variant="everyone"
               readOnly={readOnly}
               teamLive={teamLive}
