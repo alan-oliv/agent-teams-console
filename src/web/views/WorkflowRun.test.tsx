@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import type { WorkflowAgent, WorkflowRun as Run } from '../../shared/domain';
 import { WorkflowRun } from './WorkflowRun';
 
 afterEach(cleanup);
+
+/** The grid is opt-in, so a test about a cell has to take the offer first. */
+const openGrid = () => fireEvent.click(screen.getByTestId('wf-layout-grid'));
 
 const agent = (over: Partial<WorkflowAgent> & { agentId: string }): WorkflowAgent => ({
   state: 'done',
@@ -59,8 +62,30 @@ describe('WorkflowRun', () => {
     expect(detail.style.textOverflow).not.toBe('ellipsis');
   });
 
+  // Grouped by phase is what the view IS. The grid is a second reading of the
+  // same agents, offered only where the label corpus supports it.
+  it('lists agents under their phase before any grid is asked for', () => {
+    render(<WorkflowRun run={RUN} />);
+    const groups = screen.getAllByTestId('wf-phase-group');
+
+    expect(screen.queryByTestId('wf-row')).toBeNull();
+    expect(within(groups[0]).getAllByTestId('wf-name').map((n) => n.textContent))
+      .toEqual(['S1-server', 'S2-client']);
+    expect(within(groups[2]).queryAllByTestId('wf-name')).toEqual([]);
+  });
+
+  it('sizes the identity column from the measured longest key, clamped to two lines', () => {
+    render(<WorkflowRun run={RUN} />);
+    const name = screen.getAllByTestId('wf-name')[0];
+
+    expect(name.style.width).toBe('151px');
+    expect(name.style.webkitLineClamp).toBe('2');
+    expect(name.style.textOverflow).not.toBe('ellipsis');
+  });
+
   it('gives each work item a row, sized from the measured longest key', () => {
     render(<WorkflowRun run={RUN} />);
+    openGrid();
     const rows = screen.getAllByTestId('wf-row');
     expect(rows.map((r) => within(r).getByTestId('wf-item').textContent)).toEqual([
       'S1-server',
@@ -71,6 +96,7 @@ describe('WorkflowRun', () => {
 
   it('draws a cell glyph per state, and nothing where no agent exists', () => {
     render(<WorkflowRun run={RUN} />);
+    openGrid();
     const cells = within(screen.getAllByTestId('wf-row')[0]).getAllByTestId('wf-cell');
     expect(cells[0].textContent).toBe('✓');
     expect(cells[1].textContent).toBe('✓');
@@ -79,6 +105,7 @@ describe('WorkflowRun', () => {
 
   it('marks a running agent with its own glyph', () => {
     render(<WorkflowRun run={RUN} />);
+    openGrid();
     const second = within(screen.getAllByTestId('wf-row')[1]).getAllByTestId('wf-cell');
     expect(second[1].textContent).toBe('●');
   });
@@ -96,11 +123,57 @@ describe('WorkflowRun', () => {
       ],
     };
     render(<WorkflowRun run={run} />);
-    const cells = screen.getAllByTestId('wf-cell');
+    const glyphs = screen.getAllByTestId('wf-glyph');
 
-    expect(cells.map((c) => c.textContent)).toEqual(['∅', '✗', '⊘']);
-    expect(cells[1].style.color).toBe('var(--fail)');
-    expect(cells[0].style.color).not.toBe(cells[1].style.color);
+    expect(glyphs.map((g) => g.textContent)).toEqual(['∅', '✗', '⊘']);
+    expect(glyphs[1].style.color).toBe('var(--fail)');
+    expect(glyphs[0].style.color).not.toBe(glyphs[1].style.color);
+  });
+
+  it('offers the grid only where the label corpus supports one', () => {
+    render(<WorkflowRun run={RUN} />);
+    expect(screen.getByTestId('wf-layout-grid')).toBeTruthy();
+
+    cleanup();
+    render(
+      <WorkflowRun
+        run={{
+          ...RUN,
+          phases: [{ index: 1, title: 'Investigate' }, { index: 2, title: 'Verify' }],
+          agents: [
+            agent({ agentId: 'a1', label: 'probe:D1-frame', phaseIndex: 1 }),
+            agent({ agentId: 'a2', label: 'probe:D2-latency', phaseIndex: 1 }),
+            agent({ agentId: 'a3', label: 'verify:correctness', phaseIndex: 2 }),
+          ],
+        }}
+      />,
+    );
+    expect(screen.queryByTestId('wf-layout-grid')).toBeNull();
+    expect(screen.getAllByTestId('wf-phase-group')).toHaveLength(2);
+  });
+
+  // A cluster of ≥2 proves a parallel() fan-out. A cluster of 1 proves nothing,
+  // so it says nothing — labelling it sequential would read the evidence
+  // backwards.
+  it('names a shared queuedAt as dispatched together, and is silent otherwise', () => {
+    render(
+      <WorkflowRun
+        run={{
+          ...RUN,
+          phases: [{ index: 1, title: 'Design' }],
+          agents: [
+            agent({ agentId: 'a1', label: 'd:S1', phaseIndex: 1, queuedAt: 1000 }),
+            agent({ agentId: 'a2', label: 'd:S2', phaseIndex: 1, queuedAt: 1000 }),
+            agent({ agentId: 'a3', label: 'd:S3', phaseIndex: 1, queuedAt: 2400 }),
+          ],
+        }}
+      />,
+    );
+    const notes = screen.getAllByTestId('wf-dispatch');
+
+    expect(notes).toHaveLength(1);
+    expect(notes[0].textContent).toContain('2 dispatched together');
+    expect(screen.getByTestId('wf-phase-group').textContent).not.toMatch(/sequential/i);
   });
 
   it('shows the run totals that exist, and says why there is no budget', () => {

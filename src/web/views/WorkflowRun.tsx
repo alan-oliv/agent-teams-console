@@ -1,7 +1,19 @@
-import type { CSSProperties } from 'react';
-import type { WorkflowAgent, WorkflowAgentState, WorkflowRun as Run } from '../../shared/domain';
+import { useState, type CSSProperties } from 'react';
+import type {
+  WorkflowAgent,
+  WorkflowAgentState,
+  WorkflowPhase,
+  WorkflowRun as Run,
+} from '../../shared/domain';
 import { formatTokens } from '../format';
-import { phaseTally, workflowGrid, WORK_ITEM_WIDTH } from './workflow-grid';
+import {
+  gridCooperates,
+  itemKeyOf,
+  phaseList,
+  phaseTally,
+  workflowGrid,
+  WORK_ITEM_WIDTH,
+} from './workflow-grid';
 
 /**
  * The design's cell vocabulary. `∅` is a returned null — an agent the operator
@@ -65,6 +77,33 @@ const SIDE_BODY: CSSProperties = { color: 'var(--color-neutral-500)', fontSize: 
 
 const SIDE_PANEL: CSSProperties = { padding: '12px 14px', borderBottom: '1px solid var(--color-neutral-900)' };
 
+/**
+ * Both the grid's row key and the phase list's identity, so the one MEASURED
+ * width covers both. A label with no `verb:` prefix is its own key and a live
+ * agent falls back to its id, which is why this can be as wide as a 60-char
+ * prompt prefix — hence the clamp rather than an ellipsis.
+ */
+const IDENTITY: CSSProperties = {
+  width: `${WORK_ITEM_WIDTH}px`,
+  flex: 'none',
+  color: 'var(--color-neutral-300)',
+  display: '-webkit-box',
+  WebkitBoxOrient: 'vertical',
+  WebkitLineClamp: 2,
+  overflow: 'hidden',
+  wordBreak: 'break-word',
+};
+
+const TAB: CSSProperties = {
+  background: 'none',
+  border: 'none',
+  padding: '2px 8px',
+  cursor: 'pointer',
+  font: 'inherit',
+  fontSize: '10px',
+  letterSpacing: '.12em',
+};
+
 function Cell({ agent }: { agent: WorkflowAgent | undefined }) {
   return (
     <span
@@ -81,90 +120,175 @@ function Cell({ agent }: { agent: WorkflowAgent | undefined }) {
   );
 }
 
+/** Shared by both layouts, so a phase reads identically whichever is drawn. */
+function PhaseHead({ run, phase, style }: { run: Run; phase: WorkflowPhase; style: CSSProperties }) {
+  return (
+    <div data-testid="wf-phase" style={{ display: 'flex', flexDirection: 'column', gap: '3px', ...style }}>
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'baseline' }}>
+        <span data-testid="wf-phase-title" style={{ color: 'var(--color-text)', fontSize: '11.5px' }}>
+          {phase.title}
+        </span>
+        <span data-testid="wf-phase-count" style={{ color: 'var(--color-neutral-600)', fontSize: '10px' }}>
+          {phaseTally(run.agents, phase.index)}
+        </span>
+      </div>
+      {phase.detail !== undefined && (
+        <div data-testid="wf-phase-detail" style={DETAIL}>
+          {phase.detail}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AgentRow({ agent }: { agent: WorkflowAgent }) {
+  const identity = itemKeyOf(agent.label, agent.agentId);
+  return (
+    <div
+      data-testid="wf-phase-agent"
+      style={{
+        display: 'flex',
+        gap: '10px',
+        padding: '6px 16px',
+        alignItems: 'baseline',
+        fontSize: '11.5px',
+      }}
+    >
+      <span
+        data-testid="wf-glyph"
+        title={agent.state}
+        style={{ flex: 'none', width: '12px', color: GLYPH_COLOR[agent.state] }}
+      >
+        {GLYPH[agent.state]}
+      </span>
+      <span data-testid="wf-name" style={IDENTITY} title={agent.label}>
+        {identity}
+      </span>
+      {identity !== agent.agentId && (
+        <span style={{ color: 'var(--color-neutral-700)', fontSize: '10px' }}>{agent.agentId}</span>
+      )}
+    </div>
+  );
+}
+
 export function WorkflowRun({ run }: { run: Run }) {
-  const { columns, rows, unphased } = workflowGrid(run);
+  const [layout, setLayout] = useState<'phases' | 'grid'>('phases');
+  const { columns, rows } = workflowGrid(run);
+  const { groups, unphased } = phaseList(run);
+  // The grid is offered, not assumed — and the offer can be withdrawn under a
+  // layout already chosen, so this decides the drawing rather than the click.
+  const offered = gridCooperates(run);
+  const showGrid = offered && layout === 'grid';
 
   return (
     <div data-testid="workflow-run" style={{ flex: 1, display: 'flex', minHeight: 0 }}>
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-        <div style={HEAD}>
-          <span
-            style={{
-              width: `${WORK_ITEM_WIDTH}px`,
-              flex: 'none',
-              color: 'var(--color-neutral-600)',
-              fontSize: '10px',
-              letterSpacing: '.12em',
-            }}
-          >
-            WORK ITEM
-          </span>
-          {columns.map((phase) => (
-            <span
-              key={phase.index}
-              data-testid="wf-phase"
-              style={{ flex: 1, minWidth: `${PHASE_MIN}px`, display: 'flex', flexDirection: 'column', gap: '3px' }}
-            >
-              <span style={{ display: 'flex', gap: '8px', alignItems: 'baseline' }}>
-                <span data-testid="wf-phase-title" style={{ color: 'var(--color-text)', fontSize: '11.5px' }}>
-                  {phase.title}
-                </span>
-                <span data-testid="wf-phase-count" style={{ color: 'var(--color-neutral-600)', fontSize: '10px' }}>
-                  {phaseTally(run.agents, phase.index)}
-                </span>
-              </span>
-              {phase.detail !== undefined && (
-                <span data-testid="wf-phase-detail" style={DETAIL}>
-                  {phase.detail}
-                </span>
-              )}
-            </span>
-          ))}
-        </div>
+        {offered && (
+          <div data-testid="wf-layout" style={{ flex: 'none', display: 'flex', padding: '8px 12px 0' }}>
+            {(['phases', 'grid'] as const).map((id) => (
+              <button
+                key={id}
+                type="button"
+                data-testid={`wf-layout-${id}`}
+                onClick={() => setLayout(id)}
+                style={{
+                  ...TAB,
+                  color: layout === id ? 'var(--color-accent-400)' : 'var(--color-neutral-600)',
+                }}
+              >
+                {id === 'phases' ? 'BY PHASE' : 'ITEM GRID'}
+              </button>
+            ))}
+          </div>
+        )}
 
-        <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-          {rows.map((row) => (
-            <div
-              key={row.key}
-              data-testid="wf-row"
-              style={{
-                display: 'flex',
-                gap: '10px',
-                padding: '7px 16px',
-                borderBottom: '1px solid var(--color-neutral-900)',
-                alignItems: 'baseline',
-              }}
-            >
+        {showGrid ? (
+          <>
+            <div style={HEAD}>
               <span
-                data-testid="wf-item"
                 style={{
                   width: `${WORK_ITEM_WIDTH}px`,
                   flex: 'none',
-                  color: 'var(--color-neutral-300)',
-                  // A key longer than the column wraps under the same clamp the
-                  // phase detail uses. `label` defaults to the prompt's first
-                  // 60 characters, so this is reachable, not theoretical.
-                  display: '-webkit-box',
-                  WebkitBoxOrient: 'vertical',
-                  WebkitLineClamp: 2,
-                  overflow: 'hidden',
-                  wordBreak: 'break-word',
+                  color: 'var(--color-neutral-600)',
+                  fontSize: '10px',
+                  letterSpacing: '.12em',
                 }}
               >
-                {row.key}
+                WORK ITEM
               </span>
-              {row.cells.map((agent, i) => (
-                <Cell key={columns[i].index} agent={agent} />
+              {columns.map((phase) => (
+                <PhaseHead
+                  key={phase.index}
+                  run={run}
+                  phase={phase}
+                  style={{ flex: 1, minWidth: `${PHASE_MIN}px` }}
+                />
               ))}
             </div>
-          ))}
 
-          {rows.length === 0 && (
-            <div style={{ padding: '14px 16px', color: 'var(--color-neutral-700)', fontSize: '11px' }}>
-              no agents — this run spawned none
+            <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+              {rows.map((row) => (
+                <div
+                  key={row.key}
+                  data-testid="wf-row"
+                  style={{
+                    display: 'flex',
+                    gap: '10px',
+                    padding: '7px 16px',
+                    borderBottom: '1px solid var(--color-neutral-900)',
+                    alignItems: 'baseline',
+                  }}
+                >
+                  <span data-testid="wf-item" style={IDENTITY}>
+                    {row.key}
+                  </span>
+                  {row.cells.map((agent, i) => (
+                    <Cell key={columns[i].index} agent={agent} />
+                  ))}
+                </div>
+              ))}
             </div>
-          )}
-        </div>
+          </>
+        ) : (
+          <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+            {groups.map(({ phase, clusters }) => (
+              <div key={phase.index} data-testid="wf-phase-group">
+                <PhaseHead
+                  run={run}
+                  phase={phase}
+                  style={{
+                    padding: '10px 16px 8px',
+                    borderTop: '1px solid var(--color-neutral-900)',
+                  }}
+                />
+                {clusters.map((cluster) => (
+                  <div key={cluster.agents[0].agentId}>
+                    {/* Only ever said of a cluster of two or more. A singleton
+                        is not evidence of sequential dispatch, so it says
+                        nothing at all rather than the opposite. */}
+                    {cluster.together && (
+                      <div
+                        data-testid="wf-dispatch"
+                        style={{ padding: '5px 16px 1px', color: 'var(--color-neutral-600)', fontSize: '10px' }}
+                      >
+                        {`${cluster.agents.length} dispatched together`}
+                      </div>
+                    )}
+                    {cluster.agents.map((agent) => (
+                      <AgentRow key={agent.agentId} agent={agent} />
+                    ))}
+                  </div>
+                ))}
+              </div>
+            ))}
+
+            {groups.length === 0 && unphased.length === 0 && (
+              <div style={{ padding: '14px 16px', color: 'var(--color-neutral-700)', fontSize: '11px' }}>
+                no agents — this run spawned none
+              </div>
+            )}
+          </div>
+        )}
 
         {unphased.length > 0 && (
           <div
