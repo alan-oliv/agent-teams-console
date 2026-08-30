@@ -84,6 +84,35 @@ describe('Wall', () => {
     expect(alpha.getByTestId('wall-warn').style.width).toBe('7px');
   });
 
+  // At the 232px column floor, hyphenated content ("general-purpose",
+  // "claude-opus-5") wraps at the hyphen by default, ballooning the header to
+  // several physical lines and misaligning it against its neighbours. The
+  // name is what yields — identity truncating reads better than a model or
+  // elapsed time vanishing — so it alone gets ellipsis; the rest hold their
+  // width and just refuse to wrap.
+  it('keeps the identity line to one line under width pressure, with the name yielding first', () => {
+    renderWall();
+    const alpha = within(screen.getAllByTestId('wall-column')[1]);
+
+    const name = alpha.getByTestId('wall-name');
+    expect(name.style.whiteSpace).toBe('nowrap');
+    expect(name.style.overflow).toBe('hidden');
+    expect(name.style.textOverflow).toBe('ellipsis');
+    expect(name.style.minWidth).toBe('0');
+
+    const type = alpha.getByTestId('wall-type');
+    expect(type.style.whiteSpace).toBe('nowrap');
+    expect(type.style.flexShrink).toBe('0');
+
+    const model = alpha.getByTestId('wall-model');
+    expect(model.style.whiteSpace).toBe('nowrap');
+    expect(model.style.flexShrink).toBe('0');
+
+    const elapsed = alpha.getByTestId('wall-elapsed');
+    expect(elapsed.style.whiteSpace).toBe('nowrap');
+    expect(elapsed.style.flexShrink).toBe('0');
+  });
+
   it('renders the current-tool row folded back from the README', () => {
     renderWall();
     const columns = screen.getAllByTestId('wall-column');

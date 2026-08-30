@@ -176,7 +176,21 @@ const Column = memo(function Column({
             <StatusGlyph status={agent.status} size={11} />
             <span
               data-testid="wall-name"
-              style={{ color: 'var(--color-text)', fontWeight: 500, fontSize: '13px' }}
+              // Hyphenated content wraps at the hyphen by default, and at the
+              // 232px floor that balloons this line to several physical ones
+              // and misaligns the header against its neighbours. The name is
+              // what gives — identity truncating reads better than the type
+              // or model vanishing — so it alone gets ellipsis; minWidth 0 is
+              // what lets a flex child shrink past its own content at all.
+              style={{
+                color: 'var(--color-text)',
+                fontWeight: 500,
+                fontSize: '13px',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                minWidth: 0,
+              }}
             >
               {display}
             </span>
@@ -189,6 +203,8 @@ const Column = memo(function Column({
                   borderRadius: 'var(--radius-sm)',
                   padding: '0 5px',
                   fontSize: '9.5px',
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
                 }}
               >
                 {agent.agentType}
@@ -197,7 +213,12 @@ const Column = memo(function Column({
             <span style={{ flex: 1 }} />
             <span
               data-testid="wall-model"
-              style={{ color: 'var(--color-neutral-600)', fontSize: '10.5px' }}
+              style={{
+                color: 'var(--color-neutral-600)',
+                fontSize: '10.5px',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+              }}
             >
               {agent.model}
             </span>
@@ -220,7 +241,12 @@ const Column = memo(function Column({
             <span style={{ flex: 1 }} />
             <span
               data-testid="wall-elapsed"
-              style={{ color: 'var(--color-neutral-600)', fontSize: '10.5px' }}
+              style={{
+                color: 'var(--color-neutral-600)',
+                fontSize: '10.5px',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+              }}
             >
               <Elapsed startedAt={agent.startedAt} />
             </span>
