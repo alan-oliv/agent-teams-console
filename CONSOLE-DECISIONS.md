@@ -15,6 +15,9 @@ rather than a change in a component.
 3. A measured argument (contrast, a width someone actually measured) beats an aesthetic one.
 4. Standing rule 1 still holds: a control that names no runtime call does not ship.
 
+Every ruling below has been applied to the console. Where a row describes what "the app" does,
+that is the state at the time of the ruling — kept because it is the evidence, not a status.
+
 ## The rulings
 
 | # | Conflict | Sources | Ruling | Why |
@@ -35,13 +38,22 @@ rather than a change in a component.
 | 12 | `respawn` on the failure card | Standing rule 1 struck it · README Screen 1 still specifies it · app ships it, backed by `POST /api/agents/{name}/respawn` → a lead-inbox write (`src/server/http.ts:374`) | **Kept.** The card names what the call does — it asks the lead to respawn the teammate — and must never imply the console restarts a process. | Standing rule 1 removes controls with *no* call. This one has one. Rule 1 satisfied is rule 1 obeyed, not evaded. |
 | 13 | `experimental` pill | README Screen 1 keeps it · CHANGELOG drops it from the 4a bar · prototype has it in `3a` only | **Dropped.** | It was traded for branch + diffstat when the bar ran out of room. README's Screen 1 documents `3a`, the earlier reference frame — it is not wrong, it is not about the screen being built. App is already right. |
 | 14 | Session picker: trigger content, menu width | README trigger = session id + goal, menu 432px · CHANGELOG config-panel entry: the id came out and the goal capped at 146px · older CHANGELOG entry + app: 432px · prototype `4a`: goal alone at 146px, menu **520px** | **Trigger: the goal alone, capped at 146px, plus the optional in-world team chip and the caret — no session id. Menu: 520px.** | The gear cost the bar ~30px and the id is what paid for it; app already matches. The width follows the same entry: the reconcile turned each row into two lines, and 432px predates that. Measured below. |
-| 15 | `PR` beside the diffstat | README Screen 1 bar `PR + diffstat` · README data model `PR/diffstat` per team · no source anywhere in the console | **Diffstat shipped, PR refused.** The picker row carries `+N −M` for what is uncommitted against `HEAD`, titled with that reading. Nothing names a PR. | Standing rule 3. `gh` is an optional install; a forge API needs a token, a network call and a per-forge client, which a local read-only console makes none of. `.git/config` yields the remote URL and the tracking branch — the repo, never the pull request — and `refs/remotes/*/pull/*` exists only if someone fetched that refspec by hand. A field with no source is blank for every operator, and nobody reports a blank. Diffstat is scoped to uncommitted work for the same rule: branch-against-base needs a base branch, which means guessing `main` or reading an `origin/HEAD` most clones never set. |
+| 15 | Marking every non-lead wall column `read-only` | README:118 (the One-composer rewrite) "Every other column is marked `read-only`" · the prototype draws no such marking · standing rule 4 says do not write what the prototype does not do | **Kept.** Every non-lead column and the rail's non-lead pane carry it. | Standing rule 4 guards against prose the reference build **contradicts**, not prose it **predates**. The prototype was drawn before the single-composer model existed, so its silence here is an absence, not a disagreement — and the newest voice governs. Without the marking, a column with no composer is indistinguishable from one whose composer failed to render. (Ruled by the team lead during the one-composer close-out; recorded so the next reader of rule 4 does not reopen it.) |
+| 16 | `PR` beside the diffstat | README Screen 1 bar `PR + diffstat` · README data model `PR/diffstat` per team · no source anywhere in the console | **Diffstat shipped, PR refused.** The picker row carries `+N −M` for what is uncommitted against `HEAD`, titled with that reading. Nothing names a PR. | Standing rule 3. `gh` is an optional install; a forge API needs a token, a network call and a per-forge client, which a local read-only console makes none of. `.git/config` yields the remote URL and the tracking branch — the repo, never the pull request — and `refs/remotes/*/pull/*` exists only if someone fetched that refspec by hand. A field with no source is blank for every operator, and nobody reports a blank. Diffstat is scoped to uncommitted work for the same rule: branch-against-base needs a base branch, which means guessing `main` or reading an `origin/HEAD` most clones never set. |
 
 ## The four that need more than a table cell
 
 **1 — what the quiet register covers.** It is small, quiet *metadata text*: column-header rows,
 footer notes, meta and hint lines, key legends, empty-state copy, timestamps, delivery receipts,
-the composer's `⏎` glyph. All of it `--color-neutral-600` at 10px.
+read-only markings, the composer's `⏎` glyph. All of it `--color-neutral-600`.
+
+**The size is a floor, not a target.** 10px is the smallest this register may be drawn, and
+anything below it — the 9.5px the contrast rule was written against — comes up to 10. Text
+already at 10.5 or 11px stays there: the prototype draws this register at 10.5px in the wall,
+the rail and the task table, and shrinking it would cost legibility in the name of a rule whose
+entire purpose is legibility. Match the neighbours in the same pane rather than one global
+number — the wall's read-only marking sits with the current-tool line at 10.5px, the rail's sits
+in the composer's slot at 11px, the drawer's meta lines are 10px.
 
 It does **not** cover `--color-neutral-700` used as a status or state colour — `done` in the
 picker, `wait` in the workflow run view, `StopButton`'s rest state — or as a border, shadow or
