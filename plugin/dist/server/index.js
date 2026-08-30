@@ -1894,7 +1894,13 @@ var KIND_RETENTION = {
   // background event, so 500 is many days of them even on a busy console —
   // and safe regardless: trim() always drops a resolution's matching
   // `needsyou` create alongside it, so nothing here is ever left dangling.
-  "needsyou-resolved": 500
+  "needsyou-resolved": 500,
+  // One row per run per re-read, folded last-wins per runId, so this caps
+  // re-reads and not runs. A LIVE run is re-appended on every journal append —
+  // the only kind here whose row count grows with a run's length rather than
+  // with how many there are — and 16 runs was the whole of a heavy week on the
+  // capture machine. Rows are ~9 KB each with the script stripped (leanRun).
+  workflow: 500
 };
 var TRANSCRIPT_RECORDS_PER_AGENT = 1e3;
 var TRANSCRIPT_EVENTS_PER_AGENT = 1200;
@@ -2465,9 +2471,22 @@ function parseTeammateFrames(text, deliveredAt, to) {
   }
   return out;
 }
-function unwrapTeammateFrames(text) {
+function splitTeammateDelivery(text) {
+  const parts = [];
   FRAME_RE.lastIndex = 0;
-  return text.replace(FRAME_RE, (_frame, _attrs, body) => body);
+  let at = 0;
+  let frame2;
+  while ((frame2 = FRAME_RE.exec(text)) !== null) {
+    const attrs = {};
+    ATTR_RE.lastIndex = 0;
+    let attr;
+    while ((attr = ATTR_RE.exec(frame2[1])) !== null) attrs[attr[1]] = attr[2];
+    if (frame2.index > at) parts.push({ text: text.slice(at, frame2.index) });
+    parts.push(attrs.teammate_id ? { from: attrs.teammate_id, text: frame2[2] } : { text: frame2[2] });
+    at = frame2.index + frame2[0].length;
+  }
+  if (at < text.length) parts.push({ text: text.slice(at) });
+  return parts.length > 0 ? parts : [{ text }];
 }
 function contentKey(m) {
   return `${m.from}\0${m.to}\0${m.text}`;
@@ -2621,6 +2640,20 @@ function diffOfToolUse(name, input, agent, ts) {
   if (lineCapped || textCapped) diff.truncated = true;
   return diff;
 }
+function deliveryDrafts(content) {
+  const drafts = [];
+  for (const part of splitTeammateDelivery(content)) {
+    const text = tidy(part.text);
+    if (!text) continue;
+    const marker = markerForUserText(part.text);
+    if (part.from === void 0) {
+      drafts.push({ marker, text });
+      continue;
+    }
+    drafts.push({ marker: marker === "\u276F" ? "\u2709" : marker, text, sender: part.from });
+  }
+  return drafts;
+}
 function markerForUserText(body) {
   const trimmed = body.trim();
   if (trimmed.startsWith("{")) {
@@ -2663,9 +2696,7 @@ function draftsOf(rec, agent = "") {
   const content = rec.message?.content;
   if (rec.type === "user") {
     if (typeof content === "string") {
-      const body = unwrapTeammateFrames(content);
-      const text = tidy(body);
-      if (text) drafts.push({ marker: markerForUserText(body), text });
+      for (const draft of deliveryDrafts(content)) drafts.push(draft);
     } else if (Array.isArray(content)) {
       for (const block of content) {
         if (!block || typeof block !== "object") continue;
@@ -2704,7 +2735,8 @@ function toTranscriptLines(rec, agent = "") {
     marker: draft.marker,
     text: capText(draft.text),
     ts: built.ts,
-    ...draft.diff ? { diff: draft.diff } : {}
+    ...draft.diff ? { diff: draft.diff } : {},
+    ...draft.sender ? { sender: draft.sender } : {}
   }));
 }
 function fullLineText(rec, index) {
@@ -3170,6 +3202,138 @@ function watchJsonTree(root, onChange) {
   };
 }
 
+// src/server/workflow.ts
+var bagOf = (v) => v !== null && typeof v === "object" ? v : {};
+var str = (v) => typeof v === "string" && v ? v : void 0;
+var num = (v) => typeof v === "number" && Number.isFinite(v) ? v : void 0;
+var arr = (v) => Array.isArray(v) ? v : [];
+var RUN_STATUS = /* @__PURE__ */ new Set(["completed", "killed", "failed", "running"]);
+function agentStateOf(rec) {
+  if (rec.cached === true) return "cache";
+  switch (str(rec.state)) {
+    case "done":
+      return "done";
+    case "progress":
+      return "run";
+    // One emitter covers both "queued for a concurrency slot" and "just
+    // spawned"; `startedAt` is the only thing that separates them.
+    case "start":
+      return num(rec.startedAt) === void 0 ? "wait" : "run";
+    default:
+      return "null";
+  }
+}
+function agentOf(rec) {
+  const agentId = str(rec.agentId);
+  if (!agentId) return null;
+  return {
+    agentId,
+    state: agentStateOf(rec),
+    ...opt("label", str(rec.label)),
+    ...opt("model", str(rec.model)),
+    ...opt("queuedAt", num(rec.queuedAt)),
+    ...opt("tokens", num(rec.tokens)),
+    ...opt("toolCalls", num(rec.toolCalls)),
+    ...opt("attempt", num(rec.attempt)),
+    ...opt("prompt", str(rec.promptPreview)),
+    ...opt("phaseIndex", num(rec.phaseIndex)),
+    ...opt("phaseTitle", str(rec.phaseTitle)),
+    ...opt("startedAt", num(rec.startedAt)),
+    ...opt("durationMs", num(rec.durationMs)),
+    ...opt("result", str(rec.resultPreview)),
+    ...opt("lastTool", str(rec.lastToolName)),
+    ...opt("error", str(rec.error)),
+    ...opt("isolation", str(rec.isolation)),
+    ...opt("agentType", str(rec.agentType))
+  };
+}
+function opt(key, value) {
+  return value === void 0 ? {} : { [key]: value };
+}
+function phasesOf(snapshot, progress) {
+  const declared = arr(snapshot.phases).map(bagOf);
+  return progress.filter((rec) => rec.type === "workflow_phase").map((rec, i) => {
+    const title = str(rec.title) ?? str(declared[i]?.title) ?? "";
+    return { index: num(rec.index) ?? i + 1, title, ...opt("detail", str(declared[i]?.detail)) };
+  });
+}
+function parseWorkflowJournal(runId, lines) {
+  const byId = /* @__PURE__ */ new Map();
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    let rec;
+    try {
+      rec = bagOf(JSON.parse(line));
+    } catch {
+      continue;
+    }
+    const agentId = str(rec.agentId);
+    if (!agentId) continue;
+    const existing = byId.get(agentId);
+    if (rec.type === "result") {
+      byId.set(agentId, { agentId, state: "done", ...opt("result", str(rec.result)) });
+    } else if (rec.type === "started" && !existing) {
+      byId.set(agentId, { agentId, state: "run" });
+    }
+  }
+  return {
+    runId,
+    status: "running",
+    live: true,
+    agents: [...byId.values()],
+    phases: [],
+    logs: []
+  };
+}
+function parseWorkflowRun(raw) {
+  const snapshot = bagOf(raw);
+  const runId = str(snapshot.runId);
+  const name = str(snapshot.workflowName);
+  if (!runId || !name) return null;
+  const progress = arr(snapshot.workflowProgress).map(bagOf);
+  const rawStatus = str(snapshot.status);
+  return {
+    runId,
+    name,
+    status: rawStatus && RUN_STATUS.has(rawStatus) ? rawStatus : "completed",
+    startedAt: num(snapshot.startTime) ?? 0,
+    phases: phasesOf(snapshot, progress),
+    agents: progress.filter((rec) => rec.type === "workflow_agent").map(agentOf).filter((a) => a !== null),
+    logs: arr(snapshot.logs).filter((l) => typeof l === "string"),
+    live: false,
+    ...opt("taskId", str(snapshot.taskId)),
+    ...opt("description", str(snapshot.summary)),
+    ...opt("scriptPath", str(snapshot.scriptPath)),
+    ...opt("script", str(snapshot.script)),
+    ...opt("durationMs", num(snapshot.durationMs)),
+    ...opt("agentCount", num(snapshot.agentCount)),
+    ...opt("totalTokens", num(snapshot.totalTokens)),
+    ...opt("totalToolCalls", num(snapshot.totalToolCalls)),
+    ...opt("defaultModel", str(snapshot.defaultModel)),
+    ...opt("result", str(snapshot.result)),
+    ...opt("error", str(snapshot.error))
+  };
+}
+function foldWorkflows(events) {
+  const byRun = /* @__PURE__ */ new Map();
+  for (const event of events) {
+    if (event.kind !== "workflow") continue;
+    const run2 = event.payload;
+    const runId = run2?.runId;
+    if (!runId) continue;
+    if (run2.live && byRun.get(runId)?.live === false) continue;
+    byRun.set(runId, run2);
+  }
+  return [...byRun.values()].sort((a, b) => (b.startedAt ?? -1) - (a.startedAt ?? -1));
+}
+function modeOf(teamAgents, runs) {
+  return teamAgents === 0 && runs.length > 0 ? "workflow" : "team";
+}
+function leanRun(run2) {
+  const { script: _script, ...lean } = run2;
+  return lean;
+}
+
 // src/server/ingest/files.ts
 var DEFAULT_SWEEP_MS = 5e3;
 var TAIL_POLL_MS = 250;
@@ -3197,6 +3361,35 @@ function claimOfTranscript(file, leadSessionId, leadName) {
   if (!known) return { agent: m[1], scoped: false };
   if (!chainHas(leadSessionId, path5.basename(path5.dirname(path5.dirname(file))))) return null;
   return { agent: m[1], scoped: true };
+}
+var RUN_ID = /^wf_.+$/;
+function isWorkflowPath(file) {
+  const base = path5.basename(file);
+  const dir = path5.dirname(file);
+  if (base === "journal.jsonl") return path5.basename(path5.dirname(dir)) === "workflows";
+  return base.endsWith(".json") && path5.basename(dir) === "workflows" && RUN_ID.test(base.slice(0, -".json".length));
+}
+function workflowClaimOf(file, leadSessionId) {
+  const base = path5.basename(file);
+  const dir = path5.dirname(file);
+  const up = (n) => {
+    let at = dir;
+    for (let i = 0; i < n; i++) at = path5.dirname(at);
+    return path5.basename(at);
+  };
+  if (base === "journal.jsonl" && up(1) === "workflows" && up(2) === "subagents") {
+    const runId = path5.basename(dir);
+    if (!RUN_ID.test(runId)) return null;
+    const sessionId = up(3);
+    return chainHas(leadSessionId, sessionId) ? { kind: "journal", runId, sessionId } : null;
+  }
+  if (base.endsWith(".json") && path5.basename(dir) === "workflows" && up(1) !== "subagents") {
+    const runId = base.slice(0, -".json".length);
+    if (!RUN_ID.test(runId)) return null;
+    const sessionId = up(1);
+    return chainHas(leadSessionId, sessionId) ? { kind: "snapshot", runId, sessionId } : null;
+  }
+  return null;
 }
 async function walk(root) {
   const out = [];
@@ -3246,6 +3439,7 @@ function startFileIngest(store, config) {
   const ownedFiles = /* @__PURE__ */ new Map();
   const marks = /* @__PURE__ */ new Map();
   const unresolvedSidecars = /* @__PURE__ */ new Map();
+  const unresolvedWorkflows = /* @__PURE__ */ new Set();
   const transcriptPaths = /* @__PURE__ */ new Map();
   const notePath = (agent, file) => {
     const files = transcriptPaths.get(agent) ?? /* @__PURE__ */ new Set();
@@ -3432,6 +3626,7 @@ function startFileIngest(store, config) {
       }
       for (const [f, meta] of unresolvedSidecars) acceptSidecar(f, meta);
       unresolvedSidecars.clear();
+      for (const f of [...unresolvedWorkflows]) await handleWorkflowFile(f);
       if (learned) await readOwnInboxes();
       appendRoster();
       return;
@@ -3499,13 +3694,40 @@ function startFileIngest(store, config) {
     if (!branch && !(ours && sessionName)) return;
     store.append("statusline", { branch, sessionName: ours ? sessionName : void 0 }, leadName);
   };
+  const handleWorkflowFile = async (file) => {
+    if (!chainKnown(chain)) {
+      unresolvedWorkflows.add(file);
+      return;
+    }
+    const claim = workflowClaimOf(file, chain);
+    if (!claim) return;
+    unresolvedWorkflows.delete(file);
+    if (claim.kind === "snapshot") {
+      const run2 = parseWorkflowRun(await readJsonSafe(file));
+      if (run2) store.append("workflow", leanRun(run2));
+      return;
+    }
+    let text;
+    try {
+      text = await fs4.readFile(file, "utf8");
+    } catch {
+      return;
+    }
+    store.append("workflow", parseWorkflowJournal(claim.runId, text.split("\n")));
+  };
   const dispatchJson = async (file, root) => {
     if (root === paths.teams) await handleTeamsJson(file);
-    else if (root === paths.projects) await handleProjectsJson(file);
-    else if (root === paths.tasks) await handleTaskJson(file);
+    else if (root === paths.projects) {
+      if (isWorkflowPath(file)) await handleWorkflowFile(file);
+      else await handleProjectsJson(file);
+    } else if (root === paths.tasks) await handleTaskJson(file);
     else if (root === paths.sessions) await handleSessionJson(file);
   };
   const transcripts = watchAppendOnly(paths.projects, (file, lines, fromStart) => {
+    if (isWorkflowPath(file)) {
+      void handleWorkflowFile(file).catch((err) => logError(`ingest ${file}`, err));
+      return;
+    }
     try {
       handleLines(file, lines, fromStart);
     } catch (err) {
@@ -3517,6 +3739,10 @@ function startFileIngest(store, config) {
     );
   });
   const sweepTranscript = async (file) => {
+    if (isWorkflowPath(file)) {
+      await handleWorkflowFile(file);
+      return;
+    }
     const claim = claimOfTranscript(file, chain, leadName);
     if (!claim || disowned.has(file)) return;
     notePath(sidecars.get(file)?.name ?? claim.agent, file);
@@ -3597,7 +3823,7 @@ function startFileIngest(store, config) {
   const watchers = [
     transcripts,
     watchJsonTree(paths.projects, (file) => {
-      void settle(file)(handleProjectsJson(file));
+      void settle(file)(isWorkflowPath(file) ? handleWorkflowFile(file) : handleProjectsJson(file));
     }),
     watchJsonTree(paths.teams, (file) => {
       void settle(file)(handleTeamsJson(file));
@@ -3683,11 +3909,11 @@ function createPermits() {
 // src/server/ingest/hooks.ts
 var DEFAULT_PERMISSION_TIMEOUT_MS = 6e5;
 var SUBAGENT_ID = /^a(.+)-[0-9a-f]{16}$/;
-var bagOf = (v) => v !== null && typeof v === "object" ? v : {};
-var str = (v) => typeof v === "string" ? v : void 0;
-var num = (v) => typeof v === "number" && Number.isFinite(v) ? v : void 0;
+var bagOf2 = (v) => v !== null && typeof v === "object" ? v : {};
+var str2 = (v) => typeof v === "string" ? v : void 0;
+var num2 = (v) => typeof v === "number" && Number.isFinite(v) ? v : void 0;
 function agentNameFrom(raw, leadName = "team-lead") {
-  const id = str(raw);
+  const id = str2(raw);
   if (!id) return leadName;
   const at = id.indexOf("@");
   if (at > 0) return id.slice(0, at);
@@ -3695,14 +3921,14 @@ function agentNameFrom(raw, leadName = "team-lead") {
   return m ? m[1] : id;
 }
 function pctOf(raw) {
-  const n = num(raw);
+  const n = num2(raw);
   if (n !== void 0) return n;
-  const b = bagOf(raw);
-  return num(b.used_pct) ?? num(b.utilization) ?? num(b.percent);
+  const b = bagOf2(raw);
+  return num2(b.used_pct) ?? num2(b.utilization) ?? num2(b.percent);
 }
 function resetOf(raw) {
-  const b = bagOf(raw);
-  return str(b.resets_at) ?? str(b.reset_at) ?? str(b.resetsAt);
+  const b = bagOf2(raw);
+  return str2(b.resets_at) ?? str2(b.reset_at) ?? str2(b.resetsAt);
 }
 function createHookHandlers(deps) {
   const { store, permits } = deps;
@@ -3721,15 +3947,15 @@ function createHookHandlers(deps) {
   return {
     async hook(body) {
       try {
-        const b = bagOf(body);
-        const event = str(b.hook_event_name) ?? "";
+        const b = bagOf2(body);
+        const event = str2(b.hook_event_name) ?? "";
         const agent = agentNameFrom(b.agent_id, leadName);
-        const toolName = str(b.tool_name);
-        const text = str(b.message) ?? str(b.prompt);
+        const toolName = str2(b.tool_name);
+        const text = str2(b.message) ?? str2(b.prompt);
         store.append("hook", { event, agent, toolName, text }, agent);
         touched(agent);
         if (event === "SessionEnd") {
-          const ending = str(b.session_id);
+          const ending = str2(b.session_id);
           const lead = deps.leadSessionId?.();
           if (lead && ending === lead) {
             setTimeout(shutdown, 250);
@@ -3739,7 +3965,7 @@ function createHookHandlers(deps) {
         }
         if (event !== "PermissionRequest") return { status: 200, body: {} };
         if (deps.readOnly) return { status: 200, body: {} };
-        const timeoutMs = num(b.timeout) ?? deps.permissionTimeoutMs ?? DEFAULT_PERMISSION_TIMEOUT_MS;
+        const timeoutMs = num2(b.timeout) ?? deps.permissionTimeoutMs ?? DEFAULT_PERMISSION_TIMEOUT_MS;
         const held = permits.hold(agent, toolName ?? "unknown", b.tool_input, timeoutMs);
         store.append(
           "needsyou",
@@ -3772,18 +3998,18 @@ function createHookHandlers(deps) {
     },
     async statusline(body) {
       try {
-        const b = bagOf(body);
-        const cost = bagOf(b.cost);
-        const window = bagOf(b.context_window);
-        const limits = bagOf(b.rate_limits);
+        const b = bagOf2(body);
+        const cost = bagOf2(b.cost);
+        const window = bagOf2(b.context_window);
+        const limits = bagOf2(b.rate_limits);
         const agent = agentNameFrom(b.agent_id, leadName);
         store.append(
           "statusline",
           {
-            totalCostUsd: num(cost.total_cost_usd),
-            contextTokens: num(window.used_tokens) ?? num(window.input_tokens),
-            contextWindow: num(window.max_tokens) ?? num(window.context_window_size),
-            branch: str(b.gitBranch) ?? str(b.branch),
+            totalCostUsd: num2(cost.total_cost_usd),
+            contextTokens: num2(window.used_tokens) ?? num2(window.input_tokens),
+            contextWindow: num2(window.max_tokens) ?? num2(window.context_window_size),
+            branch: str2(b.gitBranch) ?? str2(b.branch),
             fiveHourPct: pctOf(limits.five_hour),
             sevenDayPct: pctOf(limits.seven_day),
             resetsAt: resetOf(limits.five_hour)
@@ -3798,20 +4024,20 @@ function createHookHandlers(deps) {
     },
     async substatus(body) {
       try {
-        const b = bagOf(body);
+        const b = bagOf2(body);
         const tasks = Array.isArray(b.tasks) ? b.tasks : [];
         for (const raw of tasks) {
-          const t = bagOf(raw);
-          if (str(t.type) !== "in_process_teammate") continue;
+          const t = bagOf2(raw);
+          if (str2(t.type) !== "in_process_teammate") continue;
           const agent = agentNameFrom(t.agentId ?? t.agent_id ?? t.name, leadName);
           store.append(
             "substatus",
             {
               agent,
-              tokenCount: num(t.tokenCount),
-              contextWindowSize: num(t.contextWindowSize),
-              status: str(t.status),
-              model: str(t.model)
+              tokenCount: num2(t.tokenCount),
+              contextWindowSize: num2(t.contextWindowSize),
+              status: str2(t.status),
+              model: str2(t.model)
             },
             agent
           );
@@ -4063,7 +4289,7 @@ function json(res, status, body) {
   res.writeHead(status, { "content-type": "application/json", "content-length": Buffer.byteLength(payload) });
   res.end(payload);
 }
-var str2 = (v) => typeof v === "string" ? v : void 0;
+var str3 = (v) => typeof v === "string" ? v : void 0;
 function createHttpServer(deps) {
   const leadName = deps.leadName ?? "team-lead";
   const webDist = deps.webDist ?? DEFAULT_WEB_DIST;
@@ -4177,14 +4403,14 @@ function createHttpServer(deps) {
           }
           const action = agentMatch[2];
           if (action === "message") {
-            const text = str2(body.text);
+            const text = str3(body.text);
             if (!text) {
               json(res, 400, { error: "bad request", message: "text is required" });
               return;
             }
             const out2 = await sendToInbox(team(), name, {
               text,
-              summary: str2(body.summary),
+              summary: str3(body.summary),
               from: name === leadName ? CONSOLE_SENDER : leadName
             });
             deps.stream.publish();
@@ -4239,7 +4465,7 @@ function createHttpServer(deps) {
               type: "plan_approval_response",
               requestId,
               approved,
-              feedback: str2(body.feedback),
+              feedback: str3(body.feedback),
               timestamp
             }),
             summary: `plan ${approved ? "approved" : "rejected"}`,
@@ -4257,7 +4483,7 @@ function createHttpServer(deps) {
             return;
           }
           const decision = permitMatch[2] === "allow" ? "allow" : "deny";
-          const ok = deps.permits.resolve(id, decision, str2(body.reason));
+          const ok = deps.permits.resolve(id, decision, str3(body.reason));
           if (!ok) {
             json(res, 404, { error: "not found", message: `no held permit ${id}` });
             return;
@@ -4339,8 +4565,9 @@ function hookBlock(port) {
       }
     ]
   };
-  hooks.PreToolUse = [...hooks.PreToolUse ?? [], launcher];
-  hooks.PostToolUse = [...hooks.PostToolUse ?? [], { ...launcher }];
+  const workflowLauncher = { ...launcher, matcher: "Workflow" };
+  hooks.PreToolUse = [...hooks.PreToolUse ?? [], launcher, workflowLauncher];
+  hooks.PostToolUse = [...hooks.PostToolUse ?? [], { ...launcher }, { ...workflowLauncher }];
   return {
     hooks,
     statusLine: { type: "command", command: post(port, "statusline"), refreshInterval: 5 },
@@ -4502,6 +4729,7 @@ function parseArgs(argv) {
   let confirm = false;
   let claudeHome = process.env.CLAUDE_CONFIG_DIR || path9.join(os2.homedir(), ".claude");
   let team;
+  let session;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "setup" || arg === "uninstall") command = arg;
@@ -4513,6 +4741,8 @@ function parseArgs(argv) {
     else if (arg.startsWith("--claude-home=")) claudeHome = arg.slice("--claude-home=".length);
     else if (arg === "--team") team = argv[++i];
     else if (arg.startsWith("--team=")) team = arg.slice("--team=".length);
+    else if (arg === "--session") session = argv[++i];
+    else if (arg.startsWith("--session=")) session = arg.slice("--session=".length);
   }
   return {
     command,
@@ -4522,7 +4752,8 @@ function parseArgs(argv) {
     claudeHome,
     settingsPath: path9.join(claudeHome, "settings.json"),
     dbPath: path9.join(claudeHome, "agent-teams-console", "events.db"),
-    team
+    team,
+    session
   };
 }
 function toDiscovered(config) {
@@ -4777,10 +5008,16 @@ async function main(argv) {
   setTeamsRoot(teamsRoot2);
   const discovered = await discoverTeam(teamsRoot2, sessionsRoot, cli.team);
   const teamName = discovered?.teamName ?? cli.team;
-  let leadSessionId = discovered?.leadSessionId;
+  let leadSessionId = discovered?.leadSessionId ?? cli.session;
   const store = openStore(cli.dbPath, teamName ?? "");
   const permits = createPermits();
-  const hub = createStream(() => project(store.replay(), cli.readOnly));
+  const publish = () => {
+    const events = store.replay();
+    const team = project(events, cli.readOnly);
+    const workflows = foldWorkflows(events);
+    return { ...team, mode: modeOf(team.agents.length, workflows), workflows };
+  };
+  const hub = createStream(publish);
   const live = {
     append(kind, payload, agent) {
       const ev = store.append(kind, payload, agent);
@@ -4812,7 +5049,7 @@ async function main(argv) {
       if (gen === generation) leadSessionId = id;
     }
   });
-  let ingest = startIngest(generation, teamName, discovered?.leadSessionId);
+  let ingest = startIngest(generation, teamName, leadSessionId);
   await ingest.sweep();
   let switching = false;
   let pinned = false;
@@ -4882,7 +5119,7 @@ async function main(argv) {
       onShutdown: stop
     }),
     stream: hub,
-    state: () => project(store.replay(), cli.readOnly),
+    state: publish,
     readOnly: cli.readOnly,
     listTeams: () => listTeamSummaries(teamsRoot2, sessionsRoot, currentTeam, projectsRoot),
     history: (agent) => transcriptHistory(store.replay(), agent),
