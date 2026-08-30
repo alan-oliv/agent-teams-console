@@ -79,6 +79,19 @@ const Column = memo(function Column({
   isFocused: boolean;
   isTinted: boolean;
   isDragging: boolean;
+  /**
+   * The operator's width, and only the operator's: focus never touches it.
+   *
+   * The design README asks for "a click-to-focus that widens a column", but the
+   * design's own prototype resolved that in favour of the grip — its column is
+   * `widths[name] || 366` and its click handler only sets the selection, with
+   * the same 7px grip, the same 232..720 clamp and the same 366 reset this wall
+   * has. Widening on focus would put two mechanisms on one property: focus is
+   * shared state, set by h/l and ↑/↓ as well as by `?agent=` and by clicking
+   * through from another view, so a keyboard scan would resize every column it
+   * passed and overwrite a width that is persisted per agent. Focus already
+   * reads three ways — the accent inset, the tint, and aria-current.
+   */
   width: number;
   readOnly: boolean;
   teamLive: boolean;
@@ -379,6 +392,16 @@ export function Wall({
   // real team, so anything ordered after a finished teammate is off-screen. Join
   // order is preserved WITHIN each group — sorting by recency instead would make
   // columns swap places under the operator's cursor every time an agent acted.
+  //
+  // Ordered, never dropped. The design README asks for idle rows to collapse 30s
+  // after the whole team goes idle, but its prototype has no such timer — the
+  // only trace is a line of copy inside a mocked transcript — and the rule as
+  // written empties the wall exactly when the team is idle, taking the lead
+  // column's composer, the console's only send control, off screen at the moment
+  // the operator wants to wake someone. The wall is also where a finished run is
+  // read back. Dimming is the reversible form of the same idea and the one this
+  // console took (DORMANT_OPACITY). The `N idle agents` chip from the same
+  // paragraph IS built — in the footer panel, where the prototype puts it too.
   const ordered = [
     ...(lead ? [lead] : []),
     ...rest.filter((a) => a.status !== 'departed'),

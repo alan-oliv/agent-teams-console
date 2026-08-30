@@ -589,3 +589,77 @@ describe('compaction note', () => {
     expect(note.title).toBe('compaction in ~7k tokens');
   });
 });
+
+// Two behaviours the design README's "Interactions & behaviour" describes and
+// this wall deliberately does not have. The design's own prototype does not
+// have them either — see the notes beside the code in Wall.tsx. These pin the
+// decisions so neither gets reintroduced as a stray "missing feature".
+describe('interactions the wall settles against the README', () => {
+  const column = (name: string) =>
+    screen.getAllByTestId('wall-column').find((c) => c.dataset.agent === name)!;
+
+  it('takes a click as focus alone, never as a resize', () => {
+    const onFocus = vi.fn();
+    const onWidthChange = vi.fn();
+    render(
+      <Wall
+        agents={agents}
+        focused={null}
+        onFocus={onFocus}
+        onWidthChange={onWidthChange}
+        now={FIXTURE_NOW}
+      />,
+    );
+    fireEvent.click(column('probe-alpha'));
+    expect(onFocus).toHaveBeenCalledWith('probe-alpha');
+    expect(onWidthChange).not.toHaveBeenCalled();
+  });
+
+  // Focus is shared state set from five places — a column click, h/l, ↑/↓,
+  // `?agent=`, and a click in another view — so widening on focus would resize
+  // columns under a keyboard scan and overwrite a width the operator dragged.
+  it('draws a focused column at the width the operator gave it', () => {
+    render(
+      <Wall
+        agents={agents}
+        focused="probe-alpha"
+        onFocus={vi.fn()}
+        widths={{ 'probe-alpha': 260 }}
+        onWidthChange={vi.fn()}
+        now={FIXTURE_NOW}
+      />,
+    );
+    expect(column('probe-alpha').style.width).toBe('260px');
+    expect(column('probe-alpha').getAttribute('aria-current')).toBe('true');
+    expect(column('probe-bravo').style.width).toBe('366px');
+  });
+
+  // The README asks for idle rows to collapse 30s after the whole team goes
+  // idle. The wall dims them instead: the lead's column carries the console's
+  // only composer, so collapsing an all-idle team would take the send control
+  // away at exactly the moment the operator wants to wake someone.
+  it('keeps every column of an all-idle team, dimmed rather than collapsed', () => {
+    const allIdle = agents.map((a) => ({ ...a, status: 'idle' as const, currentTool: undefined }));
+    render(
+      <Wall
+        agents={allIdle}
+        focused={null}
+        onFocus={vi.fn()}
+        now={FIXTURE_NOW + 60_000}
+      />,
+    );
+    const columns = screen.getAllByTestId('wall-column');
+    expect(columns).toHaveLength(4);
+    for (const c of columns) expect(c.style.opacity).toBe('0.55');
+    expect(screen.getAllByTestId('composer-input')).toHaveLength(1);
+  });
+
+  // The `N idle agents` chip the same README paragraph asks for is built, but in
+  // the footer panel (Panel.tsx IDLE_COLLAPSE_AT) — which is where the design's
+  // prototype puts it too, beside the ↑↓ legend rather than on the wall.
+  it('never summarises idle agents into a chip of its own', () => {
+    const allIdle = agents.map((a) => ({ ...a, status: 'idle' as const }));
+    render(<Wall agents={allIdle} focused={null} onFocus={vi.fn()} now={FIXTURE_NOW} />);
+    expect(screen.queryByText(/idle agents?$/)).toBeNull();
+  });
+});
