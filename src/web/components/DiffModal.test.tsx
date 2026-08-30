@@ -86,6 +86,43 @@ describe('DiffModal', () => {
     });
   });
 
+  // Same rule as the status bar (StatusBar.test.tsx): a child that can shrink
+  // wraps its text instead, doubling the row's height at a narrow card width.
+  // Every child but the spacer must be unshrinkable; jsdom does no layout, so
+  // this is the CSS-level guarantee rather than a measured screenshot.
+  describe('header, toolbar and footer never wrap', () => {
+    // `flexibleChild` is the one item allowed to shrink below its content —
+    // diff-path, which ellipsises instead (already covered by its own test
+    // above). Every other non-spacer child must refuse to shrink at all.
+    function assertUnshrinkable(testId: string, flexibleChild?: string) {
+      const row = screen.getByTestId(testId);
+      expect(row.style.flexWrap).toBe('');
+      const spacers = [...row.children].filter((c) => (c as HTMLElement).style.flex === '1 1 0%');
+      expect(spacers).toHaveLength(1);
+      for (const child of row.children) {
+        const el = child as HTMLElement;
+        if (el === spacers[0]) continue;
+        if (flexibleChild && el.dataset.testid === flexibleChild) continue;
+        expect([el.textContent, el.style.flex]).toEqual([el.textContent, '0 0 auto']);
+      }
+    }
+
+    it('holds the header to one line', () => {
+      render(<DiffModal diff={DIFF} onClose={() => {}} />);
+      assertUnshrinkable('diff-header', 'diff-path');
+    });
+
+    it('holds the toolbar to one line', () => {
+      render(<DiffModal diff={DIFF} onClose={() => {}} />);
+      assertUnshrinkable('diff-toolbar');
+    });
+
+    it('holds the footer to one line', () => {
+      render(<DiffModal diff={DIFF} onClose={() => {}} />);
+      assertUnshrinkable('diff-footer');
+    });
+  });
+
   describe('toolbar', () => {
     // The prototype tracks `diffSplit` and computes a width from it, but no
     // markup ever reads it — there is no side-by-side layout to build against,

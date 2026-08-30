@@ -306,7 +306,10 @@ export function DiffModal({ diff, onClose }: { diff: Diff | null; onClose(): voi
               design never specifies. The pair changed only their own highlight,
               and a control that does not change the render is worse than none. */}
           <span style={{ flex: 1 }} />
-          <span data-testid="diff-hunk-count" style={{ color: 'var(--color-neutral-600)', fontSize: '10px' }}>
+          <span
+            data-testid="diff-hunk-count"
+            style={{ color: 'var(--color-neutral-600)', fontSize: '10px', flex: 'none', whiteSpace: 'nowrap' }}
+          >
             {hunkLabel(diff.hunks.length)}
           </span>
           {/* No "open in editor" beside it: the server exposes select,
@@ -319,7 +322,13 @@ export function DiffModal({ diff, onClose }: { diff: Diff | null; onClose(): voi
             className="btn-neutral"
             data-testid="diff-copy"
             onClick={() => void navigator.clipboard?.writeText(unifiedPatch(diff))}
-            style={{ ...OUTLINE_ACTION, border: '1px solid var(--color-neutral-800)', color: 'var(--color-neutral-500)' }}
+            style={{
+              ...OUTLINE_ACTION,
+              border: '1px solid var(--color-neutral-800)',
+              color: 'var(--color-neutral-500)',
+              flex: 'none',
+              whiteSpace: 'nowrap',
+            }}
           >
             copy patch
           </button>
@@ -370,10 +379,12 @@ export function DiffModal({ diff, onClose }: { diff: Diff | null; onClose(): voi
             flex: 'none',
           }}
         >
-          <span>esc close</span>
-          <span>j/k next change</span>
+          <span style={{ flex: 'none', whiteSpace: 'nowrap' }}>esc close</span>
+          <span style={{ flex: 'none', whiteSpace: 'nowrap' }}>j/k next change</span>
           <span style={{ flex: 1 }} />
-          <span>the transcript keeps its one line — the patch lives here</span>
+          <span style={{ flex: 'none', whiteSpace: 'nowrap' }}>
+            the transcript keeps its one line — the patch lives here
+          </span>
         </div>
       </div>
     </div>
