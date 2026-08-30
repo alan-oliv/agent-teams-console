@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { FIXTURE_NOW, sampleTeamState } from '../test/state-fixture';
-import { StatusBar } from './StatusBar';
+import { METRIC_RANK, StatusBar } from './StatusBar';
 import { DEFAULT_SETTINGS } from '../state/useSettings';
 import { cssVarsFor, DENSITY } from '../themes';
 
@@ -95,8 +95,12 @@ it('does not pin the meter full when the cumulative token count is large', () =>
 
 it('renders the right-hand readouts from the fixture team', () => {
   renderBar();
-  expect(screen.getByText('tasks 1/2')).toBeTruthy();
-  expect(screen.getByText('4 windows')).toBeTruthy();
+  // Ruling 3: the count leads and the label follows, and context windows are
+  // `ctx` — the shortening was paid for by a measured overflow past 1180px.
+  expect(screen.getByText('1/2 tasks')).toBeTruthy();
+  expect(screen.getByText('4 ctx')).toBeTruthy();
+  expect(screen.queryByText('tasks 1/2')).toBeNull();
+  expect(screen.queryByText('4 windows')).toBeNull();
   expect(screen.getByText('829k')).toBeTruthy();
   // The meter is team context occupancy: sum(contextTokens) / sum(contextLimit).
   expect(screen.getByTestId('aggregate-meter').textContent).toBe('████░░░░░░░░░░░░');
@@ -203,6 +207,26 @@ it('pins the trigger wide enough that switching teams cannot move the switcher',
   expect(screen.getByText('session-b5129c7b-with-a-very-long-name').style.textOverflow).toBe(
     'ellipsis',
   );
+});
+
+// jsdom reports every width as 0, so the fitting itself never runs here and the
+// order it sheds in was unverifiable. The rank IS the order, so pin the rank.
+it('sheds the extras first and the branch never, per the design order', () => {
+  const shedFirstToLast = Object.entries(METRIC_RANK)
+    .sort(([, a], [, b]) => b - a)
+    .map(([key]) => key);
+  // The design drops right-to-left: the diffstat-class extra first, then the
+  // token figure. Elapsed and spend are permanently one chip, so the merge step
+  // in between has already been paid. Branch outlives every one of them.
+  expect(shedFirstToLast).toEqual([
+    'limits',
+    'tokens',
+    'meter',
+    'spend',
+    'windows',
+    'tasks',
+    'branch',
+  ]);
 });
 
 // A team wins the mode, so a session running a workflow BESIDE a live team can

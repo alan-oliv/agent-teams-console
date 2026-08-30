@@ -49,20 +49,28 @@ function useFittedCount(total: number, bar: RefObject<HTMLDivElement | null>): n
 }
 
 /**
- * The order metrics are SHED in, which is not the order they are read in. The
- * bar reads left to right in the handoff's arrangement, and when it runs out of
- * room the handoff sheds the token figure and keeps the spend. Dropping
+ * The order metrics are SHED in, which is not the order they are read in.
+ * Lower survives longer.
+ *
+ * The design drops right-to-left from the list's own tail: the diffstat-class
+ * extra first, then elapsed and spend merge into one chip, then the token
+ * figure goes. Only two of those steps are live here — the diffstat left the
+ * bar, and the merge is permanent rather than a step, so `limits` is the extra
+ * that goes first and `tokens` follows it.
+ *
+ * `branch` outlives every one of them. It used to shed second, which is the one
+ * ordering the design rules out: it is not a right-side figure, and dropping
  * whatever sits rightmost would shed exactly the figure the sixth switcher pill
- * was blamed for bleeding off-frame. Lower survives longer.
+ * was blamed for bleeding off-frame.
  */
-const METRIC_RANK: Record<string, number> = {
-  tasks: 0,
-  windows: 1,
-  spend: 2,
-  limits: 3,
+export const METRIC_RANK: Record<string, number> = {
+  branch: 0,
+  tasks: 1,
+  windows: 2,
+  spend: 3,
   meter: 4,
-  branch: 5,
-  tokens: 6,
+  tokens: 5,
+  limits: 6,
 };
 
 export interface StatusBarProps {
@@ -102,10 +110,10 @@ export function StatusBar({
         ]
       : []),
     <span key="tasks" style={{ color: 'var(--color-neutral-600)', ...METRIC }}>
-      {`tasks ${done}/${state.tasks.length}`}
+      {`${done}/${state.tasks.length} tasks`}
     </span>,
     <span key="windows" style={{ color: 'var(--color-neutral-600)', ...METRIC }}>
-      {`${state.agents.length} windows`}
+      {`${state.agents.length} ctx`}
     </span>,
     <span key="tokens" style={{ color: 'var(--color-neutral-500)', ...METRIC }}>
       {formatTokens(state.totalTokens)}
