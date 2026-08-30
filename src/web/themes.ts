@@ -37,14 +37,22 @@ export interface Theme {
   warnTint: string;
   fail: string;
   /**
-   * The two JSON token hues the bundle does not specify per theme. Picked at
-   * each theme's own text lightness so a payload stays legible on paper as
-   * well as on carbon; every other token role maps onto a variable that
-   * already exists (keys accent-400, numbers warn, null fail, punctuation
-   * neutral-600).
+   * The JSON token palette, per theme, all four roles. Picked at each theme's
+   * own text lightness so a payload stays legible on paper as well as on
+   * carbon.
+   *
+   * `jsonNumber` and `jsonNull` start at this theme's `warn` and `fail`, which
+   * is where they used to be read from directly. They are their own entries
+   * because those two are SEMANTIC tokens — "wants attention", "failed" — and a
+   * number is neither. Borrowing them meant a theme could not retune its amber
+   * against `--warn-tint` without retinting every number in every payload on
+   * `--term`, a different ground. Keys and punctuation still map onto
+   * accent-400 and neutral-600, which carry no such meaning.
    */
   jsonString: string;
+  jsonNumber: string;
   jsonBoolean: string;
+  jsonNull: string;
   accents: Record<AccentKey, Accent>;
 }
 
@@ -54,7 +62,8 @@ export const THEMES: Record<ThemeId, Theme> = {
     term: '#12141f', bg: '#161826', text: '#e9e9ed', onAccent: '#161826',
     n: ['#e2e3ea', '#c8cad6', '#b2b6ca', '#9397ab', '#75798c', '#595d6c', '#3f424d', '#292b31'],
     warn: '#d99e5c', warnEdge: '#6b4f2c', warnTint: '#2b2028', fail: '#c98d8d',
-    jsonString: '#9ec9a8', jsonBoolean: '#7fb4d9',
+    jsonString: '#9ec9a8', jsonNumber: '#d99e5c',
+    jsonBoolean: '#7fb4d9', jsonNull: '#c98d8d',
     accents: {
       a: { name: 'blurple', steps: ['#9184d9', '#d2cefd', '#b5abfc', '#968ae0', '#796cbf', '#5d5294', '#2b2741'] },
       b: { name: 'teal', steps: ['#6fb3ac', '#c3e6e1', '#9fd2cc', '#7ab8b1', '#5d9791', '#46716d', '#1f2f2e'] },
@@ -67,7 +76,8 @@ export const THEMES: Record<ThemeId, Theme> = {
     term: '#f6f1e7', bg: '#ece5d7', text: '#2c2721', onAccent: '#f6f1e7',
     n: ['#221e19', '#2f2a23', '#3f382f', '#574d41', '#6f6353', '#8d7f6c', '#bdb09a', '#dcd3c1'],
     warn: '#a8702a', warnEdge: '#d8bd93', warnTint: '#f0e2cc', fail: '#a4504c',
-    jsonString: '#4a6b3a', jsonBoolean: '#2f5c7a',
+    jsonString: '#4a6b3a', jsonNumber: '#a8702a',
+    jsonBoolean: '#2f5c7a', jsonNull: '#a4504c',
     accents: {
       a: { name: 'moss', steps: ['#5f7a4a', '#33452a', '#3f5634', '#4e6a3e', '#5f7a4a', '#8ca379', '#dfe6d3'] },
       b: { name: 'lake', steps: ['#3f6f77', '#22434a', '#2b525a', '#35636c', '#3f6f77', '#7ba3aa', '#d5e4e6'] },
@@ -80,7 +90,8 @@ export const THEMES: Record<ThemeId, Theme> = {
     term: '#16120f', bg: '#1d1815', text: '#efe7e0', onAccent: '#1d1815',
     n: ['#efe7e0', '#ddd2c9', '#c7bab0', '#a89a8f', '#8a7c72', '#6a5e56', '#4a413b', '#2b2521'],
     warn: '#dda15e', warnEdge: '#6f4f2c', warnTint: '#2f2318', fail: '#d08a80',
-    jsonString: '#a9c48f', jsonBoolean: '#8fb3c4',
+    jsonString: '#a9c48f', jsonNumber: '#dda15e',
+    jsonBoolean: '#8fb3c4', jsonNull: '#d08a80',
     accents: {
       a: { name: 'ember', steps: ['#d2794f', '#f5cbb4', '#eaab88', '#d2794f', '#a95f3e', '#7c452c', '#332016'] },
       b: { name: 'brass', steps: ['#c9a76a', '#f2dcb6', '#e2c48d', '#c9a76a', '#a2854f', '#77613a', '#2f2618'] },
@@ -93,7 +104,8 @@ export const THEMES: Record<ThemeId, Theme> = {
     term: '#f3f6f9', bg: '#e5ebf1', text: '#1c2530', onAccent: '#f3f6f9',
     n: ['#151c25', '#222c38', '#334050', '#4a5a6d', '#657687', '#8a99a8', '#b6c2cd', '#d5dde5'],
     warn: '#96631f', warnEdge: '#d9c194', warnTint: '#f2e6cd', fail: '#9e4a4a',
-    jsonString: '#2f6b4a', jsonBoolean: '#2a5885',
+    jsonString: '#2f6b4a', jsonNumber: '#96631f',
+    jsonBoolean: '#2a5885', jsonNull: '#9e4a4a',
     accents: {
       a: { name: 'indigo', steps: ['#4a6b96', '#22344b', '#2c4460', '#3a577a', '#4a6b96', '#8aa1bd', '#dbe4ef'] },
       b: { name: 'pine', steps: ['#2f7b78', '#153b3a', '#1d4d4b', '#26625f', '#2f7b78', '#79aead', '#d3e7e6'] },
@@ -106,7 +118,8 @@ export const THEMES: Record<ThemeId, Theme> = {
     term: '#131313', bg: '#1b1b1b', text: '#ededed', onAccent: '#131313',
     n: ['#ededed', '#dadada', '#c0c0c0', '#9e9e9e', '#7d7d7d', '#5e5e5e', '#414141', '#2a2a2a'],
     warn: '#c9a06a', warnEdge: '#63502f', warnTint: '#2b2419', fail: '#c58c8c',
-    jsonString: '#a8c9ae', jsonBoolean: '#a8bed4',
+    jsonString: '#a8c9ae', jsonNumber: '#c9a06a',
+    jsonBoolean: '#a8bed4', jsonNull: '#c58c8c',
     accents: {
       a: { name: 'graphite', steps: ['#9a9a9a', '#e4e4e4', '#cccccc', '#adadad', '#8a8a8a', '#5f5f5f', '#2e2e2e'] },
       b: { name: 'steel', steps: ['#7fa8c9', '#cfe2f0', '#a8c8de', '#7fa8c9', '#5f83a1', '#455f75', '#1c2530'] },
@@ -119,7 +132,8 @@ export const THEMES: Record<ThemeId, Theme> = {
     term: '#080d09', bg: '#0e150f', text: '#d8f2d9', onAccent: '#080d09',
     n: ['#d8f2d9', '#bfe3c1', '#a2cda5', '#82b085', '#628a66', '#48664b', '#324734', '#1d2a1f'],
     warn: '#d9c85c', warnEdge: '#5e5726', warnTint: '#232213', fail: '#d97f7f',
-    jsonString: '#8fe0a0', jsonBoolean: '#7fd6d9',
+    jsonString: '#8fe0a0', jsonNumber: '#d9c85c',
+    jsonBoolean: '#7fd6d9', jsonNull: '#d97f7f',
     accents: {
       a: { name: 'green', steps: ['#5fd97f', '#c7f7d4', '#96eaad', '#5fd97f', '#3fa85c', '#2b7440', '#102518'] },
       b: { name: 'cyan', steps: ['#5fd0d9', '#c4f4f7', '#93e5ea', '#5fd0d9', '#3f9fa8', '#2b6f75', '#102425'] },
@@ -162,7 +176,9 @@ export function cssVarsFor(id: ThemeId, scheme: AccentKey): Record<string, strin
     '--warn-tint': theme.warnTint,
     '--fail': theme.fail,
     '--json-string': theme.jsonString,
+    '--json-number': theme.jsonNumber,
     '--json-boolean': theme.jsonBoolean,
+    '--json-null': theme.jsonNull,
     '--color-accent': accent.steps[0],
   };
   NEUTRAL_STEPS.forEach((step, i) => {

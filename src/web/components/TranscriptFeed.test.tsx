@@ -384,9 +384,12 @@ describe('a row carrying a JSON payload opens formatted', () => {
       tokens.find((t) => t.dataset.jsonToken === kind)!.style.color;
     expect(colorOf('key')).toBe('var(--color-accent-400)');
     expect(colorOf('string')).toBe('var(--json-string)');
-    expect(colorOf('number')).toBe('var(--warn)');
+    // All four value roles resolve through the JSON palette. --warn and --fail
+    // are semantic tokens, and a number is not a warning nor null a failure, so
+    // a theme has to be able to retune one without moving the other.
+    expect(colorOf('number')).toBe('var(--json-number)');
     expect(colorOf('boolean')).toBe('var(--json-boolean)');
-    expect(colorOf('null')).toBe('var(--fail)');
+    expect(colorOf('null')).toBe('var(--json-null)');
     expect(colorOf('punct')).toBe('var(--color-neutral-600)');
   });
 
@@ -574,7 +577,12 @@ describe('code in an expanded row', () => {
     fireEvent.click(screen.getByTestId('transcript-more'));
 
     const block = screen.getByTestId('code-block');
-    expect(within(block).getByTestId('code-lang').textContent).toBe('js');
+    const lang = within(block).getByTestId('code-lang');
+    expect(lang.textContent).toBe('js');
+    // No 9.5px text at neutral-700 (2.69-2.80:1): that register is
+    // neutral-600 at 10px everywhere in the console.
+    expect(lang.style.fontSize).toBe('10px');
+    expect(lang.style.color).toBe('var(--color-neutral-600)');
     expect(block.textContent).toContain('const a = 1;');
     // Markdown is rendered, not shown as source.
     expect(screen.getByTestId('transcript-drawer-body').textContent).not.toContain('**');

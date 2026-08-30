@@ -147,8 +147,10 @@ const Tile = memo(function Tile({
           padding: '6px 10px',
           display: 'flex',
           gap: '6px',
-          color: 'var(--color-neutral-700)',
-          fontSize: '9.5px',
+          // Not 9.5px at neutral-700 (2.69-2.80:1): that register is
+          // neutral-600 at 10px everywhere in the console.
+          color: 'var(--color-neutral-600)',
+          fontSize: '10px',
         }}
       >
         <span data-testid="overview-elapsed">

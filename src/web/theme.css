@@ -37,11 +37,16 @@
   --warn-tint: #2b2028;
   --fail: #c98d8d;
 
-  /* Syntax colouring inside an expanded JSON payload and nowhere else. The
-     other four roles already have homes: keys accent-400, numbers --warn,
-     null --fail, punctuation neutral-600. */
+  /* Syntax colouring inside an expanded JSON payload and nowhere else. All
+     four value roles are their own variables: --warn and --fail are semantic
+     tokens, and a number is not a warning nor null a failure, so a theme has
+     to be able to retune one without moving the other. Keys and punctuation
+     still map onto accent-400 and neutral-600, which mean nothing on their
+     own. These are the Nocturne fallbacks; themes.ts publishes the rest. */
   --json-string: #9ec9a8;
+  --json-number: #d99e5c;
   --json-boolean: #7fb4d9;
+  --json-null: #c98d8d;
 
   --font-heading: "Inter", system-ui, sans-serif;
   --font-heading-weight: 500;

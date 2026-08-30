@@ -40,7 +40,7 @@ describe('the theme table', () => {
         expect(theme.accents[key].steps, `${id}.${key}`).toHaveLength(7);
         expect(theme.accents[key].name, `${id}.${key}`).toBeTruthy();
       }
-      for (const value of [theme.term, theme.bg, theme.text, theme.onAccent, theme.warn, theme.warnEdge, theme.warnTint, theme.fail, theme.jsonString, theme.jsonBoolean]) {
+      for (const value of [theme.term, theme.bg, theme.text, theme.onAccent, theme.warn, theme.warnEdge, theme.warnTint, theme.fail, theme.jsonString, theme.jsonBoolean, theme.jsonNumber, theme.jsonNull]) {
         expect(value, id).toMatch(/^#[0-9a-f]{6}$/);
       }
     }
@@ -106,10 +106,35 @@ describe('cssVarsFor', () => {
         '--color-neutral-200', '--color-neutral-300', '--color-neutral-400',
         '--color-neutral-500', '--color-neutral-600', '--color-neutral-700',
         '--color-neutral-800', '--color-neutral-900',
-        '--color-text', '--fail', '--json-boolean', '--json-string',
+        '--color-text', '--fail',
+        '--json-boolean', '--json-null', '--json-number', '--json-string',
         '--on-accent', '--term', '--warn', '--warn-edge', '--warn-tint',
       ].sort(),
     );
+  });
+
+  // The design asks for the WHOLE JSON palette to be per-theme variables. Two
+  // roles used to borrow `--warn` and `--fail`, which are semantic tokens: a
+  // number is not a warning and null is not a failure, so retuning the amber
+  // for its own ground silently retinted every number in every payload. The
+  // values start where the borrowed ones were, so nothing moves today; what
+  // changes is that they can now move apart.
+  it('gives every JSON token role its own per-theme variable', () => {
+    for (const id of THEME_IDS) {
+      const vars = cssVarsFor(id, 'a');
+      for (const role of ['--json-string', '--json-number', '--json-boolean', '--json-null']) {
+        expect(vars[role], `${id} ${role}`).toMatch(/^#[0-9a-f]{6}$/);
+      }
+      expect(vars['--json-number'], id).not.toBe(vars['--json-string']);
+    }
+  });
+
+  it('starts number and null where they used to borrow warn and fail', () => {
+    for (const id of THEME_IDS) {
+      const vars = cssVarsFor(id, 'a');
+      expect(vars['--json-number'], id).toBe(vars['--warn']);
+      expect(vars['--json-null'], id).toBe(vars['--fail']);
+    }
   });
 
   it('maps the ramps the way the prototype indexes them', () => {
