@@ -27,12 +27,14 @@ function renderTrigger(): HTMLElement {
 /**
  * Unbounded, that 65-char name measured 610px — 87% of a 700px bar — and put
  * the four view pills, the task id and every total off the frame, so no
- * workflow view could be reached at all. 236px is what the bar can spare once
- * its 14px padding, the RUN wordmark, the 146px team trigger, the gaps and the
- * four pills are paid for; measured, not chosen.
+ * workflow view could be reached at all.
+ *
+ * Both terms are measured. 236px is the design-width ceiling; 26vw is the
+ * narrow end, where the bar's un-sheddable rest costs 741.48px and leaves the
+ * trigger at most 27.79% of a 700px frame. See RunSelect.tsx for the arithmetic.
  */
 it('bounds the trigger so the view pills stay on the frame', () => {
-  expect(renderTrigger().style.maxWidth).toBe('236px');
+  expect(renderTrigger().style.maxWidth).toBe('min(236px, 26vw)');
 });
 
 // The bar is one 40px line and every child of it is flex:none — a trigger that

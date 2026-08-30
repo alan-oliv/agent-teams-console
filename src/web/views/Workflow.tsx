@@ -14,6 +14,24 @@ import { runTotalsText } from './workflow-grid';
 export const WORKFLOW_VIEW_IDS = ['run', 'agents', 'script', 'journal'] as const;
 export type WorkflowViewId = (typeof WORKFLOW_VIEW_IDS)[number];
 
+/**
+ * The order this bar's metrics are SHED in when it runs out of room. Lower
+ * survives longer, as on the team bar.
+ *
+ * The design never specified one for workflow mode, so this follows the team
+ * bar's precedent rather than inventing a principle: identity outlives figures.
+ * The task id is what says which piece of work this run belongs to — `branch`'s
+ * counterpart, and the one thing here that is not re-derivable from the run
+ * view below — so it goes last. Elapsed sits where the team bar puts its
+ * elapsed-and-spend chip. The totals are the pure readout, and the agents view
+ * carries them in full, so they go first. Recorded in CONSOLE-DECISIONS.md.
+ */
+export const WORKFLOW_METRIC_RANK: Record<string, number> = {
+  taskId: 0,
+  elapsed: 1,
+  totals: 2,
+};
+
 export interface WorkflowProps {
   run: Run;
   /** Every run this session has — the run picker's list. */
@@ -78,29 +96,44 @@ export function Workflow({
         // Wrapped rather than passed bare: a setState function widens the bar's
         // view type to `string`, which loses the pills their union.
         onViewChange={(next) => setView(next)}
-        metrics={
-          <>
-            {/* No status word: the design asks the right side for the task id,
-                the run totals and elapsed, and the run picker beside the
-                wordmark already carries this run's state in its own colour. */}
-            {run.taskId !== undefined && (
-              <span
-                data-testid="wf-task-id"
-                style={{ color: 'var(--color-neutral-600)', ...METRIC }}
-              >
-                {`task ${run.taskId}`}
-              </span>
-            )}
-            {totals !== undefined && (
-              <span data-testid="wf-run-totals" style={{ color: 'var(--color-neutral-600)', ...METRIC }}>
-                {totals}
-              </span>
-            )}
-            <span data-testid="wf-elapsed" style={{ color: 'var(--color-neutral-500)', ...METRIC }}>
-              {elapsed}
-            </span>
-          </>
-        }
+        // An array rather than a fragment, and every entry keyed: the bar sheds
+        // by key, and two of these three are conditional, so a positional rule
+        // would drop whichever metric happened to sit at that index.
+        metrics={[
+          // No status word: the design asks the right side for the task id,
+          // the run totals and elapsed, and the run picker beside the wordmark
+          // already carries this run's state in its own colour.
+          ...(run.taskId !== undefined
+            ? [
+                <span
+                  key="taskId"
+                  data-testid="wf-task-id"
+                  style={{ color: 'var(--color-neutral-600)', ...METRIC }}
+                >
+                  {`task ${run.taskId}`}
+                </span>,
+              ]
+            : []),
+          ...(totals !== undefined
+            ? [
+                <span
+                  key="totals"
+                  data-testid="wf-run-totals"
+                  style={{ color: 'var(--color-neutral-600)', ...METRIC }}
+                >
+                  {totals}
+                </span>,
+              ]
+            : []),
+          <span
+            key="elapsed"
+            data-testid="wf-elapsed"
+            style={{ color: 'var(--color-neutral-500)', ...METRIC }}
+          >
+            {elapsed}
+          </span>,
+        ]}
+        metricRank={WORKFLOW_METRIC_RANK}
         appearance={appearance}
       />
 

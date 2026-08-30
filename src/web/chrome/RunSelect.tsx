@@ -4,21 +4,31 @@ import type { WorkflowRun } from '../../shared/domain';
 const PANEL_WIDTH = '360px';
 
 /**
- * Measured, not chosen — and unlike the team trigger's 146px it is derived from
- * the BAR's budget rather than from the name, because run names have no shape
- * to derive from: the runtime defaults an unlabelled one to the prompt's first
- * 60 characters, and a run named after its own task is longer still.
- *
- * At 700px the bar can spare 239.75px here — 700 less its 14px right padding,
- * the four view pills (229.83 + 2 margin), a 10px gap, and the 204.42 left of
- * the trigger (14 padding + 24.42 wordmark + 10 + the 146 team trigger + 10).
- * Rounded down to leave a little against fallback-font metrics.
+ * Measured, not chosen — and unlike the team trigger's fixed 146px it is
+ * derived from the BAR's budget rather than from the name, because run names
+ * have no shape to derive from: the runtime defaults an unlabelled one to the
+ * prompt's first 60 characters, and a run named after its own task is longer.
  *
  * Unbounded, a 65-character name measured 610px: 87% of a 700px bar, with the
  * view pills, the task id and every total pushed off the frame, so the operator
  * could not reach a single workflow view.
+ *
+ * Two terms, because one number cannot serve both ends of the range:
+ *
+ * - `236px` is what the bar can spare at its 1180px design width, and the point
+ *   at which the identity stops growing. Below it a typical run name — the
+ *   13-char `team-selector` — still renders whole.
+ * - `26vw` is the narrow end. With every metric shed the rest of the bar still
+ *   costs 741.48px (padding, wordmark, the 146px team trigger, the four pills,
+ *   the spacer, and the gear, which is chrome and never sheds), so at 700px the
+ *   trigger may take at most 194.52px — 27.79% of the frame. 26vw keeps a
+ *   margin for a scrollbar counted inside `vw`, and holds the bar whole down to
+ *   ~684px.
+ *
+ * A max-width and never a flex-shrink: every child of this bar is `flex: none`,
+ * and one that could shrink would wrap and double the bar's height.
  */
-const TRIGGER_MAX_WIDTH = 236;
+const TRIGGER_MAX_WIDTH = 'min(236px, 26vw)';
 
 export const RUN_STATUS_COLOR: Record<WorkflowRun['status'], string> = {
   completed: 'var(--color-accent-400)',

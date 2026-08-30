@@ -1,4 +1,12 @@
-import { useState, type CSSProperties, type ReactNode, type Ref } from 'react';
+import {
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactElement,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import type { SettingsStore } from '../state/useSettings';
 import { ConfigMenu } from './ConfigMenu';
 
@@ -6,8 +14,70 @@ import { ConfigMenu } from './ConfigMenu';
 // which is the one way this layout breaks — so nothing in it is allowed to.
 export const METRIC: CSSProperties = { flex: 'none', whiteSpace: 'nowrap' };
 
+/**
+ * How many metrics the bar can draw without overflowing.
+ *
+ * Nothing in the bar may shrink or wrap, so at a narrow viewport the surplus
+ * metrics would silently run off the edge. Which ones go is not this hook's
+ * business — see {@link keptMetrics}; this only answers how many fit.
+ *
+ * Shrink one per pass and let the layout effect re-run; widening resets to the
+ * full set and lets it settle again. It terminates because a pass that changes
+ * nothing renders nothing.
+ */
+function useFittedCount(total: number, bar: RefObject<HTMLDivElement | null>): number {
+  const [shown, setShown] = useState(total);
+  const lastWidth = useRef(0);
+
+  useLayoutEffect(() => {
+    const el = bar.current;
+    // jsdom reports every width as 0, which would drop every metric; a bar with
+    // no measurable box is one nothing can be decided about.
+    if (!el || el.clientWidth === 0) return;
+    const fit = () => {
+      const grew = el.clientWidth > lastWidth.current;
+      lastWidth.current = el.clientWidth;
+      if (grew) setShown(total);
+      // Absolute, not a functional decrement. This effect has no dep array, so
+      // it re-observes on every pass and ResizeObserver fires again on observe —
+      // fit() runs several times against ONE committed layout, and a functional
+      // n - 1 per call shed three metrics off a 3px overflow, leaving the bar a
+      // third empty. Every call in a commit now computes the same value and
+      // React drops the repeats.
+      else if (el.scrollWidth > el.clientWidth) setShown(Math.max(0, shown - 1));
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
+
+  return Math.min(shown, total);
+}
+
+/**
+ * Which metrics survive when only `fitted` of them do, in READING order.
+ *
+ * Keyed off each element's key and never off its position: both bars build
+ * their metric list conditionally — a team with no branch, a run launched
+ * outside a task — so the same metric sits at a different index run to run, and
+ * a positional rule would shed whichever one happened to land there.
+ */
+export function keptMetrics(
+  metrics: readonly ReactElement[],
+  rank: Record<string, number>,
+  fitted: number,
+): ReactElement[] {
+  const kept = new Set(
+    [...metrics]
+      .sort((a, b) => rank[String(a.key)] - rank[String(b.key)])
+      .slice(0, fitted)
+      .map((m) => m.key),
+  );
+  return metrics.filter((m) => kept.has(m.key));
+}
+
 export interface BarProps<T extends string> {
-  ref?: Ref<HTMLDivElement>;
   /** `TEAM` or `RUN` — which shell the operator is looking at. */
   wordmark: string;
   /** The picker slot, between the wordmark and the pills: what is on screen, and how to change it. */
@@ -15,8 +85,10 @@ export interface BarProps<T extends string> {
   views: readonly T[];
   view: T;
   onViewChange(view: T): void;
-  /** The right-hand readouts, in reading order. Each one carries {@link METRIC}. */
-  metrics: ReactNode;
+  /** The right-hand readouts, in READING order. Each one carries {@link METRIC} and a key. */
+  metrics: ReactElement[];
+  /** The order those keys are SHED in when the bar runs out of room. Lower survives longer. */
+  metricRank: Record<string, number>;
   appearance: SettingsStore;
 }
 
@@ -25,15 +97,23 @@ export interface BarProps<T extends string> {
  * six views and the session's figures, workflow mode with four and the run's —
  * the shell itself only owns the line, which is why it is one component: the
  * discipline that keeps the bar 40px tall cannot be enforced twice.
+ *
+ * Shedding lives here for the same reason. "Never let them bleed past the
+ * frame" is one rule, and it was implemented only for the team bar, so the
+ * workflow bar quietly ran its figures off the edge at any width under 1094px.
+ * Each mode still chooses its own order — that is the part that differs — but
+ * the mechanism is not written twice.
  */
 export function Bar<T extends string>({
-  ref, wordmark, picker, views, view, onViewChange, metrics, appearance,
+  wordmark, picker, views, view, onViewChange, metrics, metricRank, appearance,
 }: BarProps<T>) {
   const [configOpen, setConfigOpen] = useState(false);
+  const bar = useRef<HTMLDivElement>(null);
+  const fitted = useFittedCount(metrics.length, bar);
 
   return (
     <div
-      ref={ref}
+      ref={bar}
       data-testid="bar"
       style={{
         display: 'flex',
@@ -93,7 +173,7 @@ export function Bar<T extends string>({
 
       <span style={{ flex: 1, minWidth: 8 }} />
 
-      {metrics}
+      {keptMetrics(metrics, metricRank, fitted)}
 
       {/* Chrome, not a metric: it is never shed, so the operator can always
           reach the theme even on a bar too narrow for a single figure. */}

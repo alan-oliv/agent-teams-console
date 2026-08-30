@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type ReactElement, type RefObject } from 'react';
+import type { ReactElement } from 'react';
 import type { TeamState, ViewId } from '../../shared/domain';
 import type { SettingsStore } from '../state/useSettings';
 import { formatCost, formatElapsed, formatTokens, meterCells } from '../format';
@@ -6,47 +6,6 @@ import { VIEW_IDS } from '../state/useTeamState';
 import { Bar, METRIC } from './Bar';
 import { runOrder } from './RunSelect';
 import { TeamSelect } from './TeamSelect';
-
-/**
- * How many metrics the bar can draw without overflowing.
- *
- * Nothing in the bar may shrink or wrap, so at a narrow viewport the surplus
- * metrics would silently run off the edge. Which ones go is not this hook's
- * business — see {@link METRIC_RANK}; this only answers how many fit.
- *
- * Shrink one per pass and let the layout effect re-run; widening resets to the
- * full set and lets it settle again. It terminates because a pass that changes
- * nothing renders nothing.
- */
-function useFittedCount(total: number, bar: RefObject<HTMLDivElement | null>): number {
-  const [shown, setShown] = useState(total);
-  const lastWidth = useRef(0);
-
-  useLayoutEffect(() => {
-    const el = bar.current;
-    // jsdom reports every width as 0, which would drop every metric; a bar with
-    // no measurable box is one nothing can be decided about.
-    if (!el || el.clientWidth === 0) return;
-    const fit = () => {
-      const grew = el.clientWidth > lastWidth.current;
-      lastWidth.current = el.clientWidth;
-      if (grew) setShown(total);
-      // Absolute, not a functional decrement. This effect has no dep array, so
-      // it re-observes on every pass and ResizeObserver fires again on observe —
-      // fit() runs several times against ONE committed layout, and a functional
-      // n - 1 per call shed three metrics off a 3px overflow, leaving the bar a
-      // third empty. Every call in a commit now computes the same value and
-      // React drops the repeats.
-      else if (el.scrollWidth > el.clientWidth) setShown(Math.max(0, shown - 1));
-    };
-    fit();
-    const ro = new ResizeObserver(fit);
-    ro.observe(el);
-    return () => ro.disconnect();
-  });
-
-  return Math.min(shown, total);
-}
 
 /**
  * The order metrics are SHED in, which is not the order they are read in.
@@ -146,18 +105,8 @@ export function StatusBar({
   // the first on the frame, since a run still going is what it is for.
   const runs = runOrder(state.workflows ?? []);
 
-  const bar = useRef<HTMLDivElement>(null);
-  const fitted = useFittedCount(metrics.length, bar);
-  const kept = new Set(
-    [...metrics]
-      .sort((a, b) => METRIC_RANK[String(a.key)] - METRIC_RANK[String(b.key)])
-      .slice(0, fitted)
-      .map((m) => m.key),
-  );
-
   return (
     <Bar
-      ref={bar}
       wordmark="TEAM"
       picker={
         <>
@@ -191,7 +140,8 @@ export function StatusBar({
       views={VIEW_IDS}
       view={view}
       onViewChange={onViewChange}
-      metrics={metrics.filter((m) => kept.has(m.key))}
+      metrics={metrics}
+      metricRank={METRIC_RANK}
       appearance={appearance}
     />
   );
