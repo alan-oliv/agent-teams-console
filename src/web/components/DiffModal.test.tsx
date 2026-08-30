@@ -60,7 +60,7 @@ describe('DiffModal', () => {
       render(<DiffModal diff={DIFF} onClose={() => {}} />);
       expect(screen.getByTestId('diff-path').textContent).toBe(DIFF.path);
       expect(screen.getByTestId('diff-stat').textContent).toBe('+14 −2');
-      expect(screen.getByTestId('diff-stat').style.color).toBe('rgb(127, 185, 141)');
+      expect(screen.getByTestId('diff-stat').style.color).toBe('var(--json-string)');
       expect(screen.getByTestId('diff-meta').textContent).toBe('lead · 14:22:08 · 9be5ee0');
     });
 
@@ -102,11 +102,12 @@ describe('DiffModal', () => {
 
     it('holds its own active segment on click, without rendering anything different', () => {
       render(<DiffModal diff={DIFF} onClose={() => {}} />);
+      const before = screen.getByTestId('diff-body').innerHTML;
       fireEvent.click(screen.getByTestId('diff-layout-split'));
       expect(screen.getByTestId('diff-layout-split').style.color).toBe('var(--color-accent-300)');
       expect(screen.getByTestId('diff-layout-unified').style.color).toBe('var(--color-neutral-500)');
-      // Chrome only — the toggle does not touch the (still empty) body.
-      expect(screen.getByTestId('diff-body').children).toHaveLength(0);
+      // The segment is still cosmetic: task #8 decides what split renders.
+      expect(screen.getByTestId('diff-body').innerHTML).toBe(before);
     });
 
     it('counts the hunks, pluralising past one', () => {
@@ -128,14 +129,134 @@ describe('DiffModal', () => {
     });
   });
 
-  it('holds an empty scroll container sized to take the hunk rows', () => {
+  it('scrolls the hunk rows on the terminal ground', () => {
+    render(<DiffModal diff={DIFF} onClose={() => {}} />);
+    const body = screen.getByTestId('diff-body');
+    expect(body.style.flex).toBe('1 1 0%');
+    expect(body.style.background).toBe('var(--term)');
+  });
+
+  // `.tail` is how this codebase bottom-anchors a pane, and it belongs to
+  // streams. A patch reads top-down, so the body scrolls without it — the same
+  // call TranscriptFeed already makes for the JSON drawer.
+  it('does not bottom-anchor the patch', () => {
     render(<DiffModal diff={DIFF} onClose={() => {}} />);
     const body = screen.getByTestId('diff-body');
     expect(body.className).toBe('tscroll');
-    expect(body.style.flex).toBe('1 1 0%');
-    expect(body.style.background).toBe('var(--term)');
-    expect(within(body).queryAllByRole('row')).toHaveLength(0);
-    expect(body.children).toHaveLength(0);
+    expect(body.className).not.toContain('tail');
+  });
+
+  describe('unified body', () => {
+    const MIXED: Diff = {
+      ...DIFF,
+      hunks: [
+        {
+          header: '@@ -146,10 +146,24 @@ export function useTeamState(',
+          lines: [
+            { sign: ' ', oldLineNo: 146, newLineNo: 146, text: '  const [selected] = useState();' },
+            { sign: '-', oldLineNo: 149, newLineNo: null, text: '  const [widths] = useState({});' },
+            { sign: '+', oldLineNo: null, newLineNo: 149, text: '  const [widths] = useState(read);' },
+            { sign: ' ', oldLineNo: 150, newLineNo: 150, text: '' },
+          ],
+        },
+        { header: '@@ -200,3 +214,3 @@', lines: [{ sign: '+', oldLineNo: null, newLineNo: 214, text: 'x' }] },
+      ],
+    };
+
+    it('renders a header row per hunk and a row per line, in payload order', () => {
+      render(<DiffModal diff={MIXED} onClose={() => {}} />);
+      const body = screen.getByTestId('diff-body');
+      expect(within(body).getAllByTestId('diff-hunk-header')).toHaveLength(2);
+      expect(within(body).getAllByTestId('diff-row')).toHaveLength(5);
+      expect(Array.from(body.children).map((el) => el.getAttribute('data-testid'))).toEqual([
+        'diff-hunk-header', 'diff-row', 'diff-row', 'diff-row', 'diff-row', 'diff-hunk-header', 'diff-row',
+      ]);
+    });
+
+    it('gives a hunk header its own accent row, verbatim', () => {
+      render(<DiffModal diff={MIXED} onClose={() => {}} />);
+      const header = within(screen.getByTestId('diff-body')).getAllByTestId('diff-hunk-header')[0];
+      expect(header.textContent).toBe('@@ -146,10 +146,24 @@ export function useTeamState(');
+      expect(header.style.background).toBe('var(--color-accent-900)');
+      expect(header.style.color).toBe('var(--color-accent-300)');
+      // Indented past both gutters and the sign so it starts on the code column.
+      expect(header.style.paddingLeft).toBe('104px');
+    });
+
+    it('tints an added row and its gutters, and signs it with the theme green', () => {
+      render(<DiffModal diff={MIXED} onClose={() => {}} />);
+      const added = within(screen.getByTestId('diff-body')).getAllByTestId('diff-row')[2];
+      expect(added.style.background).toBe('rgba(126, 196, 146, 0.13)');
+      const [oldNo, newNo, sign, text] = Array.from(added.children) as HTMLElement[];
+      expect(oldNo.textContent).toBe('');
+      expect(newNo.textContent).toBe('149');
+      expect(oldNo.style.background).toBe('rgba(126, 196, 146, 0.1)');
+      expect(newNo.style.background).toBe('rgba(126, 196, 146, 0.1)');
+      expect(sign.textContent).toBe('+');
+      expect(sign.style.color).toBe('var(--json-string)');
+      expect(text.style.color).toBe('var(--color-text)');
+    });
+
+    it('tints a deleted row and signs it with the theme fail colour', () => {
+      render(<DiffModal diff={MIXED} onClose={() => {}} />);
+      const deleted = within(screen.getByTestId('diff-body')).getAllByTestId('diff-row')[1];
+      expect(deleted.style.background).toBe('rgba(200, 141, 141, 0.13)');
+      const [oldNo, newNo, sign, text] = Array.from(deleted.children) as HTMLElement[];
+      expect(oldNo.textContent).toBe('149');
+      expect(newNo.textContent).toBe('');
+      expect(oldNo.style.background).toBe('rgba(200, 141, 141, 0.1)');
+      expect(sign.textContent).toBe('-');
+      expect(sign.style.color).toBe('var(--fail)');
+      expect(text.style.color).toBe('var(--color-text)');
+    });
+
+    it('leaves a context row untinted and quiet, carrying both line numbers', () => {
+      render(<DiffModal diff={MIXED} onClose={() => {}} />);
+      const context = within(screen.getByTestId('diff-body')).getAllByTestId('diff-row')[0];
+      expect(context.style.background).toBe('transparent');
+      const [oldNo, newNo, sign, text] = Array.from(context.children) as HTMLElement[];
+      expect(oldNo.textContent).toBe('146');
+      expect(newNo.textContent).toBe('146');
+      expect(oldNo.style.background).toBe('transparent');
+      expect(sign.textContent).toBe('');
+      expect(sign.style.color).toBe('var(--color-neutral-700)');
+      expect(text.style.color).toBe('var(--color-neutral-400)');
+    });
+
+    // An empty <span> collapses to zero height and the row loses its line,
+    // which breaks the alignment of every gutter number below it.
+    it('keeps the height of an empty line with a single space', () => {
+      render(<DiffModal diff={MIXED} onClose={() => {}} />);
+      const blank = within(screen.getByTestId('diff-body')).getAllByTestId('diff-row')[3];
+      expect((blank.children[3] as HTMLElement).textContent).toBe(' ');
+    });
+
+    it('sizes the gutters, the sign column and the text to the design grid', () => {
+      render(<DiffModal diff={MIXED} onClose={() => {}} />);
+      const row = within(screen.getByTestId('diff-body')).getAllByTestId('diff-row')[0];
+      const [oldNo, newNo, sign, text] = Array.from(row.children) as HTMLElement[];
+      for (const gutter of [oldNo, newNo]) {
+        expect(gutter.style.width).toBe('44px');
+        expect(gutter.style.textAlign).toBe('right');
+        expect(gutter.style.paddingRight).toBe('9px');
+        expect(gutter.style.fontSize).toBe('10px');
+        expect(gutter.style.color).toBe('var(--color-neutral-700)');
+        expect(gutter.style.flex).toBe('0 0 auto'); // `flex: none`, as jsdom serialises it
+      }
+      expect(sign.style.width).toBe('16px');
+      expect(sign.style.textAlign).toBe('center');
+      expect(row.style.fontSize).toBe('11.5px');
+      expect(row.style.lineHeight).toBe('1.72');
+      expect(row.style.whiteSpace).toBe('pre');
+      expect(text.style.paddingRight).toBe('16px');
+      expect(text.style.overflow).toBe('hidden');
+      expect(text.style.textOverflow).toBe('ellipsis');
+    });
+
+    it('renders an empty body for a patch whose hunks were all dropped', () => {
+      render(<DiffModal diff={{ ...DIFF, hunks: [] }} onClose={() => {}} />);
+      expect(screen.getByTestId('diff-body').children).toHaveLength(0);
+    });
   });
 
   it('carries the footer legend', () => {

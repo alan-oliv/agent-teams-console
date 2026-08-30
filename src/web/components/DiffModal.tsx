@@ -1,8 +1,90 @@
-import { useState, type CSSProperties } from 'react';
-import type { Diff } from '../../shared/domain';
+import { Fragment, useState, type CSSProperties } from 'react';
+import type { Diff, DiffLine } from '../../shared/domain';
 import { clockLabel, diffStat } from '../format';
 
 type Layout = 'unified' | 'split';
+
+const GUTTER_W = 44;
+const SIGN_W = 16;
+
+/**
+ * Add and delete are tinted OVERLAYS, not fixed inks: Nocturne is a mono
+ * palette carrying neither a green nor a red, and two of the six themes are
+ * light. Composited over every theme's `--term` these stay visible (ΔE2000 4.3
+ * at the weakest, Organic's delete) and stay apart from each other (9.4 at the
+ * weakest), so all four survive as measured.
+ */
+const ADD_ROW = 'rgba(126,196,146,.13)';
+const ADD_GUTTER = 'rgba(126,196,146,.10)';
+const DEL_ROW = 'rgba(200,141,141,.13)';
+const DEL_GUTTER = 'rgba(200,141,141,.10)';
+
+/**
+ * The sign glyph needs a green, and the prototype's literal `#7fb98d` was only
+ * ever run on Nocturne: on the two light themes it lands at 1.9:1 against its
+ * own row, which is unreadable. `--json-string` is the one green the palette
+ * already tunes per theme — picked at each theme's own text lightness — and it
+ * holds from 5.0:1 (Organic) to 10.1:1 (Phosphor). Delete needs no such rescue;
+ * `--fail` is already per-theme.
+ */
+const ADD_SIGN = 'var(--json-string)';
+const DEL_SIGN = 'var(--fail)';
+
+const GUTTER: CSSProperties = {
+  width: `${GUTTER_W}px`,
+  flex: 'none',
+  textAlign: 'right',
+  paddingRight: '9px',
+  color: 'var(--color-neutral-700)',
+  fontSize: '10px',
+};
+
+function HunkRow({ line }: { line: DiffLine }) {
+  const add = line.sign === '+';
+  const del = line.sign === '-';
+  const gutterBg = add ? ADD_GUTTER : del ? DEL_GUTTER : 'transparent';
+  return (
+    <div
+      data-testid="diff-row"
+      data-sign={line.sign}
+      style={{
+        display: 'flex',
+        alignItems: 'baseline',
+        background: add ? ADD_ROW : del ? DEL_ROW : 'transparent',
+        fontSize: '11.5px',
+        lineHeight: '1.72',
+        whiteSpace: 'pre',
+      }}
+    >
+      <span style={{ ...GUTTER, background: gutterBg }}>{line.oldLineNo ?? ''}</span>
+      <span style={{ ...GUTTER, background: gutterBg }}>{line.newLineNo ?? ''}</span>
+      <span
+        style={{
+          width: `${SIGN_W}px`,
+          flex: 'none',
+          textAlign: 'center',
+          fontSize: '11px',
+          color: add ? ADD_SIGN : del ? DEL_SIGN : 'var(--color-neutral-700)',
+        }}
+      >
+        {line.sign.trim()}
+      </span>
+      <span
+        style={{
+          color: add || del ? 'var(--color-text)' : 'var(--color-neutral-400)',
+          paddingRight: '16px',
+          minWidth: 0,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}
+      >
+        {/* An empty span collapses to no height, which would break the run of
+            gutter numbers below it. */}
+        {line.text === '' ? ' ' : line.text}
+      </span>
+    </div>
+  );
+}
 
 const SEGMENT: CSSProperties = {
   cursor: 'pointer',
@@ -106,7 +188,7 @@ export function DiffModal({ diff, onClose }: { diff: Diff | null; onClose(): voi
           >
             {diff.path}
           </span>
-          <span data-testid="diff-stat" style={{ color: '#7fb98d', fontSize: '11px', flex: 'none' }}>
+          <span data-testid="diff-stat" style={{ color: ADD_SIGN, fontSize: '11px', flex: 'none' }}>
             {diffStat(diff.added, diff.removed)}
           </span>
           <span style={{ flex: 1 }} />
@@ -197,11 +279,36 @@ export function DiffModal({ diff, onClose }: { diff: Diff | null; onClose(): voi
           </button>
         </div>
 
+        {/* No `.tail`: bottom-anchoring belongs to streams, and a patch reads
+            top-down — the same call the JSON drawer makes. */}
         <div
           className="tscroll"
           data-testid="diff-body"
           style={{ flex: 1, background: 'var(--term)', display: 'flex', flexDirection: 'column' }}
-        />
+        >
+          {diff.hunks.map((hunk, i) => (
+            <Fragment key={`${hunk.header}#${i}`}>
+              <div
+                data-testid="diff-hunk-header"
+                style={{
+                  background: 'var(--color-accent-900)',
+                  color: 'var(--color-accent-300)',
+                  fontSize: '11px',
+                  lineHeight: '1.72',
+                  paddingLeft: `${GUTTER_W * 2 + SIGN_W}px`,
+                  whiteSpace: 'pre',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {hunk.header}
+              </div>
+              {hunk.lines.map((line, j) => (
+                <HunkRow key={j} line={line} />
+              ))}
+            </Fragment>
+          ))}
+        </div>
 
         <div
           data-testid="diff-footer"
