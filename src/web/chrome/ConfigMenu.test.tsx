@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../App';
 import { MockEventSource, installMockEventSource } from '../test/mockEventSource';
@@ -252,6 +252,32 @@ describe('every control changes the render', () => {
     // The panel stays open through a pick, so off is one more pick, not a reopen.
     pickMovie('off');
     expect(screen.getAllByTestId('wall-name')[0].textContent).toBe('team-lead');
+  });
+
+  // A character has to survive TIME as well as the view switch. The cast is
+  // seeded from the roster's JOIN order, which is append-only: seeding it from
+  // the wall's order instead would re-sort on status, and one teammate leaving
+  // would deal every spare-drawn character one seat along.
+  it('does not recast the team when a teammate departs', () => {
+    mount();
+    open();
+    pickMovie('inception');
+
+    const shownFor = (name: string) =>
+      within(document.querySelector(`[data-agent="${name}"]`) as HTMLElement)
+        .getByTestId('wall-name').textContent;
+    const before = ['team-lead', 'probe-alpha', 'probe-bravo', 'probe-charlie'].map(shownFor);
+    expect(before).toEqual(['Cobb', 'Saito', 'Mal', 'Miles']);
+
+    const departed = sampleTeamState();
+    departed.agents = departed.agents.map((a) =>
+      a.name === 'probe-alpha' ? { ...a, status: 'departed' as const } : a,
+    );
+    act(() => MockEventSource.last().emit('snapshot', departed));
+
+    expect(['team-lead', 'probe-alpha', 'probe-bravo', 'probe-charlie'].map(shownFor)).toEqual(
+      before,
+    );
   });
 
   it('motion marks the root, which is what kills the blink and the dots', () => {

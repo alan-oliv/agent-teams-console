@@ -204,11 +204,17 @@ export function App() {
     if (lead) askStop(lead.name);
   }, [state, askStop]);
 
-  // Built ONCE, from the wall's order, and handed to every view: the theme's
-  // spare characters are dealt out in roster order, so a second cast built from
-  // a differently sorted list would rename the same agent twice over.
+  // Built ONCE and handed to every view, from the roster's OWN order — the
+  // append-only join order out of `members[]`, not the wall's.
+  //
+  // Two different invariants, and both are needed. One cast for every view is
+  // what stops the wall and the grid disagreeing. Seeding it from an order that
+  // never re-sorts is what stops the team being recast over TIME: the theme's
+  // spare characters are dealt out in the order they arrive, and the wall's
+  // order moves a departed teammate to the end, so a single departure would
+  // deal every spare-drawn agent one seat along mid-session.
   const cast = useMemo(
-    () => buildCast(rosterOrder(state?.agents ?? []), appearance.settings.movieTheme),
+    () => buildCast(state?.agents ?? [], appearance.settings.movieTheme),
     [state?.agents, appearance.settings.movieTheme],
   );
 
