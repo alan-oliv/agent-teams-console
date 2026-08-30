@@ -112,7 +112,9 @@ it('falls back to the directory id when the session was never named', () => {
 it('heads the list with the team count', async () => {
   renderSelect();
   expect(await screen.findByText('TEAMS ON THIS MACHINE · 2')).toBeTruthy();
-  expect(screen.getByText('↑↓ select · ⏎ switch · esc close')).toBeTruthy();
+  // ⌘K is the one shortcut the design calls out, and it worked with nothing on
+  // screen naming it — so it sits in the legend with the other three.
+  expect(screen.getByText('↑↓ select · ⏎ switch · ⌘K search · esc close')).toBeTruthy();
 });
 
 // The row leads with the name the operator gave the session; the directory id
@@ -688,4 +690,15 @@ it('spends no row width on a team with nothing uncommitted', async () => {
 
   const rows = await screen.findAllByRole('option');
   expect(within(rows[0]).queryByTestId('team-diffstat')).toBeNull();
+});
+
+// Ruling 14: the row anatomy — two lines, name over id/branch/diffstat — was
+// sized for 520px; 432 predates the reconcile that made rows two lines.
+it('draws the menu at the width its rows were designed for, with an edge', async () => {
+  renderSelect();
+  const menu = await screen.findByTestId('team-list');
+  expect(menu.style.width).toBe('520px');
+  // A panel floating on the same ground as the bar behind it needs a boundary;
+  // the shadow alone leaves the top edge indistinguishable.
+  expect(menu.style.border).toBe('1px solid var(--color-neutral-800)');
 });

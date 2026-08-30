@@ -10,7 +10,9 @@ import { useWatch } from '../state/useWatch';
 // of shoving the view switcher sideways on the operator's own click.
 const TRIGGER_WIDTH = '146px';
 
-const PANEL_WIDTH = '432px';
+// Ruling 14. The reconcile turned each row into two lines — name over id,
+// branch and diffstat — and that anatomy was sized for 520; 432 predates it.
+const PANEL_WIDTH = '520px';
 
 // `●` live / `○` idle / `✓` ended, per the handoff.
 const STATE_GLYPH = { live: '\u25cf', idle: '\u25cb', done: '\u2713' } as const;
@@ -296,6 +298,9 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
             zIndex: 10,
             width: PANEL_WIDTH,
             background: 'var(--color-bg)',
+            // The panel floats on the same ground as the bar behind it, so the
+            // shadow alone leaves its top edge indistinguishable.
+            border: '1px solid var(--color-neutral-800)',
             borderRadius: 'var(--radius-md)',
             boxShadow: 'var(--shadow-md)',
             outline: 'none',
@@ -629,7 +634,11 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
               fontSize: '10.5px',
             }}
           >
-            ↑↓ select · ⏎ switch · esc close
+            {/* ⌘K opens the picker from anywhere and re-focuses the search
+                once it is open. It worked with nothing on screen naming it,
+                which for the one shortcut the design calls out is the same as
+                not having it. */}
+            ↑↓ select · ⏎ switch · ⌘K search · esc close
           </div>
         </div>
       )}
