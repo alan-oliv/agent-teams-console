@@ -118,14 +118,19 @@ describe('DiffModal', () => {
       expect(screen.getAllByTestId('diff-hunk-count')[1].textContent).toBe('2 hunks · whitespace shown');
     });
 
-    it('offers copy patch and open in editor as inert chrome', () => {
+    it('offers copy patch', () => {
       render(<DiffModal diff={DIFF} onClose={() => {}} />);
-      const copy = screen.getByTestId('diff-copy');
-      const open = screen.getByTestId('diff-open-editor');
-      expect(copy.textContent).toBe('copy patch');
-      expect(open.textContent).toBe('open in editor');
-      expect(open.style.border).toBe('1px solid var(--color-accent-700)');
-      expect(open.style.color).toBe('var(--color-accent-300)');
+      expect(screen.getByTestId('diff-copy').textContent).toBe('copy patch');
+    });
+
+    // The server exposes select, shutdown, agent message/interrupt/stop/respawn,
+    // plans, permits and history — nothing that can reach an editor. The button
+    // would be decorative, which the design rates as worse than absent; the same
+    // call `respawn` and the in-flight badge already make.
+    it('does not offer open in editor, which the runtime cannot do', () => {
+      render(<DiffModal diff={DIFF} onClose={() => {}} />);
+      expect(screen.queryByTestId('diff-open-editor')).toBeNull();
+      expect(screen.getByTestId('diff-toolbar').textContent).not.toContain('open in editor');
     });
   });
 
@@ -259,16 +264,158 @@ describe('DiffModal', () => {
     });
   });
 
-  it('carries the footer legend', () => {
+  describe('keyboard', () => {
+    const MIXED: Diff = {
+      ...DIFF,
+      hunks: [
+        {
+          header: '@@ -146,10 +146,24 @@ export function useTeamState(',
+          lines: [
+            { sign: ' ', oldLineNo: 146, newLineNo: 146, text: '  const [selected] = useState();' },
+            { sign: '-', oldLineNo: 149, newLineNo: null, text: '  const [widths] = useState({});' },
+            { sign: '+', oldLineNo: null, newLineNo: 149, text: '  const [widths] = useState(read);' },
+            { sign: ' ', oldLineNo: 150, newLineNo: 150, text: '' },
+          ],
+        },
+        { header: '@@ -200,3 +214,3 @@', lines: [{ sign: '+', oldLineNo: null, newLineNo: 214, text: 'x' }] },
+      ],
+    };
+
+    function spyRows() {
+      const rows = screen.getAllByTestId('diff-row');
+      for (const row of rows) row.scrollIntoView = vi.fn();
+      return rows;
+    }
+
+    it('closes on esc', () => {
+      const onClose = vi.fn();
+      render(<DiffModal diff={DIFF} onClose={onClose} />);
+      fireEvent.keyDown(window, { key: 'Escape' });
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('binds nothing while no patch is open', () => {
+      const onClose = vi.fn();
+      render(<DiffModal diff={null} onClose={onClose} />);
+      fireEvent.keyDown(window, { key: 'Escape' });
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it('hands the keyboard back when it unmounts', () => {
+      const onClose = vi.fn();
+      const { unmount } = render(<DiffModal diff={DIFF} onClose={onClose} />);
+      unmount();
+      fireEvent.keyDown(window, { key: 'Escape' });
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it('j jumps to the first changed line, skipping context', () => {
+      render(<DiffModal diff={MIXED} onClose={() => {}} />);
+      const rows = spyRows();
+      fireEvent.keyDown(window, { key: 'j' });
+      expect(rows[1].scrollIntoView).toHaveBeenCalled();
+      expect(rows[0].scrollIntoView).not.toHaveBeenCalled();
+    });
+
+    // A +/- block is one change, not one per line: stepping line by line would
+    // take four presses to cross a four-line replacement.
+    it('treats a run of +/- lines as a single change', () => {
+      render(<DiffModal diff={MIXED} onClose={() => {}} />);
+      const rows = spyRows();
+      fireEvent.keyDown(window, { key: 'j' });
+      fireEvent.keyDown(window, { key: 'j' });
+      expect(rows[4].scrollIntoView).toHaveBeenCalled();
+      expect(rows[2].scrollIntoView).not.toHaveBeenCalled();
+    });
+
+    it('stops at the last change rather than wrapping', () => {
+      render(<DiffModal diff={MIXED} onClose={() => {}} />);
+      const rows = spyRows();
+      for (let i = 0; i < 5; i++) fireEvent.keyDown(window, { key: 'j' });
+      expect(rows[4].scrollIntoView).toHaveBeenCalled();
+      expect(rows[1].scrollIntoView).toHaveBeenCalledTimes(1);
+    });
+
+    it('k walks back to the previous change', () => {
+      render(<DiffModal diff={MIXED} onClose={() => {}} />);
+      const rows = spyRows();
+      fireEvent.keyDown(window, { key: 'j' });
+      fireEvent.keyDown(window, { key: 'j' });
+      fireEvent.keyDown(window, { key: 'k' });
+      expect(rows[1].scrollIntoView).toHaveBeenCalledTimes(2);
+    });
+
+    it('does nothing on j for a patch with no changed lines', () => {
+      const contextOnly: Diff = {
+        ...DIFF,
+        hunks: [{ header: '@@ -1,1 +1,1 @@', lines: [{ sign: ' ', oldLineNo: 1, newLineNo: 1, text: 'a' }] }],
+      };
+      render(<DiffModal diff={contextOnly} onClose={() => {}} />);
+      const rows = spyRows();
+      fireEvent.keyDown(window, { key: 'j' });
+      expect(rows[0].scrollIntoView).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('copy patch', () => {
+    const MIXED: Diff = {
+      ...DIFF,
+      hunks: [
+        {
+          header: '@@ -146,10 +146,24 @@ export function useTeamState(',
+          lines: [
+            { sign: ' ', oldLineNo: 146, newLineNo: 146, text: '  const [selected] = useState();' },
+            { sign: '-', oldLineNo: 149, newLineNo: null, text: '  const [widths] = useState({});' },
+            { sign: '+', oldLineNo: null, newLineNo: 149, text: '  const [widths] = useState(read);' },
+            { sign: ' ', oldLineNo: 150, newLineNo: 150, text: '' },
+          ],
+        },
+        { header: '@@ -200,3 +214,3 @@', lines: [{ sign: '+', oldLineNo: null, newLineNo: 214, text: 'x' }] },
+      ],
+    };
+
+    it('writes a patch that git apply would take', () => {
+      const writeText = vi.fn(async () => undefined);
+      vi.stubGlobal('navigator', { clipboard: { writeText } });
+      render(<DiffModal diff={MIXED} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('diff-copy'));
+      expect(writeText).toHaveBeenCalledWith(
+        [
+          '--- a/src/web/state/useTeamState.ts',
+          '+++ b/src/web/state/useTeamState.ts',
+          '@@ -146,10 +146,24 @@ export function useTeamState(',
+          '   const [selected] = useState();',
+          '-  const [widths] = useState({});',
+          '+  const [widths] = useState(read);',
+          ' ',
+          '@@ -200,3 +214,3 @@',
+          '+x',
+          '',
+        ].join('\n'),
+      );
+      vi.unstubAllGlobals();
+    });
+
+    // The caps drop lines silently, and a patch missing them does not apply.
+    // Better to hand over something that says so than something that fails.
+    it('marks a truncated patch as incomplete', () => {
+      const writeText = vi.fn(async (_patch: string) => undefined);
+      vi.stubGlobal('navigator', { clipboard: { writeText } });
+      render(<DiffModal diff={{ ...MIXED, truncated: true }} onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId('diff-copy'));
+      const patch = writeText.mock.calls[0][0];
+      expect(patch.split('\n')[0]).toBe('# truncated: 3 of 16 changed lines — incomplete, will not apply');
+      vi.unstubAllGlobals();
+    });
+  });
+
+  // Every remaining legend entry is bound below. ⌘⏎ went with the button.
+  it('advertises only the keys it actually binds', () => {
     render(<DiffModal diff={DIFF} onClose={() => {}} />);
     const footer = screen.getByTestId('diff-footer');
     expect(footer.textContent).toBe(
-      [
-        'esc close',
-        'j/k next change',
-        '⌘⏎ open in editor',
-        'the transcript keeps its one line — the patch lives here',
-      ].join(''),
+      ['esc close', 'j/k next change', 'the transcript keeps its one line — the patch lives here'].join(''),
     );
+    expect(footer.textContent).not.toContain('⌘⏎');
   });
 });

@@ -208,3 +208,35 @@ describe('useKeyboard — composer scoping', () => {
     expect(actions.stop).toHaveBeenCalledTimes(1);
   });
 });
+
+// The diff modal owns the keyboard while it is open. Without this the wall's
+// own bindings fire underneath it: Esc interrupts the focused agent instead of
+// closing the patch, and j/k/↑↓ move a selection nobody can see.
+describe('useKeyboard — suspended behind a modal', () => {
+  it('drops every wall binding while suspended', () => {
+    mount({ suspended: true });
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    fireEvent.keyDown(document.body, { key: 'ArrowDown' });
+    fireEvent.keyDown(document.body, { key: 'l' });
+    fireEvent.keyDown(document.body, { key: 'x' });
+    fireEvent.keyDown(document.body, { key: 't' });
+    fireEvent.keyDown(document.body, { key: '2', metaKey: true });
+    expect(actions.interrupt).not.toHaveBeenCalled();
+    expect(actions.setFocused).not.toHaveBeenCalled();
+    expect(actions.stop).not.toHaveBeenCalled();
+    expect(actions.toggleTeams).not.toHaveBeenCalled();
+    expect(actions.setView).not.toHaveBeenCalled();
+  });
+
+  it('hands the bindings back when the modal closes', () => {
+    mount({ suspended: false });
+    fireEvent.keyDown(document.body, { key: 'x' });
+    expect(actions.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats an absent flag as not suspended, so the wall keeps working', () => {
+    mount();
+    fireEvent.keyDown(document.body, { key: 'l' });
+    expect(actions.setFocused).toHaveBeenCalledWith('probe-bravo');
+  });
+});

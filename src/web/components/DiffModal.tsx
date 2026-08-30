@@ -1,5 +1,5 @@
-import { Fragment, useState, type CSSProperties } from 'react';
-import type { Diff, DiffLine } from '../../shared/domain';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import type { Diff, DiffHunk, DiffLine } from '../../shared/domain';
 import { clockLabel, diffStat } from '../format';
 
 type Layout = 'unified' | 'split';
@@ -108,6 +108,47 @@ function hunkLabel(count: number): string {
 }
 
 /**
+ * Where each run of changed lines starts, as an index into the flattened row
+ * list. A four-line replacement is ONE change, not four — stepping per line
+ * would take four presses to cross it. A hunk boundary always ends a run: two
+ * hunks are different regions of the file however their lines happen to sign.
+ */
+function changeRuns(hunks: DiffHunk[]): number[] {
+  const starts: number[] = [];
+  let row = 0;
+  for (const hunk of hunks) {
+    let inRun = false;
+    for (const line of hunk.lines) {
+      const changed = line.sign !== ' ';
+      if (changed && !inRun) starts.push(row);
+      inRun = changed;
+      row++;
+    }
+  }
+  return starts;
+}
+
+/**
+ * The patch as `git apply` would take it. A truncated payload is short by
+ * however many lines the caps dropped and cannot apply, so it says so on a
+ * leading comment line — `git apply` skips anything before the `---`, and a
+ * patch that announces itself as partial beats one that just fails.
+ */
+function unifiedPatch(diff: Diff): string {
+  const out: string[] = [];
+  if (diff.truncated) {
+    const shown = diff.hunks.reduce((n, h) => n + h.lines.filter((l) => l.sign !== ' ').length, 0);
+    out.push(`# truncated: ${shown} of ${diff.added + diff.removed} changed lines — incomplete, will not apply`);
+  }
+  out.push(`--- a/${diff.path}`, `+++ b/${diff.path}`);
+  for (const hunk of diff.hunks) {
+    out.push(hunk.header);
+    for (const line of hunk.lines) out.push(`${line.sign}${line.text}`);
+  }
+  return `${out.join('\n')}\n`;
+}
+
+/**
  * Who made the edit, when, and (if it landed) at what sha. `diff.ts` is
  * epoch ms like every other `ts` in the domain, formatted here rather than
  * carried as a display string. An uncommitted edit has no sha, so it drops
@@ -128,6 +169,46 @@ function metaLabel(diff: Diff): string {
 export function DiffModal({ diff, onClose }: { diff: Diff | null; onClose(): void }) {
   const [layout, setLayout] = useState<Layout>('unified');
   const [closeHover, setCloseHover] = useState(false);
+  const body = useRef<HTMLDivElement>(null);
+  const runs = useMemo(() => (diff ? changeRuns(diff.hunks) : []), [diff]);
+  // A ref, not state: which change you are on drives a scroll, and nothing on
+  // screen reads it — the patch moving under you IS the feedback.
+  const at = useRef(-1);
+
+  useEffect(() => {
+    at.current = -1;
+  }, [diff]);
+
+  const step = useCallback(
+    (delta: number) => {
+      if (runs.length === 0) return;
+      at.current = Math.min(runs.length - 1, Math.max(0, at.current + delta));
+      const rows = body.current?.querySelectorAll<HTMLElement>('[data-testid="diff-row"]');
+      // jsdom has no scrollIntoView, and neither does a row that scrolled out
+      // of the DOM between keypresses.
+      rows?.[runs[at.current]]?.scrollIntoView?.({ block: 'center' });
+    },
+    [runs],
+  );
+
+  useEffect(() => {
+    if (!diff) return;
+    function onKeyDown(e: globalThis.KeyboardEvent) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      } else if (e.key === 'j') {
+        e.preventDefault();
+        step(1);
+      } else if (e.key === 'k') {
+        e.preventDefault();
+        step(-1);
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [diff, onClose, step]);
 
   if (!diff) return null;
 
@@ -261,27 +342,26 @@ export function DiffModal({ diff, onClose }: { diff: Diff | null; onClose(): voi
           <span data-testid="diff-hunk-count" style={{ color: 'var(--color-neutral-600)', fontSize: '10px' }}>
             {hunkLabel(diff.hunks.length)}
           </span>
+          {/* No "open in editor" beside it: the server exposes select,
+              shutdown, agent message/interrupt/stop/respawn, plans, permits
+              and history, and none of them can reach an editor. A control that
+              cannot do what it says is worse than one that is not there — the
+              call `respawn` and the in-flight badge already make. */}
           <button
             type="button"
             className="btn-neutral"
             data-testid="diff-copy"
+            onClick={() => void navigator.clipboard?.writeText(unifiedPatch(diff))}
             style={{ ...OUTLINE_ACTION, border: '1px solid var(--color-neutral-800)', color: 'var(--color-neutral-500)' }}
           >
             copy patch
-          </button>
-          <button
-            type="button"
-            className="btn-approve"
-            data-testid="diff-open-editor"
-            style={{ ...OUTLINE_ACTION, border: '1px solid var(--color-accent-700)', color: 'var(--color-accent-300)' }}
-          >
-            open in editor
           </button>
         </div>
 
         {/* No `.tail`: bottom-anchoring belongs to streams, and a patch reads
             top-down — the same call the JSON drawer makes. */}
         <div
+          ref={body}
           className="tscroll"
           data-testid="diff-body"
           style={{ flex: 1, background: 'var(--term)', display: 'flex', flexDirection: 'column' }}
@@ -325,7 +405,6 @@ export function DiffModal({ diff, onClose }: { diff: Diff | null; onClose(): voi
         >
           <span>esc close</span>
           <span>j/k next change</span>
-          <span>⌘⏎ open in editor</span>
           <span style={{ flex: 1 }} />
           <span>the transcript keeps its one line — the patch lives here</span>
         </div>

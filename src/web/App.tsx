@@ -122,6 +122,9 @@ export function App() {
     // send the request outright, which is a hard thing to undo from one key.
     stop: askStop,
     toggleTeams,
+    // The patch owns the keyboard while it is open, or Esc interrupts the
+    // focused agent instead of closing it.
+    suspended: store.openDiff !== null,
   });
 
   if (!state) {

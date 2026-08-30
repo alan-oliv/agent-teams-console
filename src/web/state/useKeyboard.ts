@@ -19,6 +19,12 @@ export interface KeyboardActions {
   interrupt(name: string): void;
   stop(name: string): void;
   toggleTeams(): void;
+  /**
+   * True while a modal owns the keyboard. The wall's bindings are not merely
+   * shadowed but unbound: Esc has to close the patch rather than interrupt the
+   * focused agent, and j/k must not also drive a selection behind the scrim.
+   */
+  suspended?: boolean;
 }
 
 function isEditable(target: EventTarget | null): boolean {
@@ -30,6 +36,8 @@ function isEditable(target: EventTarget | null): boolean {
 
 export function useKeyboard(actions: KeyboardActions): void {
   useEffect(() => {
+    if (actions.suspended) return;
+
     function onKeyDown(e: globalThis.KeyboardEvent) {
       if (isEditable(e.target)) return;
 
