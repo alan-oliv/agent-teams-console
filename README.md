@@ -16,13 +16,14 @@ when possible, falling back to just after it:
 Agent teams console → http://127.0.0.1:4823/?team=session-98b0b4a7
 ```
 
-## Five views
+## Six views
 
 | | |
 |---|---|
 | **wall** | one transcript column per teammate, lead pinned on the left |
 | **overview** | one tile per agent with a context-occupancy bar |
-| **tasks** | the shared task list plus the mailbox traffic behind it |
+| **comms** | the team's mail: room and direct message pairs |
+| **tasks** | the shared task list |
 | **rail** | a keyboard-navigable agent list with one big transcript |
 | **grid** | six panes at once for a wide monitor |
 
