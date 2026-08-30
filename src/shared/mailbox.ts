@@ -97,8 +97,19 @@ export function parseTeammateFrames(text: string, deliveredAt: number, to: strin
 
 /**
  * The same text with each frame replaced by the message inside it. A delivery
- * is never a bare frame: it opens with a preamble line, carries as many frames
- * as were queued, and the prose around them is the recipient's own context.
+ * carries as many frames as drained at that turn boundary, from as many
+ * senders, and any prose around them is the recipient's own context.
+ *
+ * It does NOT reliably open with a preamble line, and it is NOT reliably more
+ * than a bare frame — this comment used to claim both, and the fixtures
+ * disprove each. `probe-bravo` record 22 is one frame with nothing around it
+ * and is an ordinary delivery; `probe-alpha` record 0 is one frame with nothing
+ * around it and is a spawn prompt. Identical shape, opposite meaning. So shape
+ * cannot tell a delivery from a prompt, and nothing here should try: what
+ * discriminates is AUTHORSHIP, and only the envelope carries it. Content that
+ * arrives with no frame at all is the operator's own typing; a frame is another
+ * agent's message, whoever that agent is. See `deliveryDrafts` in
+ * shared/transcript.ts, which is where that rule lives.
  */
 export function unwrapTeammateFrames(text: string): string {
   FRAME_RE.lastIndex = 0;
