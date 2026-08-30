@@ -32,6 +32,18 @@ const LIVE: WorkflowRun = {
   agents: [{ agentId: 'a1', state: 'run' }],
 };
 
+const OLDER: WorkflowRun = {
+  runId: 'wf_older-002',
+  name: 'first-pass',
+  status: 'failed',
+  live: false,
+  startedAt: 500_000,
+  durationMs: 30_000,
+  logs: [],
+  phases: [],
+  agents: [],
+};
+
 const now = 1_060_000;
 
 const APPEARANCE = {
@@ -42,10 +54,18 @@ const APPEARANCE = {
   gap: DENSITY[DEFAULT_SETTINGS.density],
 };
 
-function renderWorkflow(run: WorkflowRun = FINISHED, onTeamsOpenChange = vi.fn()) {
+function renderWorkflow(
+  run: WorkflowRun = FINISHED,
+  extra: { runs?: WorkflowRun[]; backToTeam?: string } = {},
+) {
+  const onTeamsOpenChange = vi.fn();
+  const onSelectRun = vi.fn();
   const result = render(
     <Workflow
       run={run}
+      runs={extra.runs ?? [run]}
+      onSelectRun={onSelectRun}
+      backToTeam={extra.backToTeam}
       now={now}
       teamName="session-98b0b4a7"
       sessionName="session-98b0b4a7"
@@ -54,7 +74,7 @@ function renderWorkflow(run: WorkflowRun = FINISHED, onTeamsOpenChange = vi.fn()
       appearance={APPEARANCE}
     />,
   );
-  return { ...result, onTeamsOpenChange };
+  return { ...result, onTeamsOpenChange, onSelectRun };
 }
 
 describe('Workflow', () => {
@@ -116,6 +136,52 @@ describe('Workflow', () => {
     const { onTeamsOpenChange } = renderWorkflow();
     fireEvent.click(screen.getByTestId('team-trigger'));
     expect(onTeamsOpenChange).toHaveBeenCalledWith(true);
+  });
+
+  // Only the newest run was ever drawable, though every run the session has ran
+  // rides the same frame.
+  it('lists every run on the session, live first and newest first', () => {
+    renderWorkflow(FINISHED, { runs: [FINISHED, OLDER, LIVE] });
+    fireEvent.click(screen.getByTestId('run-trigger'));
+    const rows = screen.getAllByTestId('run-option');
+    expect(rows.map((r) => r.getAttribute('data-run'))).toEqual([
+      'wf_live-001',
+      'wf_d36b25c0-f96',
+      'wf_older-002',
+    ]);
+    expect(rows[2].textContent).toContain('first-pass');
+    // A live run reaches the name only in the snapshot it does not have yet.
+    expect(rows[0].textContent).toContain('unnamed run');
+  });
+
+  it('selects the run the operator picks out of the list', () => {
+    const { onSelectRun } = renderWorkflow(FINISHED, { runs: [FINISHED, OLDER] });
+    fireEvent.click(screen.getByTestId('run-trigger'));
+    fireEvent.click(screen.getAllByTestId('run-option')[1]);
+    expect(onSelectRun).toHaveBeenCalledWith('wf_older-002');
+    expect(screen.queryByTestId('run-list')).toBeNull();
+  });
+
+  it('marks the run on screen as the selected one', () => {
+    renderWorkflow(FINISHED, { runs: [FINISHED, OLDER] });
+    fireEvent.click(screen.getByTestId('run-trigger'));
+    const rows = screen.getAllByTestId('run-option');
+    expect(rows.map((r) => r.getAttribute('aria-selected'))).toEqual(['true', 'false']);
+  });
+
+  // A run selected while a team is running is the client overriding the server's
+  // mode, and the override has to be reversible from the same control.
+  it('offers the way back when a team is running behind the run', () => {
+    const { onSelectRun } = renderWorkflow(FINISHED, { backToTeam: 'session-98b0b4a7' });
+    fireEvent.click(screen.getByTestId('run-trigger'));
+    fireEvent.click(screen.getByTestId('run-back-to-team'));
+    expect(onSelectRun).toHaveBeenCalledWith(null);
+  });
+
+  it('offers no way back when the run is all the session is', () => {
+    renderWorkflow();
+    fireEvent.click(screen.getByTestId('run-trigger'));
+    expect(screen.queryByTestId('run-back-to-team')).toBeNull();
   });
 
   it('carries the config gear', () => {

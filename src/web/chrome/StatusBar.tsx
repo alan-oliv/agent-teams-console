@@ -4,6 +4,7 @@ import type { SettingsStore } from '../state/useSettings';
 import { formatCost, formatElapsed, formatTokens, meterCells } from '../format';
 import { VIEW_IDS } from '../state/useTeamState';
 import { Bar, METRIC } from './Bar';
+import { runOrder } from './RunSelect';
 import { TeamSelect } from './TeamSelect';
 
 /**
@@ -71,11 +72,13 @@ export interface StatusBarProps {
   now: number;
   teamsOpen: boolean;
   onTeamsOpenChange(open: boolean): void;
+  /** Opens workflow mode for a run this session also has. */
+  onSelectRun(runId: string): void;
   appearance: SettingsStore;
 }
 
 export function StatusBar({
-  state, view, onViewChange, now, teamsOpen, onTeamsOpenChange, appearance,
+  state, view, onViewChange, now, teamsOpen, onTeamsOpenChange, onSelectRun, appearance,
 }: StatusBarProps) {
   const done = state.tasks.filter((t) => t.state === 'completed').length;
   // Team context occupancy — what the meter has always looked like it meant.
@@ -130,6 +133,11 @@ export function StatusBar({
     </span>,
   ];
 
+  // A team wins the mode, so runs this session also has are drawable only by
+  // asking for one. The chip is the ask — and it opens the live run rather than
+  // the first on the frame, since a run still going is what it is for.
+  const runs = runOrder(state.workflows ?? []);
+
   const bar = useRef<HTMLDivElement>(null);
   const fitted = useFittedCount(metrics.length, bar);
   const kept = new Set(
@@ -144,13 +152,33 @@ export function StatusBar({
       ref={bar}
       wordmark="TEAM"
       picker={
-        <TeamSelect
-          current={state.teamName}
-          sessionName={state.sessionName}
-          open={teamsOpen}
-          onOpenChange={onTeamsOpenChange}
-          now={now}
-        />
+        <>
+          <TeamSelect
+            current={state.teamName}
+            sessionName={state.sessionName}
+            open={teamsOpen}
+            onOpenChange={onTeamsOpenChange}
+            now={now}
+          />
+          {runs.length > 0 && (
+            <button
+              className="chip"
+              data-testid="runs-chip"
+              type="button"
+              onClick={() => onSelectRun(runs[0].runId)}
+              style={{
+                border: '1px solid var(--color-neutral-800)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '2px 7px',
+                color: 'var(--color-accent-400)',
+                fontSize: 11.5,
+                ...METRIC,
+              }}
+            >
+              {`${runs.length} run${runs.length === 1 ? '' : 's'}`}
+            </button>
+          )}
+        </>
       }
       views={VIEW_IDS}
       view={view}

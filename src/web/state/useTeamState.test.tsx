@@ -231,6 +231,52 @@ it('keeps a valid selection across an ordinary frame', () => {
   expect(result.current.agent).toBe('probe-bravo');
 });
 
+// The server picks the mode, but a session that is a team AND has runs is only
+// ever drawn as the team — so the run the operator picked is the client's own
+// selection, and it has to survive a reload like ?view and ?agent do.
+const withRuns = (...runIds: string[]): TeamState => ({
+  ...sampleTeamState(),
+  workflows: runIds.map((runId) => ({
+    runId,
+    status: 'completed' as const,
+    live: false,
+    startedAt: 1_000_000,
+    phases: [],
+    logs: [],
+    agents: [],
+  })),
+});
+
+it('reads the selected run out of the URL on mount', () => {
+  window.history.replaceState(null, '', '/?view=wall&run=wf_d36b25c0');
+  const { result } = renderHook(() => useTeamState());
+  expect(result.current.run).toBe('wf_d36b25c0');
+});
+
+it('writes the selected run to the address bar, and takes it back out', () => {
+  const { result } = renderHook(() => useTeamState());
+  act(() => MockEventSource.last().emit('snapshot', withRuns('wf_d36b25c0')));
+  act(() => result.current.setRun('wf_d36b25c0'));
+  expect(window.location.search).toBe('?view=wall&team=session-98b0b4a7&run=wf_d36b25c0');
+
+  act(() => result.current.setRun(null));
+  expect(window.location.search).toBe('?view=wall&team=session-98b0b4a7');
+});
+
+it('drops a selected run the session on screen does not have', () => {
+  window.history.replaceState(null, '', '/?view=wall&run=wf_gone');
+  const { result } = renderHook(() => useTeamState());
+  act(() => MockEventSource.last().emit('snapshot', withRuns('wf_d36b25c0')));
+  expect(result.current.run).toBeNull();
+});
+
+it('keeps a selected run the session does have', () => {
+  window.history.replaceState(null, '', '/?view=wall&run=wf_d36b25c0');
+  const { result } = renderHook(() => useTeamState());
+  act(() => MockEventSource.last().emit('snapshot', withRuns('wf_other', 'wf_d36b25c0')));
+  expect(result.current.run).toBe('wf_d36b25c0');
+});
+
 it('starts with no column width overrides', () => {
   const { result } = renderHook(() => useTeamState());
   expect(result.current.widths).toEqual({});

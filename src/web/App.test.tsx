@@ -621,6 +621,85 @@ it('stays in the team shell when a roster exists, runs or not', () => {
   expect(screen.getByText('NEEDS YOU · 0')).toBeTruthy();
 });
 
+const RUNS = [
+  {
+    runId: 'wf_newer',
+    name: 'team-selector',
+    status: 'completed' as const,
+    live: false,
+    startedAt: 1_000_000,
+    durationMs: 60_000,
+    logs: [],
+    phases: [{ index: 1, title: 'Build' }],
+    agents: [{ agentId: 'a1', label: 'impl:task-9', phaseIndex: 1, state: 'done' as const }],
+  },
+  {
+    runId: 'wf_older',
+    name: 'first-pass',
+    status: 'failed' as const,
+    live: false,
+    startedAt: 500_000,
+    durationMs: 30_000,
+    logs: [],
+    phases: [],
+    agents: [],
+  },
+];
+
+// modeOf gives a team the mode whenever there is one, so a workflow launched
+// beside a live team was ingested and held on the frame and never drawable. The
+// selection is the client's override of that.
+it('draws the run named in the URL even when the frame says team', () => {
+  window.history.replaceState(null, '', '/?view=wall&run=wf_older');
+  render(<App />);
+  act(() =>
+    MockEventSource.last().emit('snapshot', {
+      ...sampleTeamState(),
+      mode: 'team',
+      workflows: RUNS,
+    }),
+  );
+
+  expect(screen.getByTestId('bar-wordmark').textContent).toBe('RUN');
+  expect(screen.getByTestId('wf-identity').textContent).toContain('first-pass');
+});
+
+it('goes back to the team the run was running beside', () => {
+  window.history.replaceState(null, '', '/?view=wall&run=wf_older');
+  render(<App />);
+  act(() =>
+    MockEventSource.last().emit('snapshot', {
+      ...sampleTeamState(),
+      mode: 'team',
+      workflows: RUNS,
+    }),
+  );
+
+  fireEvent.click(screen.getByTestId('run-trigger'));
+  fireEvent.click(screen.getByTestId('run-back-to-team'));
+  expect(screen.getByTestId('bar-wordmark').textContent).toBe('TEAM');
+  expect(window.location.search).not.toContain('run=');
+});
+
+it('opens the newest run from the team bar, and switches runs from the run bar', () => {
+  render(<App />);
+  act(() =>
+    MockEventSource.last().emit('snapshot', {
+      ...sampleTeamState(),
+      mode: 'team',
+      workflows: RUNS,
+    }),
+  );
+
+  fireEvent.click(screen.getByTestId('runs-chip'));
+  expect(screen.getByTestId('wf-identity').textContent).toContain('team-selector');
+
+  fireEvent.click(screen.getByTestId('run-trigger'));
+  fireEvent.click(screen.getAllByTestId('run-option')[1]);
+  expect(screen.getByTestId('wf-identity').textContent).toContain('first-pass');
+  expect(window.location.search).toContain('run=wf_older');
+});
+
 async function openAndHideCurrent() {
   fireEvent.keyDown(document.body, { key: 't' });
   const rows = await screen.findAllByRole('option');

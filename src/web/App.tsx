@@ -248,13 +248,16 @@ export function App() {
 
   // Workflow mode is a different shell, not a different view: no roster, no
   // task list, no inboxes, no composer, and `RUN` where the team bar says
-  // `TEAM`. The server picks the mode and only ever says 'workflow' when the
-  // roster is empty, so a team always wins and team mode cannot regress.
+  // `TEAM`. The chrome is the same chrome, so the providers it reads are the
+  // same ones: the picker shows what this browser has hidden, and the gear
+  // writes the appearance the leaves below it read.
   //
-  // The chrome is the same chrome, so the providers it reads are the same ones:
-  // the picker shows what this browser has hidden, and the gear writes the
-  // appearance the leaves below it read.
-  const run = state.mode === 'workflow' ? state.workflows?.[0] : undefined;
+  // The server's mode is only the DEFAULT, and it hands a team the mode whenever
+  // there is one — so a workflow launched beside a live team is on the frame and
+  // undrawable until the operator asks for it. Asking is `store.run`, and it
+  // wins in either mode; the team keeps running behind it either way.
+  const runs = state.workflows ?? [];
+  const run = runs.find((r) => r.runId === store.run) ?? (state.mode === 'workflow' ? runs[0] : undefined);
   if (run) {
     return (
       <SettingsContext.Provider value={appearance.settings}>
@@ -262,6 +265,9 @@ export function App() {
       <div className="console" style={appearance.vars} data-motion={appearance.settings.motion ? 'on' : 'off'}>
         <Workflow
           run={run}
+          runs={runs}
+          onSelectRun={store.setRun}
+          backToTeam={state.mode === 'team' ? (state.sessionName ?? state.teamName) : undefined}
           now={now}
           teamName={state.teamName}
           sessionName={state.sessionName}
@@ -292,6 +298,7 @@ export function App() {
         now={now}
         teamsOpen={teamsOpen}
         onTeamsOpenChange={setTeamsOpen}
+        onSelectRun={store.setRun}
         appearance={appearance}
       />
       <main className="console-body">

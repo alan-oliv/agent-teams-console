@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { WorkflowRun as Run } from '../../shared/domain';
 import { Bar, METRIC } from '../chrome/Bar';
+import { RUN_STATUS_COLOR, RunSelect } from '../chrome/RunSelect';
 import { TeamSelect } from '../chrome/TeamSelect';
 import { formatElapsed } from '../format';
 import type { SettingsStore } from '../state/useSettings';
@@ -12,15 +13,13 @@ import { WorkflowScript } from './WorkflowScript';
 export const WORKFLOW_VIEW_IDS = ['run', 'agents', 'script', 'journal'] as const;
 export type WorkflowViewId = (typeof WORKFLOW_VIEW_IDS)[number];
 
-const STATUS_COLOR: Record<Run['status'], string> = {
-  completed: 'var(--color-accent-400)',
-  running: 'var(--color-accent-500)',
-  killed: 'var(--color-neutral-600)',
-  failed: 'var(--color-neutral-500)',
-};
-
 export interface WorkflowProps {
   run: Run;
+  /** Every run this session has — the run picker's list. */
+  runs: readonly Run[];
+  onSelectRun(runId: string | null): void;
+  /** The session's name when a team is running behind the run. See RunSelect. */
+  backToTeam?: string;
   now: number;
   /** The session the run belongs to — what the picker switches away from. */
   teamName: string;
@@ -37,7 +36,8 @@ export interface WorkflowProps {
  * and a theme they cannot reach from it, is a mode with no way out.
  */
 export function Workflow({
-  run, now, teamName, sessionName, teamsOpen, onTeamsOpenChange, appearance,
+  run, runs, onSelectRun, backToTeam, now, teamName, sessionName, teamsOpen, onTeamsOpenChange,
+  appearance,
 }: WorkflowProps) {
   const [view, setView] = useState<WorkflowViewId>('run');
 
@@ -63,13 +63,12 @@ export function Workflow({
               onOpenChange={onTeamsOpenChange}
               now={now}
             />
-            <span
-              data-testid="wf-identity"
-              style={{ display: 'flex', gap: 8, alignItems: 'baseline', ...METRIC }}
-            >
-              <span style={{ color: 'var(--color-text)' }}>{run.name ?? 'unnamed run'}</span>
-              <span style={{ color: 'var(--color-neutral-600)', fontSize: 11 }}>{run.runId}</span>
-            </span>
+            <RunSelect
+              run={run}
+              runs={runs}
+              onSelect={onSelectRun}
+              backToTeam={backToTeam}
+            />
           </>
         }
         views={WORKFLOW_VIEW_IDS}
@@ -79,7 +78,10 @@ export function Workflow({
         onViewChange={(next) => setView(next)}
         metrics={
           <>
-            <span data-testid="wf-status" style={{ color: STATUS_COLOR[run.status], ...METRIC }}>
+            <span
+              data-testid="wf-status"
+              style={{ color: RUN_STATUS_COLOR[run.status], ...METRIC }}
+            >
               {run.status}
             </span>
             {run.taskId !== undefined && (

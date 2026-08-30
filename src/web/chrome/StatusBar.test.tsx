@@ -29,6 +29,7 @@ function renderBar(view: Parameters<typeof StatusBar>[0]['view'] = 'wall') {
       now={FIXTURE_NOW}
       teamsOpen={false}
       onTeamsOpenChange={vi.fn()}
+      onSelectRun={vi.fn()}
       appearance={APPEARANCE}
     />,
   );
@@ -85,6 +86,7 @@ it('does not pin the meter full when the cumulative token count is large', () =>
       now={FIXTURE_NOW}
       teamsOpen={false}
       onTeamsOpenChange={vi.fn()}
+      onSelectRun={vi.fn()}
       appearance={APPEARANCE}
     />,
   );
@@ -116,6 +118,7 @@ it('shows the branch when the state carries one', () => {
       now={FIXTURE_NOW}
       teamsOpen={false}
       onTeamsOpenChange={vi.fn()}
+      onSelectRun={vi.fn()}
       appearance={APPEARANCE}
     />,
   );
@@ -134,6 +137,7 @@ it('renders no branch when the state has none', () => {
       now={FIXTURE_NOW}
       teamsOpen={false}
       onTeamsOpenChange={vi.fn()}
+      onSelectRun={vi.fn()}
       appearance={APPEARANCE}
     />,
   );
@@ -150,6 +154,7 @@ it('makes the team name the control that opens the team list', () => {
       now={FIXTURE_NOW}
       teamsOpen={false}
       onTeamsOpenChange={onTeamsOpenChange}
+      onSelectRun={vi.fn()}
       appearance={APPEARANCE}
     />,
   );
@@ -173,6 +178,7 @@ it('pins the trigger wide enough that switching teams cannot move the switcher',
       now={FIXTURE_NOW}
       teamsOpen={false}
       onTeamsOpenChange={vi.fn()}
+      onSelectRun={vi.fn()}
       appearance={APPEARANCE}
     />,
   );
@@ -189,6 +195,7 @@ it('pins the trigger wide enough that switching teams cannot move the switcher',
       now={FIXTURE_NOW}
       teamsOpen={false}
       onTeamsOpenChange={vi.fn()}
+      onSelectRun={vi.fn()}
       appearance={APPEARANCE}
     />,
   );
@@ -196,6 +203,42 @@ it('pins the trigger wide enough that switching teams cannot move the switcher',
   expect(screen.getByText('session-b5129c7b-with-a-very-long-name').style.textOverflow).toBe(
     'ellipsis',
   );
+});
+
+// A team wins the mode, so a session running a workflow BESIDE a live team can
+// only reach that run by asking for it — and until it had somewhere to ask, the
+// console ingested those runs and drew the wall over them.
+it('offers a way into the runs the team is also running', () => {
+  const state = sampleTeamState();
+  state.workflows = [
+    { runId: 'wf_old', status: 'completed', live: false, startedAt: 1, phases: [], logs: [], agents: [] },
+    { runId: 'wf_now', status: 'running', live: true, phases: [], logs: [], agents: [] },
+  ];
+  const onSelectRun = vi.fn();
+  render(
+    <StatusBar
+      state={state}
+      view="wall"
+      onViewChange={vi.fn()}
+      now={FIXTURE_NOW}
+      teamsOpen={false}
+      onTeamsOpenChange={vi.fn()}
+      onSelectRun={onSelectRun}
+      appearance={APPEARANCE}
+    />,
+  );
+  const chip = screen.getByTestId('runs-chip');
+  expect(chip.textContent).toBe('2 runs');
+
+  // The live one, not the first on the frame: a run still going is the one the
+  // operator is looking for.
+  fireEvent.click(chip);
+  expect(onSelectRun).toHaveBeenCalledWith('wf_now');
+});
+
+it('spends no bar width on runs the session never had', () => {
+  renderBar();
+  expect(screen.queryByTestId('runs-chip')).toBeNull();
 });
 
 // The bar is one 40px line. A child that can shrink wraps, doubling its height —
