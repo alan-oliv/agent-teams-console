@@ -163,6 +163,10 @@ button {
   background: var(--color-neutral-900);
 }
 
+.diff-row:hover {
+  background: var(--color-accent-900);
+}
+
 /* The comms view's composing dots — an agent whose current turn is mid-
    SendMessage, so the message is in neither inbox yet. */
 @keyframes pulse {

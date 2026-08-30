@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useContext,
   useMemo,
   useLayoutEffect,
   useRef,
@@ -10,6 +11,8 @@ import {
 } from 'react';
 import type { TranscriptLine } from '../../shared/domain';
 import { TRANSCRIPT_TEXT_CAP } from '../../shared/transcript';
+import { diffStat } from '../format';
+import { DiffContext } from '../state/useTeamState';
 import { useAppearance } from '../state/useSettings';
 import { DENSITY } from '../themes';
 import { codeTokens, segments, toolCodeLang, type CodeTokenKind } from '../../shared/code';
@@ -316,6 +319,7 @@ export function TranscriptFeed({
 }) {
   const s = FEED[size];
   const appearance = useAppearance();
+  const openDiff = useContext(DiffContext);
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
   // Which open payloads are showing the wire text instead of the formatted one.
   const [raw, setRaw] = useState<ReadonlySet<string>>(() => new Set());
@@ -482,6 +486,64 @@ export function TranscriptFeed({
         const opacity = appearance.fade
           ? (working ? 1 : RESTING) * fade(shown.length - 1 - i)
           : 1;
+
+        // A diff-bearing row opens the patch in the shared modal rather than
+        // expanding in place — a hunk is too tall for a column, so it never
+        // takes the `more` drawer path below.
+        if (line.diff) {
+          const diff = line.diff;
+          return (
+            <div
+              key={line.id}
+              data-testid="transcript-row"
+              className="diff-row"
+              onClick={() => openDiff?.(diff)}
+              style={{
+                display: 'flex',
+                gap: `${s.gap}px`,
+                alignItems: 'baseline',
+                whiteSpace: 'nowrap',
+                opacity,
+                cursor: 'pointer',
+                margin: '0 -6px',
+                padding: '2px 6px',
+                borderRadius: 'var(--radius-sm)',
+              }}
+            >
+              <span
+                data-testid="transcript-marker"
+                style={{ color: MARKER_COLOR, width: s.markerWidth, flex: 'none', fontSize: s.markerSize }}
+              >
+                {line.marker}
+              </span>
+              <span
+                data-testid="transcript-text"
+                style={{
+                  color: s.textColor,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  ...(s.textSize ? { fontSize: s.textSize } : {}),
+                }}
+              >
+                {text}
+              </span>
+              <span style={{ flex: 1 }} />
+              <span
+                data-testid="diff-chip"
+                style={{
+                  color: 'var(--color-accent-300)',
+                  border: '1px solid var(--color-accent-700)',
+                  borderRadius: '8px',
+                  padding: '0 6px',
+                  fontSize: '10px',
+                  flex: 'none',
+                }}
+              >
+                {`${diffStat(diff.added, diff.removed)} ▸`}
+              </span>
+            </div>
+          );
+        }
 
         if (isOpen && payload !== undefined) {
           // Derived from the string on screen, and re-derived after the swap:

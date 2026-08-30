@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import type { Agent, TeamState, TranscriptLine, ViewId } from '../../shared/domain';
+import { createContext, useCallback, useEffect, useState } from 'react';
+import type { Agent, Diff, TeamState, TranscriptLine, ViewId } from '../../shared/domain';
 
 export const VIEW_IDS: readonly ViewId[] = ['wall', 'overview', 'comms', 'tasks', 'rail', 'grid'];
 
@@ -16,7 +16,16 @@ export interface TeamStateStore {
   widths: Readonly<Record<string, number>>;
   /** Clamped to {@link COLUMN_MIN}..{@link COLUMN_MAX}; null resets to the default. */
   setWidth(name: string, px: number | null): void;
+  /** The patch open in the diff modal, or null when none is. */
+  openDiff: Diff | null;
+  setOpenDiff(diff: Diff | null): void;
 }
+
+// A diff-bearing row can be clicked from any view the transcript renders in
+// (wall, grid, overview, rail); threading the opener through each one as a
+// prop would touch every view for a control none of them own — the same
+// reason SettingsContext exists.
+export const DiffContext = createContext<((diff: Diff) => void) | null>(null);
 
 export const COLUMN_WIDTH = 366;
 export const COLUMN_MIN = 232;
@@ -147,6 +156,7 @@ export function useTeamState(url = '/stream'): TeamStateStore {
   // Held here rather than in Wall so a width survives a trip through another
   // view — Wall unmounts on every switch.
   const [widths, setWidths] = useState<Record<string, number>>(readWidths);
+  const [openDiff, setOpenDiff] = useState<Diff | null>(null);
 
   const setWidth = useCallback((name: string, px: number | null) => {
     setWidths((prev) => {
@@ -235,5 +245,7 @@ export function useTeamState(url = '/stream'): TeamStateStore {
     setAgent,
     widths,
     setWidth,
+    openDiff,
+    setOpenDiff,
   };
 }

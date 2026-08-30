@@ -79,6 +79,11 @@ export function warnMark(tokens: number, compactAt: number): string {
   return tokens / compactAt >= 0.75 ? '!' : '';
 }
 
+// U+2212 minus sign, not a hyphen — the design prototype's own glyph.
+export function diffStat(added: number, removed: number): string {
+  return `+${added} −${removed}`;
+}
+
 export function costLabel(usd: number): string {
   return formatCost(usd);
 }

@@ -5,6 +5,7 @@ import {
   contextBar,
   costLabel,
   ctxLabel,
+  diffStat,
   elapsedLabel,
   formatCost,
   formatElapsed,
@@ -133,6 +134,16 @@ describe('clockLabel', () => {
 
   it('renders the batched delivery time of the lead-transcript frames', () => {
     expect(clockLabel(Date.parse('2026-08-27T15:12:17.951Z'))).toBe('15:12:17');
+  });
+});
+
+describe('diffStat', () => {
+  it('renders the design prototype figures, with a minus sign rather than a hyphen', () => {
+    expect(diffStat(14, 2)).toBe('+14 −2');
+  });
+
+  it('holds the sign even at zero', () => {
+    expect(diffStat(0, 0)).toBe('+0 −0');
   });
 });
 

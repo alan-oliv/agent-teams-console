@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import type { TranscriptLine } from '../../shared/domain';
+import type { Diff, TranscriptLine } from '../../shared/domain';
 import { TRANSCRIPT_TEXT_CAP } from '../../shared/transcript';
+import { DiffContext } from '../state/useTeamState';
 import { TranscriptFeed } from './TranscriptFeed';
 
 afterEach(cleanup);
@@ -581,5 +582,64 @@ describe('code in an expanded row', () => {
     expect(screen.getByTestId('transcript-drawer-body').textContent).not.toContain('```');
     // And the prose around it survives.
     expect(screen.getByTestId('transcript-drawer-body').textContent).toContain('that is all');
+  });
+});
+
+describe('a row carrying a diff payload', () => {
+  const DIFF: Diff = {
+    path: 'src/web/state/useTeamState.ts',
+    added: 14,
+    removed: 2,
+    agent: 'lead',
+    ts: 1787843425000,
+    commit: '9be5ee0',
+    hunks: [],
+  };
+  const DIFF_LINES: TranscriptLine[] = [
+    { id: 'plain', marker: '⏺', text: 'Bash(sleep 20)', ts: 1 },
+    { id: 'edit', marker: '⎿', text: 'Update(src/web/state/useTeamState.ts)', ts: 2, diff: DIFF },
+  ];
+  const rows = () => screen.getAllByTestId('transcript-row');
+
+  it('leaves a row without a payload untouched', () => {
+    render(<TranscriptFeed lines={DIFF_LINES} size="wall" />);
+    expect(rows()[0].style.cursor).toBe('');
+    expect(screen.queryAllByTestId('diff-chip')).toHaveLength(1);
+  });
+
+  it('shows the stat chip pinned to the right edge', () => {
+    render(<TranscriptFeed lines={DIFF_LINES} size="wall" />);
+    const chip = screen.getByTestId('diff-chip');
+    expect(chip.textContent).toBe('+14 −2 ▸');
+    expect(chip.style.color).toBe('var(--color-accent-300)');
+    expect(chip.style.border).toBe('1px solid var(--color-accent-700)');
+    expect(chip.style.borderRadius).toBe('8px');
+    expect(chip.style.fontSize).toBe('10px');
+    expect(chip.style.flex).toBe('0 0 auto');
+  });
+
+  it('makes the whole row clickable', () => {
+    render(<TranscriptFeed lines={DIFF_LINES} size="wall" />);
+    const row = rows()[1];
+    expect(row.style.cursor).toBe('pointer');
+    expect(row.style.margin).toBe('0px -6px');
+    expect(row.style.padding).toBe('2px 6px');
+    expect(row.style.borderRadius).toBe('var(--radius-sm)');
+  });
+
+  it('sets the open diff in the shared store on click, not local state', () => {
+    const onOpen = vi.fn();
+    render(
+      <DiffContext.Provider value={onOpen}>
+        <TranscriptFeed lines={DIFF_LINES} size="wall" />
+      </DiffContext.Provider>,
+    );
+    fireEvent.click(rows()[1]);
+    expect(onOpen).toHaveBeenCalledWith(DIFF);
+  });
+
+  it('does nothing on click when no diff store is provided', () => {
+    render(<TranscriptFeed lines={DIFF_LINES} size="wall" />);
+    expect(() => fireEvent.click(rows()[1])).not.toThrow();
   });
 });

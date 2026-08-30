@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { TeamState } from '../../shared/domain';
+import type { Diff, TeamState } from '../../shared/domain';
 import { MockEventSource, installMockEventSource } from '../test/mockEventSource';
 import { sampleTeamState } from '../test/state-fixture';
 import {
@@ -287,6 +287,30 @@ it('forgets a column the operator reset', () => {
 
   const { result } = renderHook(() => useTeamState());
   expect(result.current.widths).toEqual({});
+});
+
+describe('openDiff', () => {
+  const SAMPLE_DIFF: Diff = {
+    path: 'src/web/state/useTeamState.ts',
+    added: 14,
+    removed: 2,
+    agent: 'lead',
+    ts: 1787843425000,
+    hunks: [],
+  };
+
+  it('starts with no diff open', () => {
+    const { result } = renderHook(() => useTeamState());
+    expect(result.current.openDiff).toBeNull();
+  });
+
+  it('opens and closes on the same store the rest of the console shares', () => {
+    const { result } = renderHook(() => useTeamState());
+    act(() => result.current.setOpenDiff(SAMPLE_DIFF));
+    expect(result.current.openDiff).toBe(SAMPLE_DIFF);
+    act(() => result.current.setOpenDiff(null));
+    expect(result.current.openDiff).toBeNull();
+  });
 });
 
 it('survives a store that throws on every access', () => {
