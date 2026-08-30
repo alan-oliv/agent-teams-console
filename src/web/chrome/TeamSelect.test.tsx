@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { FIXTURE_NOW, sampleTeams } from '../test/state-fixture';
 import { WatchContext, type WatchState } from '../state/useWatch';
 import { TeamSelect } from './TeamSelect';
+import type { TeamSummary } from '../../shared/domain';
 
 // This suite renders once per `it`; without explicit cleanup the un-unmounted
 // nodes from one test leak into the next and getByRole/getByText start
@@ -551,4 +552,97 @@ it('counts teams in the header, not revealed lead-only rows', async () => {
   fireEvent.click(await screen.findByTestId('show-hidden-rows'));
   await screen.findAllByRole('option');
   expect(screen.getByText('TEAMS ON THIS MACHINE · 0')).toBeTruthy();
+});
+
+function listOf(teams: TeamSummary[]) {
+  vi.stubGlobal('fetch', vi.fn((path: string) =>
+    path === '/api/teams'
+      ? Promise.resolve(
+          new Response(JSON.stringify({ current: 'session-98b0b4a7', teams }), { status: 200 }),
+        )
+      : Promise.resolve(new Response('{}', { status: 200 })),
+  ));
+}
+
+const selectPosts = () =>
+  (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+    .map((c) => c[0] as string)
+    .filter((p) => p.includes('/select'));
+
+// A workflow's agents never enter members[], so the session running one has a
+// roster of 1 and is indistinguishable from an empty window on every other
+// field. The run is the only thing that says otherwise — and switching to it is
+// what puts the console in workflow mode.
+it('offers a lead-only session running a workflow as an ordinary row', async () => {
+  listOf(
+    sampleTeams().map((t) => ({
+      ...t,
+      members: 1,
+      state: 'live' as const,
+      workflow: { runId: 'wf_abc123', live: true },
+    })),
+  );
+  renderSelect();
+
+  // Listed without revealing anything: these are not the rows reveal is for.
+  const rows = await screen.findAllByRole('option');
+  expect(rows).toHaveLength(2);
+  expect(rows[0].getAttribute('aria-disabled')).toBeNull();
+  expect(within(rows[0]).getByTestId('team-meta').textContent).toContain('workflow · running');
+  // No snapshot yet, so the run has no name and its id is what there is.
+  expect(within(rows[0]).getByTestId('team-run').textContent).toBe('wf_abc123');
+
+  fireEvent.click(rows[1]);
+  expect(selectPosts()).toEqual(['/api/teams/session-b5129c7b/select']);
+});
+
+it('names the run and calls it ended once its snapshot has landed', async () => {
+  listOf(
+    sampleTeams().map((t) => ({
+      ...t,
+      members: 1,
+      state: 'idle' as const,
+      workflow: { runId: 'wf_def456', name: 'agents-team-ui-plan', live: false },
+    })),
+  );
+  renderSelect();
+
+  const [row] = await screen.findAllByRole('option');
+  expect(within(row).getByTestId('team-run').textContent).toBe('agents-team-ui-plan');
+  expect(within(row).getByTestId('team-meta').textContent).toContain('workflow · ended');
+});
+
+// The two kinds of lead-only row side by side: the one with a run is somewhere
+// to go, the one without is the empty window reveal exists to explain.
+it('keeps a lead-only session with no run inert while the one with a run is not', async () => {
+  const [team, other] = sampleTeams();
+  listOf([
+    { ...team, members: 1, state: 'live' as const, workflow: { runId: 'wf_abc123', live: true } },
+    { ...other, members: 1, state: 'live' as const },
+  ]);
+  renderSelect();
+
+  expect(await screen.findAllByRole('option')).toHaveLength(1);
+  expect(screen.getByText('TEAMS ON THIS MACHINE · 1')).toBeTruthy();
+  fireEvent.click(screen.getByTestId('show-hidden-rows'));
+
+  const rows = await screen.findAllByRole('option');
+  expect(rows[0].getAttribute('aria-disabled')).toBeNull();
+  expect(rows[1].getAttribute('aria-disabled')).toBe('true');
+  expect(within(rows[1]).getByTestId('team-meta').textContent).toContain('no team · not selectable');
+});
+
+it('lets the keyboard land on a workflow row', async () => {
+  const [team, other] = sampleTeams();
+  listOf([
+    { ...team, members: 1, state: 'live' as const },
+    { ...other, members: 1, state: 'live' as const, workflow: { runId: 'wf_abc123', live: true } },
+  ]);
+  renderSelect();
+  await screen.findAllByRole('option');
+
+  const list = screen.getByRole('listbox', { name: 'teams' });
+  expect(list.getAttribute('aria-activedescendant')).toBe('team-option-session-b5129c7b');
+  fireEvent.keyDown(list, { key: 'Enter' });
+  expect(selectPosts()).toEqual(['/api/teams/session-b5129c7b/select']);
 });

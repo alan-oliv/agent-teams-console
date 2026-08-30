@@ -175,14 +175,22 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
   // what makes a team — the same bar the launcher uses to decide whether to
   // start at all — so anything under it is listed as not-shown rather than
   // offered as somewhere to switch to.
+  //
+  // Except when a workflow is what that session is doing. A workflow's agents
+  // never enter members[], so the session running one has a roster of one and
+  // is indistinguishable from an empty window on every other field — and
+  // switching to it is exactly how the console gets into workflow mode. Only
+  // the run makes the difference, so only `emptySession` filters.
   const isLeadOnly = (t: TeamSummary) => t.members < 2;
+  const runOf = (t: TeamSummary) => (isLeadOnly(t) ? t.workflow : undefined);
+  const emptySession = (t: TeamSummary) => isLeadOnly(t) && !t.workflow;
   const listed = (teams ?? []).filter((t) => t.state !== 'done' || t.current);
   // No `|| t.current` exception here, unlike the `done` filter above: this is a
   // TEAM picker, so a lead-only session is not a row in it even when it is the
   // one on screen. There is no wall to contradict in that case — the body is the
   // empty state — and the trigger still names where you are.
   const filteredOut = (t: TeamSummary) =>
-    watch.hidden.has(t.name) || (!revealed && isLeadOnly(t));
+    watch.hidden.has(t.name) || (!revealed && emptySession(t));
   const rows = listed.filter((t) => !filteredOut(t));
   const notShown = listed.filter(filteredOut);
   const hiddenCount = notShown.length;
@@ -194,10 +202,11 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
    * thing revealing them was meant to explain, not to hand you a way back into.
    * So they render, and the keyboard cursor and Enter skip them entirely.
    *
-   * The header count follows the same line: it says TEAMS, so it counts teams.
+   * The header count follows the same line: it says TEAMS, so it counts teams
+   * — and a workflow session, being somewhere you can go, counts with them.
    */
-  const selectable = filteredRows.filter((t) => !isLeadOnly(t));
-  const teamCount = rows.filter((t) => !isLeadOnly(t)).length;
+  const selectable = filteredRows.filter((t) => !emptySession(t));
+  const teamCount = rows.filter((t) => !emptySession(t)).length;
   const cursorTeam = selectable[Math.min(cursor, selectable.length - 1)];
 
   function onListKeyDown(e: KeyboardEvent<HTMLDivElement>) {
@@ -352,7 +361,8 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
               // watching" text sitting right below it. Drop the mark instead.
               const notWatching = isCurrent && watch.dismissed;
               // Revealed for awareness, not offered as a destination.
-              const soloOnly = isLeadOnly(team);
+              const soloOnly = emptySession(team);
+              const run = runOf(team);
               const rowMark = mark?.team === team.name ? mark.kind : isCurrent && !notWatching ? 'current' : null;
               const state = team.state ?? (team.live ? 'live' : 'done');
               return (
@@ -484,6 +494,25 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
                         {team.name}
                       </span>
                     )}
+                    {/* The run's own name lands with its snapshot, which is
+                        written at termination — so a live run has only its id,
+                        and that is what the row says rather than a placeholder
+                        that would read like a name. */}
+                    {run && (
+                      <span
+                        data-testid="team-run"
+                        style={{
+                          color: 'var(--color-neutral-600)',
+                          fontSize: '10.5px',
+                          minWidth: 0,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {run.name ?? run.runId}
+                      </span>
+                    )}
                     {team.branch && (
                       <span
                         data-testid="team-branch"
@@ -522,7 +551,9 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
                         ? 'no team · not selectable'
                         : notWatching
                           ? 'running · not watching'
-                          : stateText(team, now)}
+                          : run
+                            ? `workflow · ${run.live ? 'running' : 'ended'}`
+                            : stateText(team, now)}
                     </span>
                   </div>
                 </div>
