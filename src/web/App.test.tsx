@@ -599,9 +599,13 @@ it('draws workflow mode instead of the team shell when the frame says so', () =>
     }),
   );
 
-  expect(screen.getByTestId('wf-wordmark').textContent).toBe('RUN');
+  expect(screen.getByTestId('bar-wordmark').textContent).toBe('RUN');
   expect(screen.getByTestId('workflow-run')).toBeTruthy();
   expect(screen.queryByText('NEEDS YOU · 0')).toBeNull();
+  // The shell is the shared one, so the way out of a run and the way to the
+  // theme are both still on screen.
+  expect(screen.getByTestId('team-trigger')).toBeTruthy();
+  expect(screen.getByTestId('config-trigger')).toBeTruthy();
 });
 
 // A roster always wins, so nothing about workflow mode can regress team mode.
@@ -611,7 +615,7 @@ it('stays in the team shell when a roster exists, runs or not', () => {
     MockEventSource.last().emit('snapshot', { ...sampleTeamState(), mode: 'team', workflows: [] }),
   );
 
-  expect(screen.queryByTestId('wf-wordmark')).toBeNull();
+  expect(screen.getByTestId('bar-wordmark').textContent).toBe('TEAM');
   expect(screen.getByText('NEEDS YOU · 0')).toBeTruthy();
 });
 

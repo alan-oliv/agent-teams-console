@@ -1,21 +1,10 @@
-import {
-  useLayoutEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type ReactElement,
-  type RefObject,
-} from 'react';
+import { useLayoutEffect, useRef, useState, type ReactElement, type RefObject } from 'react';
 import type { TeamState, ViewId } from '../../shared/domain';
 import type { SettingsStore } from '../state/useSettings';
 import { formatCost, formatElapsed, formatTokens, meterCells } from '../format';
 import { VIEW_IDS } from '../state/useTeamState';
-import { ConfigMenu } from './ConfigMenu';
+import { Bar, METRIC } from './Bar';
 import { TeamSelect } from './TeamSelect';
-
-// The bar is one 40px line. A child that can shrink or wrap doubles its height,
-// which is the one way this layout breaks — so nothing in it is allowed to.
-const METRIC: CSSProperties = { flex: 'none', whiteSpace: 'nowrap' };
 
 /**
  * How many metrics the bar can draw without overflowing.
@@ -88,7 +77,6 @@ export interface StatusBarProps {
 export function StatusBar({
   state, view, onViewChange, now, teamsOpen, onTeamsOpenChange, appearance,
 }: StatusBarProps) {
-  const [configOpen, setConfigOpen] = useState(false);
   const done = state.tasks.filter((t) => t.state === 'completed').length;
   // Team context occupancy — what the meter has always looked like it meant.
   // It used to divide the CUMULATIVE token total by a capacity, which pins it
@@ -152,74 +140,23 @@ export function StatusBar({
   );
 
   return (
-    <div
+    <Bar
       ref={bar}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        flexWrap: 'nowrap',
-        gap: 10,
-        padding: '9px 14px',
-        borderBottom: '1px solid var(--color-neutral-900)',
-        background: 'var(--color-bg)',
-        fontSize: 12.5,
-      }}
-    >
-      <span
-        id="team-wordmark"
-        style={{
-          color: 'var(--color-accent)',
-          letterSpacing: '.14em',
-          fontWeight: 700,
-          fontSize: 11,
-          ...METRIC,
-        }}
-      >
-        TEAM
-      </span>
-      <TeamSelect
-        current={state.teamName}
-        sessionName={state.sessionName}
-        open={teamsOpen}
-        onOpenChange={onTeamsOpenChange}
-        now={now}
-      />
-
-      <div
-        role="tablist"
-        aria-label="view"
-        style={{ display: 'flex', gap: 2, marginLeft: 2, ...METRIC }}
-      >
-        {VIEW_IDS.map((id) => (
-          <button
-            key={id}
-            className="tab"
-            type="button"
-            role="tab"
-            aria-selected={id === view}
-            onClick={() => onViewChange(id)}
-            style={{
-              padding: '1px 9px',
-              fontSize: 11.5,
-              whiteSpace: 'nowrap',
-              borderRadius: 'var(--radius-sm)',
-              color: id === view ? 'var(--color-text)' : 'var(--color-neutral-600)',
-              background: id === view ? 'var(--color-accent-900)' : 'transparent',
-              boxShadow: id === view ? 'inset 0 0 0 1px var(--color-accent-700)' : 'none',
-            }}
-          >
-            {id}
-          </button>
-        ))}
-      </div>
-
-      <span style={{ flex: 1, minWidth: 8 }} />
-
-      {metrics.filter((m) => kept.has(m.key))}
-
-      {/* Chrome, not a metric: it is never shed, so the operator can always
-          reach the theme even on a bar too narrow for a single figure. */}
-      <ConfigMenu appearance={appearance} open={configOpen} onOpenChange={setConfigOpen} />
-    </div>
+      wordmark="TEAM"
+      picker={
+        <TeamSelect
+          current={state.teamName}
+          sessionName={state.sessionName}
+          open={teamsOpen}
+          onOpenChange={onTeamsOpenChange}
+          now={now}
+        />
+      }
+      views={VIEW_IDS}
+      view={view}
+      onViewChange={onViewChange}
+      metrics={metrics.filter((m) => kept.has(m.key))}
+      appearance={appearance}
+    />
   );
 }

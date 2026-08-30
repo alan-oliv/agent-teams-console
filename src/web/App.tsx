@@ -231,14 +231,28 @@ export function App() {
   // task list, no inboxes, no composer, and `RUN` where the team bar says
   // `TEAM`. The server picks the mode and only ever says 'workflow' when the
   // roster is empty, so a team always wins and team mode cannot regress.
+  //
+  // The chrome is the same chrome, so the providers it reads are the same ones:
+  // the picker shows what this browser has hidden, and the gear writes the
+  // appearance the leaves below it read.
   const run = state.mode === 'workflow' ? state.workflows?.[0] : undefined;
   if (run) {
     return (
+      <SettingsContext.Provider value={appearance.settings}>
+      <WatchContext.Provider value={watchState}>
       <div className="console" style={appearance.vars} data-motion={appearance.settings.motion ? 'on' : 'off'}>
-        <main className="console-body">
-          <Workflow run={run} now={now} />
-        </main>
+        <Workflow
+          run={run}
+          now={now}
+          teamName={state.teamName}
+          sessionName={state.sessionName}
+          teamsOpen={teamsOpen}
+          onTeamsOpenChange={setTeamsOpen}
+          appearance={appearance}
+        />
       </div>
+      </WatchContext.Provider>
+      </SettingsContext.Provider>
     );
   }
 
