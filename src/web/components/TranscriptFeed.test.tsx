@@ -234,14 +234,21 @@ describe('TranscriptFeed follow-on-append', () => {
     expect(screen.getByTestId('transcript-feed').scrollTop).toBe(900);
   });
 
-  it('follows new output when the operator is already within 64px of the bottom', () => {
+  it('follows a burst taller than 64px when the operator was already at the bottom', () => {
     const { rerender } = render(<TranscriptFeed lines={LINES} size="wall" />);
     const feed = screen.getByTestId('transcript-feed');
 
-    feed.scrollTop = 670; // 1000 - 300 - 670 = 30px of slack — still reading the tail
-    box.scrollHeight = 1000;
+    // Bottomed out BEFORE the burst lands — this is what the follow decision
+    // must be based on.
+    feed.scrollTop = 600; // 900 - 300 - 600 = 0px of slack
+    fireEvent.scroll(feed);
+
+    // The burst itself adds more than 64px in one commit. Measuring slack from
+    // post-append geometry (the bug) sees >64px of "slack" here and gives up on
+    // following, even though the operator never moved.
+    box.scrollHeight = 990;
     rerender(<TranscriptFeed lines={more} size="wall" />);
-    expect(feed.scrollTop).toBe(1000);
+    expect(feed.scrollTop).toBe(990);
   });
 
   it('leaves the position alone once the operator has scrolled up to read', () => {
@@ -249,9 +256,25 @@ describe('TranscriptFeed follow-on-append', () => {
     const feed = screen.getByTestId('transcript-feed');
 
     feed.scrollTop = 120; // 480px of slack — reading history
+    fireEvent.scroll(feed);
     box.scrollHeight = 1000;
     rerender(<TranscriptFeed lines={more} size="wall" />);
     expect(feed.scrollTop).toBe(120);
+  });
+
+  it('re-pins once the operator scrolls back within 64px, so the next append follows', () => {
+    const { rerender } = render(<TranscriptFeed lines={LINES} size="wall" />);
+    const feed = screen.getByTestId('transcript-feed');
+
+    feed.scrollTop = 120; // scrolled up to read — unpinned
+    fireEvent.scroll(feed);
+
+    feed.scrollTop = 560; // scrolled back down — 40px of slack, within 64px
+    fireEvent.scroll(feed);
+
+    box.scrollHeight = 1000;
+    rerender(<TranscriptFeed lines={more} size="wall" />);
+    expect(feed.scrollTop).toBe(1000);
   });
 });
 

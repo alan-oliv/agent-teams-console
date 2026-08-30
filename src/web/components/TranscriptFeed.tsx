@@ -449,7 +449,12 @@ export function TranscriptFeed({
   }, [agent]);
 
   const pane = useRef<HTMLDivElement>(null);
-  const pinned = useRef(false);
+  // Whether the operator was within 64px of the bottom BEFORE the latest
+  // append, kept current by onScroll rather than recomputed here: geometry
+  // read after React has already committed new rows includes their height, so
+  // a burst taller than 64px would wrongly read as "scrolled away" even though
+  // the operator never moved. Starts true so a fresh pane opens at the tail.
+  const pinned = useRef(true);
   // Prepending history moves everything down by the height it added; without
   // this the operator is thrown back to the top the instant it lands.
   const anchor = useRef(0);
@@ -462,14 +467,11 @@ export function TranscriptFeed({
 
   useLayoutEffect(() => {
     const el = pane.current;
-    if (!el) return;
-    const slack = el.scrollHeight - el.clientHeight - el.scrollTop;
-    // Follow new output only when the operator is already at the bottom. If they
-    // have scrolled up to read, appending a line must not yank them back down.
-    if (!pinned.current || (slack > 0 && slack < 64)) {
-      el.scrollTop = el.scrollHeight;
-      pinned.current = true;
-    }
+    // Follow new output only when the operator was already at the bottom. If
+    // they have scrolled up to read, appending a line must not yank them back
+    // down.
+    if (!el || !pinned.current) return;
+    el.scrollTop = el.scrollHeight;
   }, [lines]);
 
   // The live tail wins: history is only what precedes its first line, so a line
@@ -495,7 +497,12 @@ export function TranscriptFeed({
 
   const onScroll = useCallback(
     (e: UIEvent<HTMLDivElement>) => {
-      if (e.currentTarget.scrollTop < 48) void loadOlder();
+      const el = e.currentTarget;
+      // Within 64px of the bottom: keep following. Further than that: hold
+      // position through the next append, until the operator scrolls back
+      // down close enough for this to re-pin.
+      pinned.current = el.scrollHeight - el.clientHeight - el.scrollTop <= 64;
+      if (el.scrollTop < 48) void loadOlder();
     },
     [loadOlder],
   );
