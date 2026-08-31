@@ -49,7 +49,7 @@ export function App() {
   // Lives here, not in the view, so switching away from usage and back does
   // not restart the sampler — the same reason widths and hidden sessions live
   // above the views that read them.
-  const spendSamples = useSpendSamples(state?.totalCostUsd);
+  const spendSamples = useSpendSamples(state?.totalCostUsd, state?.agents);
   const toggleTeams = useCallback(() => setTeamsOpen((open) => !open), []);
 
   // An open-this-thread intent, not a selection: comms opens the everyone room

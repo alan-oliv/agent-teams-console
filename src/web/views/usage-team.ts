@@ -1,4 +1,4 @@
-import type { Agent } from '../../shared/domain';
+import type { Agent, MailMessage } from '../../shared/domain';
 import { rateOf, usdCost, type ModelRate, type TokenSplit } from '../../shared/cost';
 
 export const EMPTY_SPLIT: TokenSplit = { in: 0, out: 0, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0 };
@@ -125,6 +125,13 @@ export interface ModelSpend {
   share: number;
   count: number;
   rate: ModelRate;
+  /**
+   * Billed tokens across this model's agents, and undefined when ANY of them
+   * has no split — the donut legend's `$/Mtok` is a blended figure over this,
+   * so a partial denominator would overstate the rate rather than admit it is
+   * unknown. Same reasoning as sumSplit.
+   */
+  tokens?: number;
 }
 
 /**
@@ -138,27 +145,38 @@ export interface ModelSpend {
  */
 export function spendByModel(agents: readonly Agent[]): ModelSpend[] {
   const total = agents.reduce((s, a) => s + a.costUsd, 0);
-  const grouped = new Map<string, { cost: number; count: number }>();
+  const grouped = new Map<string, Agent[]>();
   for (const a of agents) {
-    const g = grouped.get(a.model) ?? { cost: 0, count: 0 };
-    g.cost += a.costUsd;
-    g.count += 1;
-    grouped.set(a.model, g);
+    const bucket = grouped.get(a.model);
+    if (bucket) bucket.push(a);
+    else grouped.set(a.model, [a]);
   }
   return [...grouped]
-    .map(([model, g]) => ({
-      model,
-      cost: g.cost,
-      count: g.count,
-      share: total > 0 ? g.cost / total : 0,
-      rate: rateOf(model),
-    }))
+    .map(([model, mine]) => {
+      const splits = mine.map(splitOf);
+      return {
+        model,
+        cost: mine.reduce((s, a) => s + a.costUsd, 0),
+        count: mine.length,
+        share: total > 0 ? mine.reduce((s, a) => s + a.costUsd, 0) / total : 0,
+        rate: rateOf(model),
+        tokens: splits.some((s) => s === undefined)
+          ? undefined
+          : (splits as TokenSplit[]).reduce((sum, s) => sum + billedTokens(s), 0),
+      };
+    })
     .sort((a, b) => b.cost - a.cost);
 }
 
 export interface SpendSample {
   at: number;
   cost: number;
+  /**
+   * Cumulative `agent.costUsd` per agent at `at`. Optional because the sampler
+   * predates it and because a caller with only the team total is still a valid
+   * caller — the panels that need the breakdown say so rather than assuming it.
+   */
+  byAgent?: Record<string, number>;
 }
 
 export interface SpendBucket {
@@ -196,4 +214,131 @@ export function spendBuckets(samples: readonly SpendSample[], now: number): Spen
     prevCost = costAtEnd;
   }
   return buckets.length > MAX_BUCKETS ? buckets.slice(buckets.length - MAX_BUCKETS) : buckets;
+}
+
+/**
+ * A whole-dollar ladder. A quarter-of-max step on a $4.55 total rounds to
+ * 0/1/2/4/5 — ticks that are not a constant distance apart, which reads as a
+ * rendering fault rather than a scale. The step is picked from a fixed set so
+ * every tick is a multiple of it, and the top tick covers the value.
+ */
+const LADDER_STEPS = [0.5, 1, 2];
+
+export function moneyLadder(max: number): number[] {
+  const target = Math.max(max, 0.5);
+  const step = LADDER_STEPS.find((s) => target / s <= 5) ?? Math.ceil(target / 5);
+  const top = Math.ceil(target / step) * step;
+  const ticks: number[] = [];
+  for (let v = 0; v <= top + step / 2; v += step) ticks.push(Number(v.toFixed(6)));
+  return ticks;
+}
+
+export interface SpendBand {
+  name: string;
+  color: string;
+  /** Cumulative cost for this agent at each sample, in sample order. */
+  values: number[];
+}
+
+export interface StackedSpend {
+  at: number[];
+  /** Bottom-to-top draw order: the lead is last so its area reads on top. */
+  bands: SpendBand[];
+  max: number;
+}
+
+// The ramp in order, never a categorical palette. More agents than steps wraps
+// rather than inventing a hue.
+const BAND_RAMP = [
+  'var(--color-accent-700)',
+  'var(--color-accent-600)',
+  'var(--color-accent-500)',
+  'var(--color-accent-400)',
+  'var(--color-accent-300)',
+];
+
+/**
+ * The stacked-area series, built ONLY from samples this console took itself.
+ *
+ * Undefined when no sample carries a per-agent breakdown: the alternative is to
+ * spread each agent's current total back over the session from `startedAt`,
+ * which is the one thing USAGE-STATE.md §6 says this chart must never do — the
+ * staircase of spawns is the measurement, and a synthetic one is invented
+ * history. An agent absent from a sample reads as zero because it genuinely had
+ * not spent anything yet, which is the same statement the chart is making.
+ */
+export function stackedSpend(
+  samples: readonly SpendSample[],
+  agents: readonly Agent[],
+): StackedSpend | undefined {
+  const usable = samples.filter((s) => s.byAgent !== undefined);
+  if (usable.length === 0 || agents.length === 0) return undefined;
+  const ordered = [...agents].sort((a, b) => Number(a.isLead) - Number(b.isLead));
+  const bands = ordered.map((a, i) => ({
+    name: a.name,
+    color: BAND_RAMP[i % BAND_RAMP.length],
+    values: usable.map((s) => s.byAgent![a.name] ?? 0),
+  }));
+  const max = Math.max(
+    0,
+    ...usable.map((_, i) => bands.reduce((sum, band) => sum + band.values[i], 0)),
+  );
+  return { at: usable.map((s) => s.at), bands, max };
+}
+
+// The design's own bar count for this strip.
+const MESSAGE_BARS = 17;
+
+/**
+ * Messages per 2 minutes over the last 34 minutes, oldest bar first. Mail is
+ * the one history the frame genuinely carries, so unlike the spend series this
+ * needs no client-side sampling. Always MESSAGE_BARS wide so the strip does not
+ * change width as a session ages.
+ */
+export function messageBuckets(mail: readonly MailMessage[], now: number): number[] {
+  const buckets = new Array<number>(MESSAGE_BARS).fill(0);
+  const start = now - MESSAGE_BARS * BUCKET_MS;
+  for (const m of mail) {
+    if (m.ts <= start || m.ts > now) continue;
+    const index = Math.min(MESSAGE_BARS - 1, Math.floor((m.ts - start) / BUCKET_MS));
+    buckets[index] += 1;
+  }
+  return buckets;
+}
+
+/**
+ * How long since this agent last produced a transcript line. Undefined, never
+ * zero, for an agent with no lines on the frame: zero would read as "active
+ * right now", which is the opposite of what an empty transcript means.
+ */
+export function idleMsOf(agent: Agent, now: number): number | undefined {
+  const last = agent.transcript[agent.transcript.length - 1];
+  return last === undefined ? undefined : Math.max(0, now - last.ts);
+}
+
+/**
+ * What the same work might have cost run serially. AN ESTIMATE, and the panel
+ * that draws it says so in those words — there is no serial run to measure.
+ *
+ * The assumption, stated on the page as well as here: one agent doing the same
+ * work writes and re-reads ONE cached context instead of N, so input and output
+ * sum across the team while cache traffic collapses to the heaviest single
+ * agent's. Priced at one model because a lone agent runs on one model.
+ *
+ * Undefined when any agent's split is unrecorded — same reasoning as sumSplit.
+ */
+export function serialEstimate(
+  agents: readonly Agent[],
+  model: string,
+): number | undefined {
+  const splits = agents.map(splitOf);
+  if (splits.length === 0 || splits.some((s) => s === undefined)) return undefined;
+  const known = splits as TokenSplit[];
+  return usdCost(model, {
+    in: known.reduce((sum, s) => sum + s.in, 0),
+    out: known.reduce((sum, s) => sum + s.out, 0),
+    cacheWrite: Math.max(...known.map((s) => s.cacheWrite)),
+    cacheWrite1h: Math.max(...known.map((s) => s.cacheWrite1h)),
+    cacheRead: Math.max(...known.map((s) => s.cacheRead)),
+  });
 }

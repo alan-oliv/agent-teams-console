@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type { Agent } from '../../shared/domain';
 import type { SpendSample } from '../views/usage-team';
 
 // The panel this feeds shows at most MAX_BUCKETS 2-minute windows (see
@@ -19,15 +20,26 @@ const MAX_SAMPLES = 500;
  * Lives above the view so switching away from `usage` and back does not
  * restart the sampler.
  */
-export function useSpendSamples(totalCostUsd: number | undefined): readonly SpendSample[] {
+export function useSpendSamples(
+  totalCostUsd: number | undefined,
+  agents?: readonly Agent[],
+): readonly SpendSample[] {
   const [samples, setSamples] = useState<SpendSample[]>([]);
   const last = useRef<number | undefined>(undefined);
+  // Read at sample time rather than depended on: an agent's cost only moves
+  // when the team total does, so the total is the whole trigger. Depending on
+  // the array as well would sample on every frame that touched any other field.
+  const roster = useRef<readonly Agent[] | undefined>(agents);
+  roster.current = agents;
 
   useEffect(() => {
     if (totalCostUsd === undefined || totalCostUsd === last.current) return;
     last.current = totalCostUsd;
     setSamples((prev) => {
-      const next = [...prev, { at: Date.now(), cost: totalCostUsd }];
+      const byAgent = roster.current
+        ? Object.fromEntries(roster.current.map((a) => [a.name, a.costUsd]))
+        : undefined;
+      const next = [...prev, { at: Date.now(), cost: totalCostUsd, byAgent }];
       return next.length > MAX_SAMPLES ? next.slice(next.length - MAX_SAMPLES) : next;
     });
   }, [totalCostUsd]);
