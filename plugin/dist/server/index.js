@@ -1884,6 +1884,20 @@ function contextOccupancy(records) {
   return usage.input_tokens + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0);
 }
 
+// src/shared/cost.ts
+function splitTok(records) {
+  const split = { in: 0, out: 0, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0 };
+  for (const { usage } of dedupeUsage([...records])) {
+    const created = usage.cache_creation_input_tokens ?? 0;
+    split.in += usage.input_tokens ?? 0;
+    split.out += usage.output_tokens ?? 0;
+    split.cacheWrite += created;
+    split.cacheWrite1h += Math.min(usage.cache_creation?.ephemeral_1h_input_tokens ?? 0, created);
+    split.cacheRead += usage.cache_read_input_tokens ?? 0;
+  }
+  return split;
+}
+
 // src/server/store.ts
 var KIND_RETENTION = {
   task: 5e3,
@@ -1974,7 +1988,7 @@ function usageFrom(rows) {
   const recs = [];
   for (const e of rows) for (const r of recordsOf(e.payload)) if (r != null) recs.push(r);
   const usage = dedupeUsage(usageRecordsOf(recs));
-  return { costUsd: totalCost(usage), tokens: tokensOf(usage) };
+  return { costUsd: totalCost(usage), tokens: tokensOf(usage), split: splitTok(usage) };
 }
 function withTotals(e, totals) {
   return { ...e, payload: { ...e.payload, totals } };
@@ -3010,6 +3024,7 @@ function project(events, readOnly) {
       contextLimit: resolved.window,
       compactAt: resolved.compactAt,
       costUsd: carried ? carried.costUsd : totalCost(usage),
+      tokenSplit: carried ? carried.split : splitTok(usage),
       startedAt: id.joinedAt,
       transcript: lines.slice(-PROJECTED_TRANSCRIPT_LINES),
       unread: unread.get(id.name) ?? 0,
@@ -3532,7 +3547,7 @@ function startFileIngest(store, config) {
       }
       all = [...best.values()];
     }
-    return { costUsd: totalCost(all), tokens: tokensOf(all) };
+    return { costUsd: totalCost(all), tokens: tokensOf(all), split: splitTok(all) };
   };
   const transcriptOfSidecar = (file) => file.replace(/\.meta\.json$/, ".jsonl");
   const disowned = /* @__PURE__ */ new Set();
