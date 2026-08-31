@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import type { ViewId } from '../../shared/domain';
 
-const VIEW_ORDER: ViewId[] = ['wall', 'overview', 'comms', 'tasks', 'rail', 'grid'];
+const VIEW_ORDER: ViewId[] = ['wall', 'overview', 'comms', 'tasks', 'rail', 'grid', 'usage'];
 
 const STEP: Record<string, number | undefined> = {
   ArrowUp: -1,

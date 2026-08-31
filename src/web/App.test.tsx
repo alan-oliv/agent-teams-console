@@ -192,6 +192,16 @@ it('wires useKeyboard to the store — ⌘2 switches from the wall to overview',
   expect(screen.queryByTestId('wall')).toBeNull();
 });
 
+it('⌘7 switches to the seventh pill, usage', () => {
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+
+  expect(screen.getByTestId('wall')).toBeTruthy();
+  fireEvent.keyDown(document.body, { key: '7', metaKey: true });
+  expect(screen.getByTestId('usage')).toBeTruthy();
+  expect(screen.queryByTestId('wall')).toBeNull();
+});
+
 it('does not let ⌘2 switch the view while a composer has focus', () => {
   render(<App />);
   act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
