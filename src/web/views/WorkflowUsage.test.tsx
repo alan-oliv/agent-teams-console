@@ -1,8 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import type { WorkflowAgent, WorkflowRun } from '../../shared/domain';
-import { WorkflowUsage, bannerFires, concurrency, phaseRows } from './WorkflowUsage';
+import type { WorkflowAgent, WorkflowRun, WorkflowUsage as WorkflowUsageFigures } from '../../shared/domain';
+import { usdCost, type TokenSplit } from '../../shared/cost';
+import { billedTokens, cacheHitRatio } from './usage-team';
+import { formatCost, formatPct, formatTokens } from '../format';
+import { WorkflowUsage, bannerFires, concurrency, phaseRows, runCost } from './WorkflowUsage';
 
 afterEach(cleanup);
 
@@ -203,8 +206,10 @@ describe('what this mode does not draw, and says so', () => {
   // different quantity.
   it('never labels the run snapshot figure as spend', () => {
     draw(run());
-    expect(screen.getByTestId('wfu-no-cost').textContent).toMatch(/context/i);
-    expect(screen.queryByText(/\$/)).toBeNull();
+    expect(screen.getByTestId('wfu-basis').textContent).toMatch(/context/i);
+    // No usage was measured for this run, so no dollar figure may appear —
+    // measured money exists now, but never from the snapshot's own numbers.
+    expect(screen.queryByText(/\$\d/)).toBeNull();
   });
 
   it('names the runtime caps as caps in the footer', () => {
@@ -395,17 +400,9 @@ describe('the per-agent scatter', () => {
 });
 
 describe('what the mode still refuses, and why', () => {
-  // §24 re-words this: "no source" stopped being accurate once the workflow
-  // transcripts were found to be live and un-ingested.
-  it('says the source exists and is not read, rather than that there is none', () => {
-    draw(run());
-    const why = screen.getByTestId('wfu-no-cost').textContent ?? '';
-    expect(why).toMatch(/not read|un-?ingested|does not read/i);
-  });
-
   it('refuses the cap line and the 1.5M threshold by name', () => {
     draw(run());
-    const why = screen.getByTestId('wfu-no-cost').textContent ?? '';
+    const why = screen.getByTestId('wfu-basis').textContent ?? '';
     expect(why).toContain('1.5M');
     expect(why.toLowerCase()).toContain('cap');
   });
@@ -414,5 +411,126 @@ describe('what the mode still refuses, and why', () => {
     const { container } = draw(run());
     expect(container.innerHTML).not.toContain('--warn');
     expect(container.innerHTML).not.toContain('--fail');
+  });
+});
+
+// ————— the money half, from the ingested classes (old-batch #25) —————
+//
+// Every dollar below reconciles against usdCost over the same tokenSplit the
+// row draws, so the test computes its expectation from the one cost model
+// rather than hardcoding a figure the rate card could drift from.
+
+const SPLIT_A: TokenSplit = { in: 1_000, out: 500, cacheWrite: 2_000, cacheWrite1h: 0, cacheRead: 50_000 };
+const SPLIT_B: TokenSplit = { in: 800, out: 300, cacheWrite: 1_000, cacheWrite1h: 0, cacheRead: 30_000 };
+
+const sumSplits = (a: TokenSplit, b: TokenSplit): TokenSplit => ({
+  in: a.in + b.in,
+  out: a.out + b.out,
+  cacheWrite: a.cacheWrite + b.cacheWrite,
+  cacheWrite1h: a.cacheWrite1h + b.cacheWrite1h,
+  cacheRead: a.cacheRead + b.cacheRead,
+});
+
+const USAGE: WorkflowUsageFigures = {
+  split: sumSplits(SPLIT_A, SPLIT_B),
+  byPhase: [{ phaseIndex: 1, split: sumSplits(SPLIT_A, SPLIT_B) }],
+  burn: { startedAt: T0, stepMs: 10_000, cumulative: [10_000, 40_000, 85_600] },
+  agentsMeasured: 2,
+};
+
+const measuredAgents = () => [
+  agent({ agentId: 'a1', phaseIndex: 1, tokens: 50_000, startedAt: T0, durationMs: 60_000, model: 'claude-opus-5', tokenSplit: SPLIT_A, toolCalls: 4 }),
+  agent({ agentId: 'a2', phaseIndex: 1, tokens: 30_000, startedAt: T0, durationMs: 30_000, model: 'claude-sonnet-5', tokenSplit: SPLIT_B }),
+];
+
+const measuredRun = (over: Partial<WorkflowRun> = {}) =>
+  run({ agents: measuredAgents(), usage: USAGE, ...over });
+
+const EXPECTED_USD = usdCost('claude-opus-5', SPLIT_A) + usdCost('claude-sonnet-5', SPLIT_B);
+
+describe('the measured-spend figure (decision 31)', () => {
+  it('prices a fully measured finished run through the one cost model', () => {
+    draw(measuredRun());
+    expect(screen.getByTestId('wfu-cost-value').textContent).toBe(formatCost(EXPECTED_USD));
+    expect(screen.getByTestId('wfu-money').textContent).toContain('2 of 2 agents measured');
+  });
+
+  it('em-dashes a finished run with an unmeasured agent — a permanent hole of unknown size', () => {
+    draw(
+      measuredRun({
+        agents: [...measuredAgents(), agent({ agentId: 'a3', phaseIndex: 1, startedAt: T0 })],
+      }),
+    );
+    expect(screen.getByTestId('wfu-cost-value').textContent).toBe('—');
+    expect(screen.getByTestId('wfu-money').textContent).toContain('2 of 3');
+  });
+
+  it('draws a live run partial WITH its coverage — spend to date is a true figure', () => {
+    draw(
+      measuredRun({
+        live: true,
+        status: 'running',
+        phases: [],
+        agentCount: undefined,
+        agents: [...measuredAgents(), agent({ agentId: 'a3', state: 'run' })],
+      }),
+    );
+    expect(screen.getByTestId('wfu-cost-value').textContent).toBe(formatCost(EXPECTED_USD));
+    expect(screen.getByTestId('wfu-money').textContent).toContain('2 of 3 agents measured');
+  });
+
+  it('runCost refuses to price a measured agent that names no model', () => {
+    const agents = measuredAgents().map((a) => ({ ...a, model: undefined }));
+    expect(runCost(run({ agents, usage: USAGE, defaultModel: undefined })).usd).toBeUndefined();
+  });
+
+  it('shows the measured tokens with cache reads included, beside their split', () => {
+    draw(measuredRun());
+    const money = screen.getByTestId('wfu-money').textContent ?? '';
+    expect(money).toContain(formatTokens(billedTokens(USAGE.split)));
+    expect(money).toMatch(/cache read/i);
+  });
+});
+
+describe('the per-agent money cells', () => {
+  it('fills cache hit and cost from the agent’s own split and model', () => {
+    draw(measuredRun());
+    const hits = screen.getAllByTestId('wfu-agent-cachehit').map((c) => c.textContent);
+    const costs = screen.getAllByTestId('wfu-agent-cost').map((c) => c.textContent);
+    expect(hits[0]).toBe(formatPct(cacheHitRatio(SPLIT_A)!));
+    expect(costs[0]).toBe(formatCost(usdCost('claude-opus-5', SPLIT_A)));
+  });
+
+  it('keeps the em-dash for an agent with no measured split', () => {
+    draw(
+      measuredRun({
+        agents: [...measuredAgents(), agent({ agentId: 'a3', phaseIndex: 1, startedAt: T0 })],
+      }),
+    );
+    // The hole rule gates only the TOTAL; a row still shows what was measured
+    // for it, and an unmeasured row keeps the em-dash it always had.
+    expect(screen.getAllByTestId('wfu-agent-cachehit').at(-1)?.textContent).toBe('—');
+    expect(screen.getAllByTestId('wfu-agent-cost').at(-1)?.textContent).toBe('—');
+  });
+});
+
+describe('the burn line', () => {
+  it('draws the cumulative measured series as geometry with an HTML max label', () => {
+    draw(measuredRun());
+    expect(screen.getByTestId('wfu-burn-line')).toBeTruthy();
+    expect(screen.getByTestId('wfu-burn-max').textContent).toBe(formatTokens(85_600));
+  });
+
+  it('falls back to prose, not an empty chart, when nothing is measured yet', () => {
+    draw(run());
+    expect(screen.queryByTestId('wfu-burn-line')).toBeNull();
+  });
+});
+
+describe('the basis note', () => {
+  it('labels every dollar as derived at API list price from the agents’ own transcripts', () => {
+    draw(measuredRun());
+    expect(screen.getByTestId('wfu-basis').textContent).toMatch(/list price/i);
+    expect(screen.getByTestId('wfu-footer').textContent).toMatch(/list price/i);
   });
 });

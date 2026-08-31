@@ -1,36 +1,23 @@
 import { useState, type CSSProperties } from 'react';
-import type { WorkflowAgent, WorkflowAgentState, WorkflowPhase, WorkflowRun } from '../../shared/domain';
-import { formatElapsed, formatTokens } from '../format';
+import type { WorkflowAgent, WorkflowAgentState, WorkflowBurn, WorkflowPhase, WorkflowRun } from '../../shared/domain';
+import { usdCost } from '../../shared/cost';
+import { formatCost, formatElapsed, formatPct, formatTokens } from '../format';
+import { billedTokens, cacheHitRatio } from './usage-team';
 import { liveCounts, phaseTally } from './workflow-grid';
 import { resumeSplit } from './workflow-resume';
 
 /**
  * Workflow mode's body of the usage view.
  *
- * The design asks this page for run cost, projected cost, per-phase cost and a
- * cost-scaled scatter. None of them are drawn, and the reason is one finding
- * rather than four: `workflowProgress[].tokens` is not a billed-token count. It
- * matched each agent's FINAL CONTEXT SIZE — the last assistant turn's input +
- * cache_creation + cache_read — in 135 of the 135 agent records on the capture
- * machine, and matched a billed sum in none of them. `totalTokens` is therefore
- * the sum of N end-of-run context sizes: it double-counts every prefix siblings
- * share, drops every token of output before the last turn, and omits cache
- * reads, which are the overwhelming majority of what a session actually buys.
- * Multiplying it by a rate does not produce an inaccurate bill, it produces a
- * different quantity wearing a currency symbol. See USAGE-STATE.md.
- *
- * The four-class split those figures would need does exist, live, in each
- * agent's own transcript under `subagents/workflows/wf_<runId>/agent-*.jsonl` —
- * appended WHILE the run is going, with a per-line timestamp and model. The
- * ingest refuses those files by two separate rules, because a workflow fan-out
- * is not a team member. Lifting that is a scope decision, not a view's to make.
- *
- * So the accurate sentence is not "there is no source" — CONSOLE-NOTES §24
- * re-measured it at 8 runs and 76 agents and found the snapshot understates real
- * traffic by 15x to 75x, because cache reads are 94.8% of it and the snapshot
- * holds none. The source exists, it is live, and this console does not read it.
- * The mode draws what is ingested, and says exactly that where the money would
- * have been.
+ * Two token quantities travel here and are never merged. The snapshot's
+ * `tokens`/`totalTokens` is FINAL CONTEXT OCCUPANCY — each agent's last turn,
+ * summed — and pricing it would put a currency symbol on the wrong quantity;
+ * it stays a geometry figure. `run.usage` is what the run actually put through
+ * the model, read live from each agent's own transcript under
+ * `subagents/workflows/wf_<runId>/agent-*.jsonl` (four classes, per-line model),
+ * and it is the ONLY thing money is derived from, through `usdCost` — the same
+ * single cost path the team ledger uses. CONSOLE-NOTES §24 is the framework;
+ * decision 31 governs how a partial measurement is drawn.
  */
 
 export const AGENT_WARN_THRESHOLD = 25;
@@ -169,6 +156,98 @@ export function bannerFires(run: WorkflowRun, threshold = AGENT_WARN_THRESHOLD):
   return !run.live && run.agents.length > threshold;
 }
 
+export interface RunCostFigure {
+  /** Absent when the figure may not be drawn under decision 31's rules. */
+  usd?: number;
+  measured: number;
+  of: number;
+}
+
+/**
+ * The run's measured spend, priced per agent so a multi-model run is never
+ * blended into one rate (the same rule `splitByModel` states for the team).
+ *
+ * Decision 31 splits the drawing rule on `run.live`: a live run's partial total
+ * is the true spend TO DATE — an agent that has not started has contributed
+ * exactly zero — so it draws WITH its coverage beside it. At termination an
+ * unmeasured agent becomes a permanent hole of unknown size, which is the team
+ * rule's case exactly, so a finished run with one takes the em-dash. A measured
+ * agent that names no model poisons the figure in BOTH modes: unlike an agent
+ * that has not started, it has spent a nonzero amount nothing can price.
+ */
+export function runCost(run: WorkflowRun): RunCostFigure {
+  const measured = run.usage?.agentsMeasured ?? 0;
+  const of = run.agentCount ?? run.agents.length;
+  if (!run.usage || measured === 0) return { measured, of };
+  const priced = run.agents.filter((a) => a.tokenSplit !== undefined);
+  if (priced.length === 0) return { measured, of };
+  if (priced.some((a) => !(a.model ?? run.defaultModel))) return { measured, of };
+  if (!run.live && measured < run.agents.length) return { measured, of };
+  const usd = priced.reduce(
+    (sum, a) => sum + usdCost((a.model ?? run.defaultModel)!, a.tokenSplit!),
+    0,
+  );
+  return { usd, measured, of };
+}
+
+const BURN_W = 560;
+const BURN_H = 64;
+const BURN_PAD = 3;
+
+/**
+ * The cumulative measured series as geometry with HTML labels — no
+ * `<svg><text>`, per the page's standing chart rule. Actual burn only: a
+ * projection needs a denominator no run carries, and the 1.5M line stays
+ * refused (decision 22).
+ */
+function BurnLine({ burn }: { burn: WorkflowBurn }) {
+  const pts = burn.cumulative;
+  if (pts.length < 2) {
+    return (
+      <div style={PROSE}>
+        no measured series yet — the line appears once two buckets of billed
+        turns have landed.
+      </div>
+    );
+  }
+  const max = pts[pts.length - 1] || 1;
+  const d = pts
+    .map((v, i) => {
+      const x = (i / (pts.length - 1)) * BURN_W;
+      const y = BURN_H - BURN_PAD - (v / max) * (BURN_H - 2 * BURN_PAD);
+      return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(' ');
+  return (
+    <div style={{ position: 'relative' }}>
+      <svg
+        viewBox={`0 0 ${BURN_W} ${BURN_H}`}
+        preserveAspectRatio="none"
+        style={{ width: '100%', height: `${BURN_H}px`, background: 'var(--term)', borderRadius: '3px', display: 'block' }}
+      >
+        <line x1={0} y1={BURN_H - BURN_PAD} x2={BURN_W} y2={BURN_H - BURN_PAD} stroke="var(--color-neutral-900)" strokeWidth={1} />
+        <path
+          data-testid="wfu-burn-line"
+          d={d}
+          fill="none"
+          stroke="var(--color-accent-300)"
+          strokeWidth={1.5}
+          vectorEffect="non-scaling-stroke"
+        />
+      </svg>
+      <span
+        data-testid="wfu-burn-max"
+        style={{ position: 'absolute', top: '3px', right: '6px', color: 'var(--color-neutral-600)', fontSize: '9.5px' }}
+      >
+        {formatTokens(max)}
+      </span>
+      <span style={{ position: 'absolute', bottom: '2px', left: '6px', color: 'var(--color-neutral-800)', fontSize: '9.5px' }}>
+        0
+      </span>
+    </div>
+  );
+}
+
 const PANEL: CSSProperties = {
   border: '1px solid var(--color-neutral-900)',
   borderRadius: 'var(--radius-md)',
@@ -215,6 +294,61 @@ const CELL: CSSProperties = {
   color: 'var(--color-neutral-500)',
   fontSize: '11px',
 };
+
+/**
+ * The measured-spend panel — the money half of §24's framework, drawn from
+ * `run.usage` and nothing else. Present in both branches because the source is
+ * live: the sidecar transcripts are appended while the run is going, which is
+ * exactly what the snapshot's own figures are not.
+ */
+function MoneyPanel({ run }: { run: WorkflowRun }) {
+  const { usd, measured, of } = runCost(run);
+  const usage = run.usage;
+  const drawnTokens = usage !== undefined && measured > 0 && (run.live || measured >= run.agents.length);
+  const coverage =
+    measured === 0
+      ? 'no billed turn measured yet'
+      : `${measured} of ${of} agents measured${run.live ? ' · to date' : ''}`;
+  const reason =
+    usage !== undefined && measured > 0 && usd === undefined
+      ? !run.live && measured < run.agents.length
+        ? 'a finished run with unmeasured agents cannot total — the hole has no size'
+        : 'a measured agent names no model, so its spend cannot be priced'
+      : undefined;
+  return (
+    <div data-testid="wfu-money" style={{ ...PANEL, display: 'flex', gap: '16px', alignItems: 'stretch' }}>
+      <div style={{ width: '230px', flex: 'none', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+        <div style={TILE_LABEL}>MEASURED SPEND</div>
+        <div data-testid="wfu-cost-value" style={TILE_VALUE}>
+          {usd === undefined ? EM_DASH : formatCost(usd)}
+        </div>
+        <div style={{ ...PROSE, fontSize: '10px' }}>{coverage}</div>
+        {reason && <div style={{ ...PROSE, fontSize: '10px' }}>{reason}</div>}
+        {drawnTokens && usage && (
+          <div style={{ ...PROSE, marginTop: '4px' }}>
+            <span style={{ color: 'var(--color-neutral-500)' }}>{formatTokens(billedTokens(usage.split))}</span>
+            {' tokens measured — '}
+            {`in ${formatTokens(usage.split.in)} · out ${formatTokens(usage.split.out)} · cache write ${formatTokens(usage.split.cacheWrite)} · cache read ${formatTokens(usage.split.cacheRead)}`}
+          </div>
+        )}
+      </div>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+          <span style={TILE_LABEL}>MEASURED BURN</span>
+          <span style={{ ...PROSE, fontSize: '9.5px' }}>cumulative · four classes summed · actual only, never projected</span>
+        </div>
+        {usage ? (
+          <BurnLine burn={usage.burn} />
+        ) : (
+          <div style={PROSE}>
+            nothing measured for this run yet — the series starts with its first
+            billed turn.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function Tile({ label, value, note }: { label: string; value: string; note: string }) {
   return (
@@ -372,13 +506,15 @@ export function WorkflowUsage({ run, now }: { run: WorkflowRun; now: number }) {
             <Tile label="PEAK AT ONCE" value={EM_DASH} note="no timings until the run ends" />
           </div>
 
+          <MoneyPanel run={run} />
+
           <div data-testid="wfu-live-note" style={{ ...PANEL, ...PROSE }}>
             <div style={PANEL_TITLE}>while the run is going</div>
-            {`This run has not written its snapshot yet — the runtime writes it once, at termination. Until then the journal is the only source, and a journal line is an agent id, a cache key and a return value: no phase, no label, no model, no timing and no token count of any kind. `}
+            {`This run has not written its snapshot yet — the runtime writes it once, at termination, and until it lands there are no phases, labels or timings to draw. The journal carries agent ids and return values only. What IS live is each agent's own transcript, which is where the measured spend above comes from. `}
             <span data-testid="wfu-live-counts" style={{ color: 'var(--color-neutral-500)' }}>
               {`${counts.started} started · ${counts.returned} returned`}
             </span>
-            {` is the whole of what can honestly be said. Nothing is projected from it, because there is no measured figure here to project.`}
+            {` is the whole of what the journal can honestly add. Nothing is projected, because a projection needs a denominator no live run carries.`}
           </div>
         </>
       ) : (
@@ -410,6 +546,8 @@ export function WorkflowUsage({ run, now }: { run: WorkflowRun; now: number }) {
               note={peak === 0 ? 'no agent timings recorded' : `${formatElapsed(msAtPeak)} held there`}
             />
           </div>
+
+          <MoneyPanel run={run} />
 
           <div style={PANEL}>
             <div style={PANEL_TITLE}>Phases</div>
@@ -487,8 +625,8 @@ export function WorkflowUsage({ run, now }: { run: WorkflowRun; now: number }) {
               recorded anywhere, so the count the row would like to give cannot
               be filled in. The context column is the sum of each agent&apos;s last
               turn, so a fan-out phase whose siblings shared one cached prefix
-              counts that prefix once per sibling. There is no cost column for
-              the reason below.
+              counts that prefix once per sibling. Cost is priced per agent in
+              the table below; the track row stays time-only.
             </div>
           </div>
 
@@ -532,11 +670,19 @@ export function WorkflowUsage({ run, now }: { run: WorkflowRun; now: number }) {
                   <span style={{ ...CELL, width: '78px' }}>
                     {a.tokens === undefined ? EM_DASH : formatTokens(a.tokens)}
                   </span>
-                  {/* Both are em-dashes rather than absent columns: the figures
-                      exist on disk un-ingested, so the shape of the answer is
-                      known even though the answer is not. */}
-                  <span data-testid="wfu-agent-cachehit" style={{ ...CELL, width: '64px' }}>{EM_DASH}</span>
-                  <span data-testid="wfu-agent-cost" style={{ ...CELL, width: '64px' }}>{EM_DASH}</span>
+                  {/* Filled from the agent's OWN measured split; an agent
+                      whose transcript has no billed turn keeps the em-dash
+                      it always had — absent, never a measured zero. */}
+                  <span data-testid="wfu-agent-cachehit" style={{ ...CELL, width: '64px' }}>
+                    {a.tokenSplit !== undefined && cacheHitRatio(a.tokenSplit) !== undefined
+                      ? formatPct(cacheHitRatio(a.tokenSplit)!)
+                      : EM_DASH}
+                  </span>
+                  <span data-testid="wfu-agent-cost" style={{ ...CELL, width: '64px' }}>
+                    {a.tokenSplit !== undefined && (a.model ?? run.defaultModel)
+                      ? formatCost(usdCost((a.model ?? run.defaultModel)!, a.tokenSplit))
+                      : EM_DASH}
+                  </span>
                 </div>
               ))}
               {scoped.length === 0 && (
@@ -625,43 +771,28 @@ export function WorkflowUsage({ run, now }: { run: WorkflowRun; now: number }) {
       )}
 
       <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-        <div data-testid="wfu-no-cost" style={{ ...PANEL, flex: 1, minWidth: 0 }}>
-          <div style={PANEL_TITLE}>Why there are no costs here</div>
+        <div data-testid="wfu-basis" style={{ ...PANEL, flex: 1, minWidth: 0 }}>
+          <div style={PANEL_TITLE}>Where the money comes from</div>
           <div style={PROSE}>
             <p style={{ margin: '0 0 7px' }}>
-              The run snapshot records one number per agent, and it is that
-              agent&apos;s final context size — its last turn&apos;s input plus cache
-              creation plus cache read. A rate applied to it would not be an
-              approximate bill, it would be a different quantity with a currency
-              symbol on it, so this mode reports the run in agents, tool calls
-              and time instead.
-            </p>
-            <p style={{ margin: '0 0 7px' }}>
-              The source that would price it is not missing. Each agent writes
-              its own four-class usage to
+              Every dollar on this page is derived at API list price from each
+              agent&apos;s own transcript under
               {' '}
               <code style={{ color: 'var(--color-accent-400)' }}>subagents/workflows/wf_&lt;runId&gt;/agent-*.jsonl</code>
               {' '}
-              while the run is going, with a per-line timestamp and model.
-              Re-measured across 8 runs and 76 agents, the snapshot understates
-              real token traffic by 15× to 75× — cache reads are 94.8% of it and
-              the snapshot carries none. So the honest sentence is not that there
-              is no source: the source exists, it is live, and this console does
-              not read it. A workflow fan-out is not a team member, and widening
-              that rule is a scope decision rather than a view&apos;s to make.
+              — four token classes, appended while the run is going. The
+              snapshot&apos;s own figure stays what it always was: final context
+              occupancy, never spend, and never priced.
             </p>
             <p style={{ margin: 0 }}>
-              Two figures stay refused whatever is decided. The concurrency
-              chart&apos;s <code style={{ color: 'var(--color-accent-400)' }}>cap 16</code> line
-              asserts a ceiling this run may not have had — the cap is
-              min(16, CPUs − 2), resolved on the launching host and never written
-              down. And the 1.5M projected-token warning line is dead against the
-              quantity on disk (0 of 8 runs reach it) and permanently tripped
-              against the quantity actually spent (8 of 8, the smallest by 6×), so
-              the constant has to be re-derived once the quantity is settled
-              rather than carried across. A third figure needs the runtime, not
-              this console: the count of agents scheduled but not yet started,
-              which exists only inside the running process.
+              Two figures stay refused. The concurrency chart&apos;s
+              {' '}
+              <code style={{ color: 'var(--color-accent-400)' }}>cap 16</code> line asserts a
+              ceiling this run may not have had — the cap is min(16, CPUs − 2),
+              resolved on the launching host and never written down. And the 1.5M
+              projected-token line stays dead: measured against real spend every
+              run trips it and against the snapshot none do, so the constant must
+              be re-derived, never carried across.
             </p>
           </div>
         </div>
@@ -713,7 +844,7 @@ export function WorkflowUsage({ run, now }: { run: WorkflowRun; now: number }) {
           {resumed
             ? `${cached.length} of ${run.agents.length} came back from cache on this run, and ${fresh.length} ran.`
             : 'Nothing on this run came back from cache, so it ran from the first call.'}
-          {' What a rerun would cost cannot be priced here for the same reason nothing else on this page can — the tokens on disk are context, not spend.'}
+          {' A rerun is not priced in advance: replay order decides which agents run again, and this page prices only what has actually been measured.'}
         </div>
       </div>
 
@@ -728,11 +859,10 @@ export function WorkflowUsage({ run, now }: { run: WorkflowRun; now: number }) {
           stops nothing.
         </div>
         <div style={{ ...PROSE, flex: 1, color: 'var(--color-neutral-700)' }}>
-          Where this console does derive money it does so at API list price, from
-          token counts, and a subscription plan meters the same usage against
-          plan limits instead of billing it. This mode derives none: the run
-          snapshot carries no billable token count, and a single-run comparison
-          would be an estimate even if it did.
+          Dollar figures here are derived at API list price from the token counts
+          in each agent&apos;s own transcript; a subscription plan meters the same
+          usage against plan limits instead of billing it. Comparisons across
+          runs remain estimates.
         </div>
       </div>
     </div>
