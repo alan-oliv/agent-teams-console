@@ -98,6 +98,28 @@ describe('drain', () => {
   it('returns no lines for a missing file', async () => {
     const out = await drain(path.join(dir, 'nope.jsonl'), emptyTailState());
     expect(out.lines).toEqual([]);
+    // No stat happened, so there is no clock to report — absent, not 0, which
+    // is a real epoch and would read as 1970.
+    expect(out.mtimeMs).toBeUndefined();
+  });
+
+  // The file's own clock, which is what tells a live log from a replayed one:
+  // a live log's mtime tracks the timestamps inside it, while a fixture is
+  // written now and describes days ago. Reported even when the drain found
+  // nothing, because a log that has stopped growing is exactly the case the
+  // staleness rule has to judge.
+  it('reports the file mtime, with new bytes and without', async () => {
+    const file = path.join(dir, 'clock.jsonl');
+    await fs.writeFile(file, '{"i":1}\n');
+    const stat = await fs.stat(file);
+
+    const first = await drain(file, emptyTailState());
+    expect(first.lines).toEqual(['{"i":1}']);
+    expect(first.mtimeMs).toBe(stat.mtimeMs);
+
+    const again = await drain(file, first.state);
+    expect(again.lines).toEqual([]);
+    expect(again.mtimeMs).toBe(stat.mtimeMs);
   });
 
   // The ingest marks the first batch of a from-byte-0 read so the fold can clear
