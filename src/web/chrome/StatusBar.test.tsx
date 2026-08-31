@@ -39,7 +39,7 @@ function renderBar(view: Parameters<typeof StatusBar>[0]['view'] = 'wall') {
   return onViewChange;
 }
 
-it('exposes the switcher as a tablist with the six views', () => {
+it('exposes the switcher as a tablist with the seven views', () => {
   renderBar();
   const tablist = screen.getByRole('tablist');
   expect(within(tablist).getAllByRole('tab').map((t) => t.textContent)).toEqual([
@@ -49,6 +49,7 @@ it('exposes the switcher as a tablist with the six views', () => {
     'tasks',
     'rail',
     'grid',
+    'usage',
   ]);
   expect(screen.getByRole('tab', { name: 'wall' }).getAttribute('aria-selected')).toBe('true');
   expect(screen.getByRole('tab', { name: 'grid' }).getAttribute('aria-selected')).toBe('false');

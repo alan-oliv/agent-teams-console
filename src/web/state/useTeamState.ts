@@ -1,7 +1,7 @@
 import { createContext, useCallback, useEffect, useState } from 'react';
 import type { Agent, Diff, TeamState, TranscriptLine, ViewId } from '../../shared/domain';
 
-export const VIEW_IDS: readonly ViewId[] = ['wall', 'overview', 'comms', 'tasks', 'rail', 'grid'];
+export const VIEW_IDS: readonly ViewId[] = ['wall', 'overview', 'comms', 'tasks', 'rail', 'grid', 'usage'];
 
 export interface TeamStateStore {
   state: TeamState | null;

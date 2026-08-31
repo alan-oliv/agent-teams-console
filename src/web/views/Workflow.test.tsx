@@ -134,7 +134,7 @@ describe('Workflow', () => {
     }
   });
 
-  it('offers exactly the four views the design specifies', () => {
+  it('offers exactly the five views the design specifies', () => {
     renderWorkflow();
     const tabs = within(screen.getByRole('tablist')).getAllByRole('tab');
     expect(tabs.map((t) => t.textContent)).toEqual([...WORKFLOW_VIEW_IDS]);
@@ -146,6 +146,13 @@ describe('Workflow', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: 'journal' }));
     expect(screen.getByTestId('workflow-journal')).toBeTruthy();
+    expect(screen.queryByTestId('workflow-run')).toBeNull();
+  });
+
+  it('routes the usage pill to the workflow usage view', () => {
+    renderWorkflow();
+    fireEvent.click(screen.getByRole('tab', { name: 'usage' }));
+    expect(screen.getByTestId('workflow-usage')).toBeTruthy();
     expect(screen.queryByTestId('workflow-run')).toBeNull();
   });
 

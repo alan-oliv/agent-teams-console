@@ -23,6 +23,7 @@ import { NoSessions } from './views/NoSessions';
 import { Overview } from './views/Overview';
 import { Rail } from './views/Rail';
 import { Tasks } from './views/Tasks';
+import { Usage } from './views/Usage';
 import { Wall } from './views/Wall';
 import { Workflow } from './views/Workflow';
 
@@ -382,6 +383,7 @@ export function App() {
         {store.view === 'grid' && (
           <Grid agents={state.agents} focused={store.agent} onFocus={store.setAgent} now={now} />
         )}
+        {store.view === 'usage' && <Usage mode="team" state={state} now={now} />}
         </>
         )}
       </main>

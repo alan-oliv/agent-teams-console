@@ -173,6 +173,13 @@ it('wires each view into the body and never unmounts the chrome switching betwee
   expectChromeMounted();
   expect(screen.getByRole('tablist')).toBe(tablist);
   expect(screen.getByText('PANEL')).toBe(panel);
+
+  fireEvent.click(screen.getByRole('tab', { name: 'usage' }));
+  expect(screen.getByTestId('usage')).toBeTruthy();
+  expect(screen.queryByTestId('grid')).toBeNull();
+  expectChromeMounted();
+  expect(screen.getByRole('tablist')).toBe(tablist);
+  expect(screen.getByText('PANEL')).toBe(panel);
 });
 
 it('wires useKeyboard to the store — ⌘2 switches from the wall to overview', () => {

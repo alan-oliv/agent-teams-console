@@ -1,6 +1,6 @@
 export type AgentStatus = 'working' | 'idle' | 'plan_pending' | 'failed' | 'blocked' | 'departed';
 export type TaskState = 'pending' | 'in_progress' | 'completed' | 'plan_pending' | 'failed' | 'blocked';
-export type ViewId = 'wall' | 'overview' | 'comms' | 'tasks' | 'rail' | 'grid';
+export type ViewId = 'wall' | 'overview' | 'comms' | 'tasks' | 'rail' | 'grid' | 'usage';
 // `✉` is beyond the design README's own list — sanctioned by the CHANGELOG
 // entry "Received messages carry attribution", which gives a delivered
 // teammate message a marker of its own.
