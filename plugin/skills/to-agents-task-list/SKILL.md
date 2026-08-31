@@ -63,15 +63,24 @@ Names are tiers — cheapest capable, mid, top. Substitute current names as mode
 - **A decision task blocks whatever the decision changes.** Model an open question as its own task rather than burying it in an implementation task.
 - **Leave parallel work unblocked.** Every needless blocker is serialized time.
 
-## After creating: show the table
+## After creating: the table, the notes, the ask
 
-Present the list back with dependency and model columns, so the user can override before anything runs.
+The closing message has three parts, in this order. A message that stops after part 2 leaves the contract unsigned — part 3 is what turns the list into a decision.
+
+1. **The table** — dependency and model columns, so the user can override before anything runs:
 
 | # | Task | Blocked by | Model |
 |---|---|---|---|
 | 3 | Ingest the patch from the session transcript | 2 | sonnet · medium |
 
-Then name which tasks are startable now, and flag any sizing you were unsure about.
+2. **The notes** — which tasks are startable now, and any sizing you were unsure about.
+
+3. **The ask** — end with one direct question: which way now? The options are exactly these three:
+   - **adjust models** — re-size any task's model or effort
+   - **adjust tasks** — add, remove, merge, re-scope, or re-wire dependencies
+   - **start the work** — hand the list to `agent-teams-console:implement-task-list`
+
+   Ask it with `AskUserQuestion` where the harness provides that tool (one question, multiSelect on — edits and then starting is a normal combination); otherwise as a plain-text question. Do not invoke `implement-task-list` until the user picks it.
 
 ## Common mistakes
 
