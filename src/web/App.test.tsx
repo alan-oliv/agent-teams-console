@@ -345,7 +345,7 @@ it('scrolls both columns into view for a non-lead comms pair shown in the wall',
   expect(scrolled).toContain('probe-bravo');
 });
 
-it('clicking a usage ledger row focuses that agent in the same shared store the wall reads', () => {
+it('clicking a usage ledger row opens that agent in the wall, the way the comms jump does', () => {
   window.history.replaceState(null, '', '/?view=usage');
   render(<App />);
   act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
@@ -355,6 +355,9 @@ it('clicking a usage ledger row focuses that agent in the same shared store the 
 
   // One store, not six screens: the agent chosen in the ledger lands in the
   // same URL-backed selection the wall, rail and overview already read.
+  expect(screen.getByTestId('wall')).toBeTruthy();
+  expect(screen.queryByTestId('usage')).toBeNull();
+  expect(window.location.search).toContain('view=wall');
   expect(window.location.search).toContain('agent=probe-bravo');
 });
 

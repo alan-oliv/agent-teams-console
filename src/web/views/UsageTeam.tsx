@@ -192,7 +192,9 @@ export function UsageTeam({ state, now, focused, onFocus, spendSamples }: UsageT
         <div style={{ ...PANEL, flex: 1, overflow: 'hidden', padding: 0 }}>
           <div style={{ ...PANEL_HEAD, padding: '13px 16px 11px', borderBottom: '1px solid var(--color-neutral-900)' }}>
             <span style={PANEL_TITLE}>Per-agent ledger</span>
-            <span style={PANEL_CAPTION}>click a row to focus that agent</span>
+            <span data-testid="usage-ledger-caption" style={PANEL_CAPTION}>
+              click a row to open that agent in the wall
+            </span>
           </div>
           <div className="tscroll" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
             {agents.map((agent) => {

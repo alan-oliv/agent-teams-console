@@ -154,6 +154,14 @@ describe('UsageTeam — per-agent ledger', () => {
     expect(onFocus).toHaveBeenCalledWith(state.agents[2].name);
   });
 
+  // The caption is the promise the click has to keep. It said "focus that
+  // agent" while the click also left the view, which reads as a stray
+  // navigation rather than the thing the operator asked for.
+  it('says the row opens the agent in the wall, which is where the click actually lands', () => {
+    renderUsage();
+    expect(screen.getByTestId('usage-ledger-caption').textContent).toContain('wall');
+  });
+
   it('totals tokens, cache hit and cost in a footer row on the same ground', () => {
     const { state } = renderUsage();
     const footer = screen.getByTestId('usage-ledger-footer');

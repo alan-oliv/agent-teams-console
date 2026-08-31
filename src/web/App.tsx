@@ -403,7 +403,10 @@ export function App() {
             state={state}
             now={now}
             focused={store.agent}
-            onFocus={store.setAgent}
+            onFocus={(name) => {
+              store.setAgent(name);
+              store.setView('wall');
+            }}
             spendSamples={spendSamples}
           />
         )}
