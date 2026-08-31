@@ -21,6 +21,15 @@ describe('the theme database', () => {
     }
   });
 
+  it('keeps every spare out of the role cast, so a spare claims no role', () => {
+    // Decision 20: an overflow agent is one whose role the console could not
+    // read, so the character it takes must not be one that names a role.
+    for (const theme of MOVIE_THEMES) {
+      const roles = new Set(Object.values(theme.roles));
+      expect(theme.spare.filter((name) => roles.has(name)), theme.key).toEqual([]);
+    }
+  });
+
   it('resolves an unset or unknown key to the off theme', () => {
     expect(themeFor(null).key).toBe('off');
     expect(themeFor('a film nobody made').key).toBe('off');
@@ -56,7 +65,10 @@ describe('casting', () => {
   it('draws from spare, in roster order, for agents beyond the mapped roles', () => {
     const many = [...crew, mate('ed', 'general-purpose'), mate('fi', 'test-runner')];
     const cast = buildCast(many, 'inception');
-    // 'ed' has no slot and 'fi' finds tests already taken by 'cy'; both fall to spare.
+    // 'ed' has no slot and 'fi' finds tests already taken by 'cy'; both fall to
+    // spare — NOT to inception's still-vacant perf and repro seats. Decision 20:
+    // a vacant role slot stays vacant, because handing one to an agent whose role
+    // the console could not read would name a role it has no evidence for.
     expect(cast.asChar('cy').display).toBe('Eames');
     expect(cast.asChar('ed').display).toBe('Saito');
     expect(cast.asChar('fi').display).toBe('Mal');
