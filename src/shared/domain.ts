@@ -2,7 +2,9 @@ import type { TokenSplit } from './cost';
 
 export type AgentStatus = 'working' | 'idle' | 'plan_pending' | 'failed' | 'blocked' | 'departed';
 export type TaskState = 'pending' | 'in_progress' | 'completed' | 'plan_pending' | 'failed' | 'blocked';
-export type ViewId = 'wall' | 'overview' | 'comms' | 'tasks' | 'rail' | 'grid' | 'usage';
+// `trace` is offered only on a solo session (decision 24); the id exists for
+// every mode so a URL carrying it survives a reload on any session.
+export type ViewId = 'wall' | 'overview' | 'comms' | 'tasks' | 'rail' | 'grid' | 'usage' | 'trace';
 // `✉` is beyond the design README's own list — sanctioned by the CHANGELOG
 // entry "Received messages carry attribution", which gives a delivered
 // teammate message a marker of its own.
@@ -323,6 +325,14 @@ export interface TeamSummary {
    * genuinely has no name yet, and one must not be invented for it.
    */
   workflow?: { runId: string; name?: string; live: boolean };
+  /**
+   * How many Task-subagent transcripts sit under this session — the second
+   * exception to the member-count bar (decision 23): a subagent never enters
+   * `members[]`, exactly like a workflow's agents, so a solo session with a
+   * tree is somewhere to go all the same. Absent, never zero, when there are
+   * none, so a bare window keeps its refused treatment.
+   */
+  subagents?: number;
   /**
    * Work sitting uncommitted in the lead's tree, against HEAD.
    *
