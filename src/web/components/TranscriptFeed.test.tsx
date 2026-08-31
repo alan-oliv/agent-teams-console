@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import type { Diff, TranscriptLine } from '../../shared/domain';
+import type { Diff, Subagent, TranscriptLine } from '../../shared/domain';
 import { TRANSCRIPT_TEXT_CAP } from '../../shared/transcript';
 import { DiffContext } from '../state/useTeamState';
 import { DEFAULT_SETTINGS, SettingsContext } from '../state/useSettings';
@@ -831,5 +831,152 @@ describe('sender chip', () => {
     render(<TranscriptFeed lines={long} size="wall" />);
     fireEvent.click(screen.getByTestId('transcript-row'));
     expect(screen.getByTestId('transcript-sender').textContent).toBe('probe-charlie');
+  });
+});
+
+describe('Task rows and fan-out', () => {
+  const T = 1787843382976;
+
+  function subagent(over: Partial<Subagent> = {}): Subagent {
+    return {
+      toolUseId: 'toolu_1',
+      name: 'scout',
+      agent: 'probe-alpha',
+      parent: 'probe-alpha',
+      depth: 1,
+      spawnIndex: 0,
+      siblingGroup: 'rec-1',
+      state: 'returned',
+      queuedAt: T,
+      children: [],
+      ...over,
+    };
+  }
+
+  it('collapses a single Task call to one line: text, type badge, tokens · duration, caret', () => {
+    const lines: TranscriptLine[] = [{ id: 'rec-1#0', marker: '⏺', text: 'Task(scout)', ts: T }];
+    render(
+      <TranscriptFeed
+        lines={lines}
+        size="wall"
+        subagents={[subagent({ agentType: 'general-purpose', tokens: 4200, durationMs: 65_000 })]}
+      />,
+    );
+    const row = screen.getByTestId('transcript-row');
+    expect(within(row).getByTestId('transcript-text').textContent).toBe('Task(scout)');
+    expect(within(row).getByTestId('subagent-type').textContent).toBe('general-purpose');
+    expect(within(row).getByTestId('subagent-summary').textContent).toBe('4.2k · 1m 05s');
+    expect(within(row).getByTestId('transcript-more').textContent).toBe('▸');
+  });
+
+  // Absent means not-landed-yet — a queued call has genuinely nothing to show,
+  // and a zero would claim it spent no tokens rather than saying it hasn't run.
+  it('shows em-dashes for a queued call with nothing measured yet', () => {
+    const lines: TranscriptLine[] = [{ id: 'rec-1#0', marker: '⏺', text: 'Task(scout)', ts: T }];
+    render(
+      <TranscriptFeed lines={lines} size="wall" subagents={[subagent({ state: 'queued' })]} />,
+    );
+    expect(screen.getByTestId('subagent-summary').textContent).toBe('— · —');
+  });
+
+  it('expands into the same drawer container the other expandable rows use', () => {
+    const lines: TranscriptLine[] = [{ id: 'rec-1#0', marker: '⏺', text: 'Task(scout)', ts: T }];
+    render(<TranscriptFeed lines={lines} size="wall" subagents={[subagent()]} />);
+    fireEvent.click(screen.getByTestId('transcript-row'));
+    const drawer = screen.getByTestId('transcript-row');
+    expect(drawer.getAttribute('aria-expanded')).toBe('true');
+    expect(drawer.style.background).toBe('var(--color-bg)');
+    expect(drawer.style.border).toBe('1px solid var(--color-neutral-900)');
+    expect(drawer.style.borderRadius).toBe('var(--radius-md)');
+    expect(drawer.style.boxShadow).toBe('var(--shadow-sm)');
+  });
+
+  it('orders the open drawer: header, the result at full opacity, then the footer', () => {
+    const lines: TranscriptLine[] = [{ id: 'rec-1#0', marker: '⏺', text: 'Task(scout)', ts: T }];
+    render(
+      <TranscriptFeed
+        lines={lines}
+        size="wall"
+        subagents={[subagent({ model: 'claude-sonnet-5', returnedSummary: 'found the bug' })]}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('transcript-row'));
+    const drawer = screen.getByTestId('transcript-row');
+    const testids = [...drawer.querySelectorAll('[data-testid]')].map((el) =>
+      el.getAttribute('data-testid'),
+    );
+    const order = ['subagent-header', 'subagent-result', 'subagent-footer'].map((id) =>
+      testids.indexOf(id),
+    );
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+    expect(order.every((i) => i !== -1)).toBe(true);
+    expect(screen.getByTestId('subagent-result').textContent).toContain('found the bug');
+    expect(screen.getByTestId('subagent-result').style.opacity).toBe('');
+    expect(screen.getByTestId('subagent-footer').textContent).toContain(
+      'no reply channel — a subagent returns once and is gone',
+    );
+  });
+
+  it('dims nested children to 0.62 opacity behind a left rule, badged with type · depth N', () => {
+    const lines: TranscriptLine[] = [{ id: 'rec-1#0', marker: '⏺', text: 'Task(scout)', ts: T }];
+    render(
+      <TranscriptFeed
+        lines={lines}
+        size="wall"
+        subagents={[
+          subagent({
+            children: [
+              subagent({
+                toolUseId: 'toolu_2',
+                name: 'grepper',
+                agentType: 'Explore',
+                depth: 2,
+                parent: 'toolu_1',
+              }),
+            ],
+          }),
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('transcript-row'));
+    const children = screen.getByTestId('subagent-children');
+    expect(children.style.opacity).toBe('0.62');
+    expect(children.style.borderLeft).toBe('1px solid var(--color-neutral-900)');
+    expect(within(children).getByTestId('subagent-depth').textContent).toBe('Explore · depth 2');
+  });
+
+  it('truncates a long chain of nested calls rather than growing the drawer without bound', () => {
+    const lines: TranscriptLine[] = [{ id: 'rec-1#0', marker: '⏺', text: 'Task(scout)', ts: T }];
+    const children = Array.from({ length: 9 }, (_, i) =>
+      subagent({ toolUseId: `toolu_child_${i}`, name: `child-${i}`, depth: 2, parent: 'toolu_1' }),
+    );
+    render(
+      <TranscriptFeed lines={lines} size="wall" subagents={[subagent({ children })]} />,
+    );
+    fireEvent.click(screen.getByTestId('transcript-row'));
+    expect(screen.getByTestId('subagent-truncated').textContent).toBe('⋯ 3 more calls');
+  });
+
+  it('draws a fan-out as one dispatched-in-parallel line with a chip strip, never as columns', () => {
+    const lines: TranscriptLine[] = [
+      { id: 'rec-2#0', marker: '⏺', text: 'Task(scout)', ts: T },
+      { id: 'rec-2#1', marker: '⏺', text: 'Task(auditor)', ts: T },
+    ];
+    render(
+      <TranscriptFeed
+        lines={lines}
+        size="wall"
+        subagents={[
+          subagent({ toolUseId: 't1', siblingGroup: 'rec-2', name: 'scout', state: 'returned' }),
+          subagent({ toolUseId: 't2', siblingGroup: 'rec-2', name: 'auditor', state: 'running' }),
+        ]}
+      />,
+    );
+    // Both lines collapse into the one compound row — never two, never columns.
+    expect(screen.queryAllByTestId('transcript-row')).toHaveLength(0);
+    expect(screen.getByTestId('fanout-header').textContent).toBe('Task ×2 dispatched in parallel');
+    const chips = screen.getAllByTestId('fanout-chip');
+    expect(chips).toHaveLength(2);
+    expect(screen.getByTestId('fanout-pending').textContent).toContain('1 of 2 still running');
   });
 });

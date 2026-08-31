@@ -4,10 +4,27 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { FIXTURE_NOW, sampleTeamState } from '../test/state-fixture';
 import { MOVIE_THEMES } from '../../shared/cast';
 import { buildCast } from '../../shared/cast';
+import type { Subagent } from '../../shared/domain';
 import { CastContext } from '../state/useCast';
 import { METRIC_RANK, StatusBar } from './StatusBar';
 import { DEFAULT_SETTINGS } from '../state/useSettings';
 import { cssVarsFor, DENSITY } from '../themes';
+
+function subagent(over: Partial<Subagent> = {}): Subagent {
+  return {
+    toolUseId: 'toolu_1',
+    name: 'scout',
+    agent: 'probe-alpha',
+    parent: 'probe-alpha',
+    depth: 1,
+    spawnIndex: 0,
+    siblingGroup: 'rec-1',
+    state: 'returned',
+    queuedAt: FIXTURE_NOW - 60_000,
+    children: [],
+    ...over,
+  };
+}
 
 const APPEARANCE = {
   settings: DEFAULT_SETTINGS,
@@ -113,6 +130,62 @@ it('renders the right-hand readouts from the fixture team', () => {
   // used to sit between them.
   expect(screen.getByText('45m 12s · ≈$2.56 api-equiv')).toBeTruthy();
   expect(screen.getByText('5h 41% · 7d 12%')).toBeTruthy();
+});
+
+// Counts and tokens flatten across the whole tree — a nested dispatch is still
+// activity the operator cannot see anywhere else in the bar.
+it('shows a subagents metric with the count and summed tokens across the whole tree', () => {
+  const state = sampleTeamState();
+  state.subagents = {
+    'probe-alpha': [
+      subagent({ toolUseId: 'toolu_1', tokens: 1200 }),
+      subagent({
+        toolUseId: 'toolu_2',
+        tokens: 800,
+        children: [subagent({ toolUseId: 'toolu_3', tokens: 300, depth: 2, parent: 'toolu_2' })],
+      }),
+    ],
+  };
+  render(
+    <StatusBar
+      state={state}
+      view="wall"
+      onViewChange={vi.fn()}
+      now={FIXTURE_NOW}
+      teamsOpen={false}
+      onTeamsOpenChange={vi.fn()}
+      onSelectRun={vi.fn()}
+      appearance={APPEARANCE}
+    />,
+  );
+  expect(screen.getByText('3 subagents · 2.3k')).toBeTruthy();
+});
+
+// A subagent whose tokens have not landed yet is absent, not zero — folding
+// that in as 0 would silently under-report tokens the tree actually spent.
+it('sums only the subagents whose token count has landed', () => {
+  const state = sampleTeamState();
+  state.subagents = {
+    'probe-alpha': [subagent({ toolUseId: 'toolu_1', tokens: 500 }), subagent({ toolUseId: 'toolu_2', state: 'queued' })],
+  };
+  render(
+    <StatusBar
+      state={state}
+      view="wall"
+      onViewChange={vi.fn()}
+      now={FIXTURE_NOW}
+      teamsOpen={false}
+      onTeamsOpenChange={vi.fn()}
+      onSelectRun={vi.fn()}
+      appearance={APPEARANCE}
+    />,
+  );
+  expect(screen.getByText('2 subagents · 500')).toBeTruthy();
+});
+
+it('spends no bar width on a subagents metric when the session never dispatched one', () => {
+  renderBar();
+  expect(screen.queryByText(/subagents/)).toBeNull();
 });
 
 it('shows the branch when the state carries one', () => {
@@ -222,7 +295,10 @@ it('sheds the extras first and the branch never, per the design order', () => {
   // The design drops right-to-left: the diffstat-class extra first, then the
   // token figure. Elapsed and spend are permanently one chip, so the merge step
   // in between has already been paid. Branch outlives every one of them.
+  // `subagents` is the newest addition and was never part of the 1180px budget
+  // the rest of this order was measured against, so it sheds before all of them.
   expect(shedFirstToLast).toEqual([
+    'subagents',
     'limits',
     'tokens',
     'meter',

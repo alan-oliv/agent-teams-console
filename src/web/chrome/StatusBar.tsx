@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import type { TeamState, ViewId } from '../../shared/domain';
+import type { Subagent, TeamState, ViewId } from '../../shared/domain';
 import type { SettingsStore } from '../state/useSettings';
 import { formatCost, formatElapsed, formatTokens, meterCells } from '../format';
 import { VIEW_IDS } from '../state/useTeamState';
@@ -30,7 +30,15 @@ export const METRIC_RANK: Record<string, number> = {
   meter: 4,
   tokens: 5,
   limits: 6,
+  // Newest addition, never part of the budget the rest of this order was
+  // measured against — it sheds before everything above it.
+  subagents: 7,
 };
+
+/** Every subagent in the tree, at every depth — a nested dispatch is still activity. */
+function flattenSubagents(subagents: Subagent[]): Subagent[] {
+  return subagents.flatMap((s) => [s, ...flattenSubagents(s.children)]);
+}
 
 export interface StatusBarProps {
   state: TeamState;
@@ -54,6 +62,11 @@ export function StatusBar({
   const totalLimit = state.agents.reduce((n, a) => n + a.contextLimit, 0);
   const occupied = state.agents.reduce((n, a) => n + a.contextTokens, 0);
 
+  const allSubagents = Object.values(state.subagents ?? {}).flatMap(flattenSubagents);
+  // Absent means not-yet-landed, not zero — summing only what has landed
+  // avoids reporting a total lower than what the tree actually spent.
+  const subagentTokens = allSubagents.reduce((n, s) => n + (s.tokens ?? 0), 0);
+
   // Reading order — the handoff's arrangement. What goes when the bar runs out
   // of room is METRIC_RANK's business, not this list's.
   const metrics: ReactElement[] = [
@@ -74,6 +87,13 @@ export function StatusBar({
     <span key="windows" style={{ color: 'var(--color-neutral-600)', ...METRIC }}>
       {`${state.agents.length} ctx`}
     </span>,
+    ...(allSubagents.length > 0
+      ? [
+          <span key="subagents" style={{ color: 'var(--color-neutral-600)', ...METRIC }}>
+            {`${allSubagents.length} subagents · ${formatTokens(subagentTokens)}`}
+          </span>,
+        ]
+      : []),
     <span key="tokens" style={{ color: 'var(--color-neutral-500)', ...METRIC }}>
       {formatTokens(state.totalTokens)}
     </span>,
