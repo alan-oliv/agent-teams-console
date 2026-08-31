@@ -444,6 +444,14 @@ describe('UsageTeam — the rev 3c ledger columns', () => {
     expect(dots[0].style.background).toBe(colors.get(state.agents[0].name));
   });
 
+  // The choice of "sent" over "involved in" has to be legible to an operator,
+  // not only to this test — a bare "msgs" header reads as traffic.
+  it('says in the header that the column counts messages sent', () => {
+    renderUsage();
+    const header = screen.getByTitle('messages this agent sent');
+    expect(header.textContent).toBe('msgs');
+  });
+
   it('counts messages sent, so the column totals to something real', () => {
     const { state } = renderUsage();
     const rows = screen.getAllByTestId('usage-row-msgs').map((n) => Number(n.textContent));
