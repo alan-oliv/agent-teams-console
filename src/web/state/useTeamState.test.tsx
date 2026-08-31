@@ -134,6 +134,42 @@ it('reuses the agents array itself when no agent changed', () => {
   expect(result.current.state!.agents).toBe(first);
 });
 
+// tokenSplit is an object, and every frame is a fresh JSON.parse — a naive
+// reference check on it would treat every agent as changed on every frame,
+// the same failure transcript already gets a dedicated by-value check for.
+// MockEventSource round-trips every emitted frame through JSON exactly like
+// the real SSE wire does, so an unfixed reconcile() would fail this the same
+// way it would in production.
+it('reuses an agent whose tokenSplit is unchanged in value across a JSON round-trip', () => {
+  const { result } = renderHook(() => useTeamState());
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+  const first = result.current.state!.agents;
+
+  act(() => MockEventSource.last().emit('state', sampleTeamState()));
+  const second = result.current.state!.agents;
+
+  expect(second[0]).toBe(first[0]);
+});
+
+it('gives a new identity to an agent whose tokenSplit value actually changed', () => {
+  const { result } = renderHook(() => useTeamState());
+  const base = sampleTeamState();
+  act(() => MockEventSource.last().emit('snapshot', base));
+  const first = result.current.state!.agents;
+
+  const mutated: TeamState = {
+    ...base,
+    agents: base.agents.map((a, i) =>
+      i === 0 ? { ...a, tokenSplit: { ...a.tokenSplit!, cacheRead: a.tokenSplit!.cacheRead + 1 } } : a,
+    ),
+  };
+  act(() => MockEventSource.last().emit('state', mutated));
+  const second = result.current.state!.agents;
+
+  expect(second[0]).not.toBe(first[0]);
+  expect(second[1]).toBe(first[1]);
+});
+
 it('gives a new identity to an agent that gained a transcript line', () => {
   const { result } = renderHook(() => useTeamState());
   act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
