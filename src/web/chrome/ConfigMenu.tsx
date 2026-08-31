@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { MOVIE_THEMES, themeFor } from '../../shared/cast';
+import { MOVIE_THEMES, themeFor, type FilmPalette } from '../../shared/cast';
 import {
   ACCENT_KEYS,
   DENSITY_IDS,
@@ -20,6 +20,15 @@ const SECTION: CSSProperties = {
 };
 
 const LABEL: CSSProperties = { color: 'var(--color-neutral-500)', fontSize: '10.5px' };
+
+/** A band inside the one dropdown, separating the system themes from the films. */
+const GROUP: CSSProperties = {
+  padding: '6px 9px 4px',
+  color: 'var(--color-neutral-600)',
+  fontSize: '9px',
+  letterSpacing: '.12em',
+  borderBottom: '1px solid var(--color-neutral-900)',
+};
 
 /** Picked-or-not, for the tiles and the density segments. */
 function pickStyle(on: boolean): CSSProperties {
@@ -75,9 +84,18 @@ function optionStyle(on: boolean): CSSProperties {
 
 const optionColor = (on: boolean) => (on ? 'var(--color-accent-300)' : 'var(--color-neutral-400)');
 
-/** Ground, accent and text of a theme, so a name is not the only preview. */
-function Swatch({ id }: { id: ThemeId }) {
-  const theme = THEMES[id];
+/** A system theme's three bands. */
+const themeBands = (id: ThemeId): [string, string, string] => [
+  THEMES[id].term, THEMES[id].accents.a.steps[0], THEMES[id].text,
+];
+
+/** A film's, read from its own palette so the grade previews itself. */
+const filmBands = (palette: FilmPalette): [string, string, string] => [
+  palette.bg, palette.accent.base, palette.text,
+];
+
+/** Ground, accent and text, so a name is not the only preview. */
+function Swatch({ bands }: { bands: [string, string, string] }) {
   return (
     <span
       style={{
@@ -89,9 +107,9 @@ function Swatch({ id }: { id: ThemeId }) {
         boxShadow: '0 0 0 1px var(--color-neutral-800)',
       }}
     >
-      <span style={{ flex: 2, height: '13px', background: theme.term }} />
-      <span style={{ flex: 1, height: '13px', background: theme.accents.a.steps[0] }} />
-      <span style={{ flex: 1, height: '13px', background: theme.text }} />
+      <span style={{ flex: 2, height: '13px', background: bands[0] }} />
+      <span style={{ flex: 1, height: '13px', background: bands[1] }} />
+      <span style={{ flex: 1, height: '13px', background: bands[2] }} />
     </span>
   );
 }
@@ -181,9 +199,34 @@ export function ConfigMenu({ appearance, open, onOpenChange }: ConfigMenuProps) 
   const { settings, set, reset } = appearance;
   const wrapper = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  // One at a time: two open lists would overlap in a 302px panel.
-  const [list, setList] = useState<'movie' | 'theme' | null>(null);
-  const movieLabel = settings.movieTheme ? themeFor(settings.movieTheme).film : 'off';
+  const [open_, setOpen_] = useState(false);
+  const list = open_ ? 'theme' : null;
+  const setList = (next: 'theme' | null) => setOpen_(next === 'theme');
+
+  // Films are entries in THIS dropdown, not a second one: two lists that both
+  // change the console's appearance is one list.
+  const film = themeFor(settings.movieTheme);
+  const hasFilm = settings.movieTheme !== null;
+  const driving = hasFilm && settings.filmPalette ? film.palette : undefined;
+  const systemLabel = THEMES[settings.theme].label;
+
+  const closedLabel = !hasFilm
+    ? `System default \u00b7 ${systemLabel}`
+    : settings.filmPalette
+      ? `${film.film} \u00b7 ${film.palette?.label ?? ''}`
+      : `${film.film} \u00b7 names only`;
+
+  // The note states the reach exactly, because "a theme sets names only" is a
+  // switch now rather than a law and the panel is where that is legible.
+  const note = !hasFilm
+    ? 'Agents keep their real names.'
+    : settings.filmPalette
+      ? `Names, portrait colours and the ground all come from ${film.film}.`
+      : `Names and portrait colours only; the ground stays on ${systemLabel}.`;
+
+  // The closed row previews what is ACTUALLY painted, so with the switch off it
+  // shows the system theme the ground really is.
+  const closedBands = driving ? filmBands(driving) : themeBands(settings.theme);
 
   useEffect(() => {
     if (!open) {
@@ -290,92 +333,6 @@ export function ConfigMenu({ appearance, open, onOpenChange }: ConfigMenuProps) 
           </div>
 
           <div style={{ ...SECTION, paddingBottom: '12px' }}>
-            <span style={LABEL}>movie theme</span>
-            <div style={{ position: 'relative' }}>
-              <button
-                type="button"
-                className="team-trigger"
-                data-testid="movie-trigger"
-                aria-haspopup="listbox"
-                aria-expanded={list === 'movie'}
-                onClick={() => setList(list === 'movie' ? null : 'movie')}
-                style={{ ...ROW, width: '100%' }}
-              >
-                <span
-                  style={{
-                    color: 'var(--color-text)',
-                    fontSize: '11px',
-                    minWidth: 0,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {movieLabel}
-                </span>
-                <span style={{ flex: 1 }} />
-                <span style={{ color: 'var(--color-accent-400)', fontSize: '9px' }}>
-                  {list === 'movie' ? '▴' : '▾'}
-                </span>
-              </button>
-              {list === 'movie' && (
-                <div className="tscroll" role="listbox" data-testid="movie-menu" style={MENU}>
-                  {MOVIE_THEMES.map((film) => {
-                    const off = film.key === 'off';
-                    const on = off ? settings.movieTheme === null : settings.movieTheme === film.key;
-                    return (
-                      <button
-                        key={film.key}
-                        type="button"
-                        className="cfg-tile"
-                        data-testid={`movie-${film.key}`}
-                        role="option"
-                        aria-selected={on}
-                        title={film.note}
-                        onClick={() => {
-                          set('movieTheme', off ? null : film.key);
-                          setList(null);
-                        }}
-                        style={optionStyle(on)}
-                      >
-                        <span
-                          style={{
-                            color: optionColor(on),
-                            fontSize: '10.5px',
-                            minWidth: 0,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {off ? 'off' : film.film}
-                        </span>
-                        <span style={{ flex: 1 }} />
-                        {/* The lead is the tone in one word — visible before committing. */}
-                        <span
-                          style={{
-                            color: 'var(--color-neutral-600)',
-                            fontSize: '9.5px',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {off ? '—' : film.roles.lead}
-                        </span>
-                        <Check on={on} />
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-            <span
-              style={{ color: 'var(--color-neutral-600)', fontSize: '9.5px', lineHeight: 1.5 }}
-            >
-              Names only. Types, states and metrics keep their real values.
-            </span>
-          </div>
-
-          <div style={SECTION}>
             <span style={LABEL}>theme</span>
             <div style={{ position: 'relative' }}>
               <button
@@ -387,21 +344,29 @@ export function ConfigMenu({ appearance, open, onOpenChange }: ConfigMenuProps) 
                 onClick={() => setList(list === 'theme' ? null : 'theme')}
                 style={{ ...ROW, width: '100%' }}
               >
-                <Swatch id={settings.theme} />
+                <Swatch bands={closedBands} />
                 <span
-                  style={{ color: 'var(--color-text)', fontSize: '11px', whiteSpace: 'nowrap' }}
+                  style={{
+                    color: 'var(--color-text)',
+                    fontSize: '11px',
+                    minWidth: 0,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
                 >
-                  {THEMES[settings.theme].label}
+                  {closedLabel}
                 </span>
                 <span style={{ flex: 1 }} />
                 <span style={{ color: 'var(--color-accent-400)', fontSize: '9px' }}>
-                  {list === 'theme' ? '▴' : '▾'}
+                  {list === 'theme' ? '\u25b4' : '\u25be'}
                 </span>
               </button>
               {list === 'theme' && (
                 <div className="tscroll" role="listbox" data-testid="theme-menu" style={MENU}>
+                  <span style={GROUP}>SYSTEM</span>
                   {THEME_IDS.map((id) => {
-                    const on = settings.theme === id;
+                    const on = !hasFilm && settings.theme === id;
                     return (
                       <button
                         key={id}
@@ -412,24 +377,69 @@ export function ConfigMenu({ appearance, open, onOpenChange }: ConfigMenuProps) 
                         aria-selected={on}
                         title={THEMES[id].note}
                         onClick={() => {
+                          // A system row means real agent names, so it drops the
+                          // film as well as setting the ground.
                           set('theme', id as ThemeId);
+                          set('movieTheme', null);
                           setList(null);
                         }}
                         style={optionStyle(on)}
                       >
                         {/* Each option previews itself in its OWN colours, so
                             the choice is visible before it is applied. */}
-                        <Swatch id={id as ThemeId} />
+                        <Swatch bands={themeBands(id as ThemeId)} />
+                        <span
+                          style={{ color: optionColor(on), fontSize: '10.5px', whiteSpace: 'nowrap' }}
+                        >
+                          {`System default \u00b7 ${THEMES[id].label}`}
+                        </span>
+                        <span style={{ flex: 1 }} />
+                        <Check on={on} />
+                      </button>
+                    );
+                  })}
+                  <span style={GROUP}>FILM &middot; names, portraits and palette</span>
+                  {MOVIE_THEMES.filter((entry) => entry.palette).map((entry) => {
+                    const on = settings.movieTheme === entry.key;
+                    return (
+                      <button
+                        key={entry.key}
+                        type="button"
+                        className="cfg-tile"
+                        data-testid={`theme-film-${entry.key}`}
+                        role="option"
+                        aria-selected={on}
+                        title={entry.note}
+                        onClick={() => {
+                          set('movieTheme', entry.key);
+                          setList(null);
+                        }}
+                        style={optionStyle(on)}
+                      >
+                        <Swatch bands={filmBands(entry.palette!)} />
                         <span
                           style={{
                             color: optionColor(on),
                             fontSize: '10.5px',
+                            minWidth: 0,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
                             whiteSpace: 'nowrap',
                           }}
                         >
-                          {THEMES[id].label}
+                          {entry.film}
                         </span>
                         <span style={{ flex: 1 }} />
+                        {/* The lead is the tone in one word — visible before committing. */}
+                        <span
+                          style={{
+                            color: 'var(--color-neutral-600)',
+                            fontSize: '9.5px',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {entry.roles.lead}
+                        </span>
                         <Check on={on} />
                       </button>
                     );
@@ -437,10 +447,52 @@ export function ConfigMenu({ appearance, open, onOpenChange }: ConfigMenuProps) 
                 </div>
               )}
             </div>
+            <span
+              data-testid="theme-note"
+              style={{ color: 'var(--color-neutral-600)', fontSize: '9.5px', lineHeight: 1.5 }}
+            >
+              {note}
+            </span>
+            {hasFilm && (
+              <Toggle
+                id="filmPalette"
+                label="film palette"
+                note="the film grades the console too"
+                value={settings.filmPalette}
+                onChange={(v) => set('filmPalette', v)}
+              />
+            )}
           </div>
 
           <div style={SECTION}>
             <span style={LABEL}>accent scheme</span>
+            {driving ? (
+              // A film carries ONE ramp — its own. Four invented variants of
+              // somebody's grade would be four wrong answers, so the row says
+              // what happened rather than silently doing nothing.
+              <div
+                data-testid="film-accent"
+                style={{ display: 'flex', gap: '10px', alignItems: 'center' }}
+              >
+                <span
+                  style={{
+                    width: '20px',
+                    height: '20px',
+                    borderRadius: '10px',
+                    flex: 'none',
+                    background: driving.accent.base,
+                    boxShadow: `0 0 0 2px var(--color-bg), 0 0 0 3px ${driving.accent[700]}`,
+                  }}
+                />
+                <span style={{ color: 'var(--color-neutral-400)', fontSize: '10.5px' }}>
+                  {driving.accent.name}
+                </span>
+                <span style={{ flex: 1 }} />
+                <span style={{ color: 'var(--color-neutral-600)', fontSize: '9.5px' }}>
+                  overridden by the film
+                </span>
+              </div>
+            ) : (
             <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
               {ACCENT_KEYS.map((key) => {
                 const accent = THEMES[settings.theme].accents[key];
@@ -474,6 +526,7 @@ export function ConfigMenu({ appearance, open, onOpenChange }: ConfigMenuProps) 
                 four per theme
               </span>
             </div>
+            )}
           </div>
 
           <div style={SECTION}>
@@ -531,6 +584,13 @@ export function ConfigMenu({ appearance, open, onOpenChange }: ConfigMenuProps) 
               note="gutter in expanded payloads"
               value={settings.numbers}
               onChange={(v) => set('numbers', v)}
+            />
+            <Toggle
+              id="showRateCard"
+              label="rate card"
+              note="$/M token rates in usage"
+              value={settings.showRateCard}
+              onChange={(v) => set('showRateCard', v)}
             />
           </div>
 

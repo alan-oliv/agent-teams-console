@@ -32,6 +32,8 @@ export interface Settings {
    * can only ever hold a system id, so it IS the last system theme picked.
    */
   filmPalette: boolean;
+  /** The $/M rate card in the team usage view. Read there, written here. */
+  showRateCard: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -44,6 +46,7 @@ export const DEFAULT_SETTINGS: Settings = {
   numbers: true,
   movieTheme: null,
   filmPalette: true,
+  showRateCard: true,
 };
 
 // Appearance is a property of this machine, not of the team being watched — a
@@ -72,7 +75,7 @@ export function parseSettings(raw: string | null): Settings {
   }
   if (!stored || typeof stored !== 'object') return DEFAULT_SETTINGS;
   const s = stored as Record<string, unknown>;
-  const bool = (key: 'fade' | 'avatars' | 'motion' | 'numbers' | 'filmPalette'): boolean =>
+  const bool = (key: 'fade' | 'avatars' | 'motion' | 'numbers' | 'filmPalette' | 'showRateCard'): boolean =>
     typeof s[key] === 'boolean' ? (s[key] as boolean) : DEFAULT_SETTINGS[key];
   return {
     theme: inList(THEME_IDS, s.theme) ? s.theme : DEFAULT_SETTINGS.theme,
@@ -84,6 +87,7 @@ export function parseSettings(raw: string | null): Settings {
     numbers: bool('numbers'),
     movieTheme: inList(CAST_KEYS, s.movieTheme) ? s.movieTheme : DEFAULT_SETTINGS.movieTheme,
     filmPalette: bool('filmPalette'),
+    showRateCard: bool('showRateCard'),
   };
 }
 

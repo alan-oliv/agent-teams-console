@@ -22,9 +22,16 @@ describe('parseSettings', () => {
   it('reads a full stored blob back', () => {
     const stored = {
       theme: 'phosphor', scheme: 'c', density: 'roomy', movieTheme: 'lotr',
-      fade: false, avatars: false, motion: false, numbers: false, filmPalette: false,
+      fade: false, avatars: false, motion: false, numbers: false,
+      filmPalette: false, showRateCard: false,
     };
     expect(parseSettings(JSON.stringify(stored))).toEqual(stored);
+  });
+
+  it('defaults the rate card visible, including on a blob written before it', () => {
+    // The usage view reads this; it is written here. Visible out of the box.
+    expect(DEFAULT_SETTINGS.showRateCard).toBe(true);
+    expect(parseSettings(JSON.stringify({ theme: 'ember' })).showRateCard).toBe(true);
   });
 
   it('drives the film palette by default, so picking a film shows the grade', () => {

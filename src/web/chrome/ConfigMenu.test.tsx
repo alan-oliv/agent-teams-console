@@ -5,6 +5,7 @@ import { App } from '../App';
 import { MockEventSource, installMockEventSource } from '../test/mockEventSource';
 import { sampleTeamState } from '../test/state-fixture';
 import { SETTINGS_KEY, SettingsContext, DEFAULT_SETTINGS, type Settings } from '../state/useSettings';
+import { themeFor } from '../../shared/cast';
 import { THEMES } from '../themes';
 import { TranscriptFeed } from '../components/TranscriptFeed';
 import type { TranscriptLine } from '../../shared/domain';
@@ -36,8 +37,8 @@ const pickTheme = (id: string) => {
   fireEvent.click(screen.getByTestId(`theme-${id}`));
 };
 const pickMovie = (key: string) => {
-  fireEvent.click(screen.getByTestId('movie-trigger'));
-  fireEvent.click(screen.getByTestId(`movie-${key}`));
+  fireEvent.click(screen.getByTestId('theme-trigger'));
+  fireEvent.click(screen.getByTestId(`theme-film-${key}`));
 };
 
 // jsdom normalises a hex background to rgb(), so compare through the DOM.
@@ -98,30 +99,30 @@ describe('the config popover', () => {
     }
   });
 
-  it('offers the ten films and off, each named by its lead', () => {
+  it('offers the ten films inside the theme menu, each named by its lead', () => {
     mount();
     open();
-    fireEvent.click(screen.getByTestId('movie-trigger'));
-    const menu = screen.getByTestId('movie-menu');
-    expect(menu.querySelectorAll('[data-testid^="movie-"]')).toHaveLength(11);
-    expect(screen.getByTestId('movie-off').textContent).toContain('off');
-    const inception = screen.getByTestId('movie-inception');
+    fireEvent.click(screen.getByTestId('theme-trigger'));
+    const menu = screen.getByTestId('theme-menu');
+    // No "off" row any more: a SYSTEM row is what real agent names look like.
+    expect(menu.querySelectorAll('[data-testid^="theme-film-"]')).toHaveLength(10);
+    const inception = screen.getByTestId('theme-film-inception');
     expect(inception.textContent).toContain('Inception');
     expect(inception.textContent).toContain('Cobb');
   });
 
-  it('keeps the menus off the panel height: both are absolutely positioned', () => {
+  it('keeps the list off the panel height: the menu is absolutely positioned', () => {
+    // An inline list once grew the panel to 859px inside a 716px console, and
+    // the merge made the list longer, not shorter.
     mount();
     open();
-    fireEvent.click(screen.getByTestId('movie-trigger'));
-    const movie = screen.getByTestId('movie-menu');
-    expect(movie.style.position).toBe('absolute');
-    expect(movie.style.top).toBe('calc(100% + 4px)');
-    expect(movie.style.maxHeight).toBe('186px');
     fireEvent.click(screen.getByTestId('theme-trigger'));
-    // One at a time, or the two menus overlap.
-    expect(screen.queryByTestId('movie-menu')).toBeNull();
-    expect(screen.getByTestId('theme-menu').style.position).toBe('absolute');
+    const menu = screen.getByTestId('theme-menu');
+    expect(menu.style.position).toBe('absolute');
+    expect(menu.style.top).toBe('calc(100% + 4px)');
+    expect(menu.style.maxHeight).toBe('186px');
+    fireEvent.click(screen.getByTestId('theme-trigger'));
+    expect(screen.queryByTestId('theme-menu')).toBeNull();
   });
 
   // The inline list had grown the panel past the console it hangs in, and a
@@ -134,21 +135,19 @@ describe('the config popover', () => {
     expect(menu.style.height).not.toContain('%');
   });
 
-  it('says the theme renames agents and nothing else', () => {
+  it('states the reach under the dropdown, which is names only by default', () => {
     mount();
     open();
-    expect(
-      screen.getByText('Names only. Types, states and metrics keep their real values.'),
-    ).toBeTruthy();
+    expect(screen.getByTestId('theme-note').textContent).toBe('Agents keep their real names.');
   });
 
-  it('puts movie theme above theme', () => {
+  it('carries one appearance list, and it is labelled theme', () => {
     mount();
     open();
     const labels = [...screen.getByTestId('config-menu').querySelectorAll('span')]
       .map((s) => s.textContent)
       .filter((t) => t === 'movie theme' || t === 'theme');
-    expect(labels).toEqual(['movie theme', 'theme']);
+    expect(labels).toEqual(['theme']);
   });
 
   it('names the four accents by the picked theme own names', () => {
@@ -249,8 +248,9 @@ describe('every control changes the render', () => {
     expect(screen.getAllByTestId('wall-name')[0].textContent).toBe('Cobb');
     expect(screen.getAllByTestId('wall-type')[0].textContent).toBe('team-lead');
 
-    // The panel stays open through a pick, so off is one more pick, not a reopen.
-    pickMovie('off');
+    // The panel stays open through a pick, so going back to real names is one
+    // more pick — of a SYSTEM row — not a reopen.
+    pickSystem('nocturne');
     expect(screen.getAllByTestId('wall-name')[0].textContent).toBe('team-lead');
   });
 
@@ -314,18 +314,18 @@ describe('persistence', () => {
     expect(stored.density).toBe('roomy');
   });
 
-  it('reads off until a film is picked, then the film, and stores the key', () => {
+  it('reads the system default until a film is picked, then the film', () => {
     mount();
     open();
-    expect(screen.getByTestId('movie-trigger').textContent).toContain('off');
+    expect(screen.getByTestId('theme-trigger').textContent).toContain('System default');
 
     pickMovie('lotr');
-    expect(screen.queryByTestId('movie-menu')).toBeNull();
-    expect(screen.getByTestId('movie-trigger').textContent).toContain('The Lord of the Rings');
+    expect(screen.queryByTestId('theme-menu')).toBeNull();
+    expect(screen.getByTestId('theme-trigger').textContent).toContain('The Lord of the Rings');
     expect(JSON.parse(window.localStorage.getItem(SETTINGS_KEY)!).movieTheme).toBe('lotr');
 
-    pickMovie('off');
-    expect(screen.getByTestId('movie-trigger').textContent).toContain('off');
+    pickSystem('nocturne');
+    expect(screen.getByTestId('theme-trigger').textContent).toContain('System default · Nocturne');
     expect(JSON.parse(window.localStorage.getItem(SETTINGS_KEY)!).movieTheme).toBeNull();
   });
 
@@ -372,5 +372,161 @@ describe('the gear is chrome, not a metric', () => {
       expect(screen.getByTestId('config-trigger'), view).toBeTruthy();
       cleanup();
     }
+  });
+});
+
+// Rev 4b: there is no separate movie picker. Films are entries in the one theme
+// dropdown, because two lists that both change the console's appearance is one
+// list. These replace the movie-picker suite above.
+const openTheme = () => fireEvent.click(screen.getByTestId('theme-trigger'));
+const pickFilm = (key: string) => {
+  openTheme();
+  fireEvent.click(screen.getByTestId(`theme-film-${key}`));
+};
+const pickSystem = (id: string) => {
+  openTheme();
+  fireEvent.click(screen.getByTestId(`theme-${id}`));
+};
+
+describe('one dropdown, system themes and films together', () => {
+  it('has no separate movie picker at all', () => {
+    mount();
+    open();
+    expect(screen.queryByTestId('movie-trigger')).toBeNull();
+    expect(screen.queryByTestId('movie-menu')).toBeNull();
+  });
+
+  it('shows the system default and its name on the closed row', () => {
+    mount();
+    open();
+    expect(screen.getByTestId('theme-trigger').textContent).toContain('System default · Nocturne');
+  });
+
+  it('groups the six system themes above the ten films', () => {
+    mount();
+    open();
+    openTheme();
+    const menu = screen.getByTestId('theme-menu');
+    expect(within(menu).getByText('SYSTEM')).toBeTruthy();
+    expect(within(menu).getByText('FILM · names, portraits and palette')).toBeTruthy();
+    expect(menu.querySelectorAll('[data-testid^="theme-film-"]')).toHaveLength(10);
+    for (const id of ['nocturne', 'organic', 'ember', 'frost', 'slate', 'phosphor']) {
+      expect(within(menu).getByTestId(`theme-${id}`).textContent).toContain('System default');
+    }
+  });
+
+  it('previews each film in its own three bands, from the film data', () => {
+    mount();
+    open();
+    openTheme();
+    const row = screen.getByTestId('theme-film-inception');
+    const palette = themeFor('inception').palette!;
+    expect(bandsOf(row)).toEqual([
+      asRendered(palette.bg),
+      asRendered(palette.accent.base),
+      asRendered(palette.text),
+    ]);
+  });
+
+  it('paints the console from the film once one is picked', () => {
+    const console_ = mount();
+    open();
+    pickFilm('inception');
+    const palette = themeFor('inception').palette!;
+    expect(console_.style.getPropertyValue('--color-bg')).toBe(palette.bg);
+    expect(console_.style.getPropertyValue('--color-accent')).toBe(palette.accent.base);
+    expect(screen.getByTestId('theme-trigger').textContent).toContain('Inception · steel & kick');
+  });
+
+  it('puts the console back on a system theme, and drops the film with it', () => {
+    const console_ = mount();
+    open();
+    pickFilm('inception');
+    pickSystem('ember');
+    expect(console_.style.getPropertyValue('--color-bg')).toBe(THEMES.ember.bg);
+    expect(screen.getByTestId('theme-trigger').textContent).toContain('System default · Ember');
+    expect(screen.getAllByTestId('wall-name')[0].textContent).toBe('team-lead');
+  });
+});
+
+describe('the film palette switch in the panel', () => {
+  it('is absent until a film is picked', () => {
+    mount();
+    open();
+    expect(screen.queryByTestId('toggle-filmPalette')).toBeNull();
+    pickFilm('inception');
+    expect(screen.getByTestId('toggle-filmPalette')).toBeTruthy();
+  });
+
+  it('returns the ground to the system theme while the film keeps casting', () => {
+    const console_ = mount();
+    open();
+    pickFilm('inception');
+    expect(screen.getAllByTestId('wall-name')[0].textContent).toBe('Cobb');
+
+    fireEvent.click(screen.getByTestId('toggle-filmPalette'));
+    expect(console_.style.getPropertyValue('--color-bg')).toBe(THEMES.nocturne.bg);
+    expect(screen.getAllByTestId('wall-name')[0].textContent).toBe('Cobb');
+    expect(screen.getByTestId('theme-trigger').textContent).toContain('Inception · names only');
+  });
+
+  it('replaces the four accent swatches with the film own, named', () => {
+    mount();
+    open();
+    expect(screen.getByTestId('scheme-a')).toBeTruthy();
+    pickFilm('inception');
+    expect(screen.queryByTestId('scheme-a')).toBeNull();
+    const section = screen.getByTestId('film-accent');
+    expect(section.textContent).toContain('kick amber');
+    expect(section.textContent).toContain('overridden by the film');
+  });
+
+  it('gives the four schemes back when the palette stops driving', () => {
+    mount();
+    open();
+    pickFilm('inception');
+    fireEvent.click(screen.getByTestId('toggle-filmPalette'));
+    expect(screen.getByTestId('scheme-a')).toBeTruthy();
+    expect(screen.queryByTestId('film-accent')).toBeNull();
+  });
+});
+
+describe('the note states the current reach exactly', () => {
+  it('says agents keep their real names with no film', () => {
+    mount();
+    open();
+    expect(screen.getByTestId('theme-note').textContent).toBe('Agents keep their real names.');
+  });
+
+  it('names the system theme the ground stays on with the palette off', () => {
+    mount();
+    open();
+    pickSystem('frost');
+    pickFilm('lotr');
+    fireEvent.click(screen.getByTestId('toggle-filmPalette'));
+    expect(screen.getByTestId('theme-note').textContent).toBe(
+      'Names and portrait colours only; the ground stays on Frost.',
+    );
+  });
+
+  it('names the film everything comes from with the palette on', () => {
+    mount();
+    open();
+    pickFilm('lotr');
+    expect(screen.getByTestId('theme-note').textContent).toBe(
+      'Names, portrait colours and the ground all come from The Lord of the Rings.',
+    );
+  });
+});
+
+describe('the rate-card toggle the usage view reads', () => {
+  it('is on by default and hides on demand', () => {
+    mount();
+    open();
+    const toggle = screen.getByTestId('toggle-showRateCard');
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(toggle);
+    expect(screen.getByTestId('toggle-showRateCard').getAttribute('aria-checked')).toBe('false');
+    expect(JSON.parse(window.localStorage.getItem(SETTINGS_KEY)!).showRateCard).toBe(false);
   });
 });
