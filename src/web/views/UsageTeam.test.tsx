@@ -2,8 +2,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { FIXTURE_NOW, sampleTeamState } from '../test/state-fixture';
-import { formatCost } from '../format';
-import { dollarsAvoided, spendByModel } from './usage-team';
+import { formatCost, formatTokens } from '../format';
+import { dollarsAvoided, seriesColors, spendByModel } from './usage-team';
 import { DEFAULT_SETTINGS, SettingsContext } from '../state/useSettings';
 import { UsageTeam } from './UsageTeam';
 
@@ -87,7 +87,6 @@ describe('UsageTeam — em dashes for unknowns', () => {
     render(<UsageTeam state={fresh} now={FIXTURE_NOW} focused={null} onFocus={vi.fn()} spendSamples={[]} />);
     const row = screen.getAllByTestId('usage-ledger-row')[0];
     expect(within(row).getByTestId('usage-row-cache').textContent).toBe('—');
-    expect(within(row).getByTestId('usage-row-permtok').textContent).toBe('—');
   });
 
   // A row on disk from before this widening shipped carries `totals` (cost,
@@ -111,10 +110,11 @@ describe('UsageTeam — em dashes for unknowns', () => {
     expect(screen.getByTestId('usage-tokens-note').textContent).toBe('—');
     expect(screen.getByTestId('usage-cache-note').textContent).toContain('—');
     // The row with no split draws nothing rather than a zero-width bar.
+    const bars = screen.getAllByTestId('usage-composition-row')[0];
+    expect(within(bars).queryAllByTestId('usage-row-segment')).toHaveLength(0);
     const row = screen.getAllByTestId('usage-ledger-row')[0];
-    expect(within(row).queryAllByTestId('usage-row-segment')).toHaveLength(0);
     expect(within(row).getByTestId('usage-row-cache').textContent).toBe('—');
-    expect(within(row).getByTestId('usage-row-permtok').textContent).toBe('—');
+    expect(within(row).getByTestId('usage-row-tokens').textContent).toBe('—');
   });
 });
 
@@ -130,14 +130,14 @@ describe('UsageTeam — per-agent ledger', () => {
 
   it('draws the four segments in fixed order cache-read, cache-write, input, output', () => {
     renderUsage();
-    const row = screen.getAllByTestId('usage-ledger-row')[0];
+    const row = screen.getAllByTestId('usage-composition-row')[0];
     const segments = within(row).getAllByTestId('usage-row-segment');
     expect(segments.map((s) => s.dataset.segment)).toEqual(['cacheRead', 'cacheWrite', 'in', 'out']);
   });
 
   it('colours the segments from the accent ramp, never a warn or fail token', () => {
     renderUsage();
-    const row = screen.getAllByTestId('usage-ledger-row')[0];
+    const row = screen.getAllByTestId('usage-composition-row')[0];
     const segments = within(row).getAllByTestId('usage-row-segment');
     const colors = segments.map((s) => s.style.background);
     expect(colors).toEqual([
@@ -418,5 +418,62 @@ describe('UsageTeam — donut, rate card, pressure, coordination, worth-it', () 
     render(<UsageTeam state={noSplit} now={FIXTURE_NOW} focused={null} onFocus={vi.fn()} spendSamples={[]} />);
     expect(screen.getByTestId('usage-worth-serial').textContent).toBe('—');
     expect(screen.getByTestId('usage-worth-ratio').textContent).toBe('—');
+  });
+});
+
+describe('UsageTeam — the rev 3c ledger columns', () => {
+  it('carries type, model, status, context, tokens, msgs and tasks on every row', () => {
+    const { state } = renderUsage();
+    const row = screen.getAllByTestId('usage-ledger-row')[0];
+    const lead = state.agents[0];
+    expect(within(row).getByTestId('usage-row-type').textContent).toBe(lead.agentType);
+    expect(within(row).getByTestId('usage-row-model').textContent).toBe(lead.model);
+    expect(within(row).getByTestId('usage-row-status').textContent).toBe(lead.status);
+    expect(within(row).getByTestId('usage-row-context').textContent).toContain(formatTokens(lead.contextTokens));
+    expect(within(row).getByTestId('usage-row-tokens')).toBeTruthy();
+    expect(within(row).getByTestId('usage-row-msgs')).toBeTruthy();
+    expect(within(row).getByTestId('usage-row-tasks')).toBeTruthy();
+  });
+
+  // The dot has to be the colour that agent reads as on the stacked chart, or
+  // the legend and the ledger are two different mappings of agent to ramp step.
+  it('dots each row in the same series colour the stacked chart gives that agent', () => {
+    const { state } = renderUsage();
+    const colors = seriesColors(state.agents);
+    const dots = screen.getAllByTestId('usage-row-dot');
+    expect(dots[0].style.background).toBe(colors.get(state.agents[0].name));
+  });
+
+  it('counts messages sent, so the column totals to something real', () => {
+    const { state } = renderUsage();
+    const rows = screen.getAllByTestId('usage-row-msgs').map((n) => Number(n.textContent));
+    const sent = state.mail.filter((m) => state.agents.some((a) => a.name === m.from)).length;
+    expect(rows.reduce((a, b) => a + b, 0)).toBe(sent);
+    expect(Number(screen.getByTestId('usage-foot-msgs').textContent)).toBe(sent);
+  });
+
+  it('reconciles the footer totals with the tiles above them', () => {
+    const { state } = renderUsage();
+    const truth = state.agents.reduce((s, a) => s + a.costUsd, 0);
+    expect(screen.getByTestId('usage-foot-cost').textContent).toBe(formatCost(truth));
+    // The tokens tile and the ledger footer must be the same figure — two
+    // "tokens" numbers 23x apart is the failure USAGE-STATE.md §2 names.
+    expect(screen.getByTestId('usage-foot-tokens').textContent).toBe(
+      screen.getByTestId('usage-tokens-value').textContent,
+    );
+    expect(screen.getByTestId('usage-foot-tasks').textContent).toBe('1');
+  });
+
+  it('draws em dashes across the footer aggregates when one agent has no split', () => {
+    const state = sampleTeamState();
+    const noSplit = {
+      ...state,
+      agents: state.agents.map((a, i) => (i === 0 ? { ...a, tokenSplit: undefined } : a)),
+    };
+    render(<UsageTeam state={noSplit} now={FIXTURE_NOW} focused={null} onFocus={vi.fn()} spendSamples={[]} />);
+    expect(screen.getByTestId('usage-foot-tokens').textContent).toBe('—');
+    expect(screen.getByTestId('usage-foot-cache').textContent).toBe('—');
+    // Cost never depended on the split, so it stays measured.
+    expect(screen.getByTestId('usage-foot-cost').textContent).toBe(formatCost(noSplit.totalCostUsd));
   });
 });

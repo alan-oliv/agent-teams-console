@@ -1,4 +1,4 @@
-import type { Agent, MailMessage } from '../../shared/domain';
+import type { Agent, MailMessage, Task } from '../../shared/domain';
 import { rateOf, usdCost, type ModelRate, type TokenSplit } from '../../shared/cost';
 
 export const EMPTY_SPLIT: TokenSplit = { in: 0, out: 0, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0 };
@@ -87,6 +87,16 @@ export function costPerTask(totalCostUsd: number, tasksClosed: number): number |
   return tasksClosed > 0 ? totalCostUsd / tasksClosed : undefined;
 }
 
+// The ramp in order, never a categorical palette. More agents than steps wraps
+// rather than inventing a hue.
+const BAND_RAMP = [
+  'var(--color-accent-700)',
+  'var(--color-accent-600)',
+  'var(--color-accent-500)',
+  'var(--color-accent-400)',
+  'var(--color-accent-300)',
+];
+
 export type SegmentKey = 'cacheRead' | 'cacheWrite' | 'in' | 'out';
 
 /** Fixed draw order, ramp -700 → -500 → -400 → -300 — never re-sorted by size. */
@@ -101,9 +111,27 @@ export interface LedgerRow {
   cacheHit: number | undefined;
   perMtok: number | undefined;
   cost: number;
+  agentType: string;
+  model: string;
+  status: string;
+  contextTokens: number;
+  contextLimit: number;
+  /**
+   * Messages this agent SENT, not messages it touched. Counting both directions
+   * would double-count every exchange across two rows, so the column could not
+   * be totalled — and a footer that disagrees with `mail.length` is worse than
+   * a narrower question honestly answered.
+   */
+  msgs: number;
+  /** Tasks closed under this agent's ownership. One owner per task, so it sums. */
+  tasksClosed: number;
 }
 
-export function ledgerRowOf(agent: Agent): LedgerRow {
+export function ledgerRowOf(
+  agent: Agent,
+  mail: readonly MailMessage[] = [],
+  tasks: readonly Task[] = [],
+): LedgerRow {
   const split = splitOf(agent);
   const tokens = split ? billedTokens(split) : undefined;
   return {
@@ -116,7 +144,28 @@ export function ledgerRowOf(agent: Agent): LedgerRow {
     cacheHit: split ? cacheHitRatio(split) : undefined,
     perMtok: tokens !== undefined && tokens > 0 ? agent.costUsd / (tokens / 1e6) : undefined,
     cost: agent.costUsd,
+    agentType: agent.agentType,
+    model: agent.model,
+    status: agent.status,
+    contextTokens: agent.contextTokens,
+    contextLimit: agent.contextLimit,
+    msgs: mail.filter((m) => m.from === agent.name).length,
+    tasksClosed: tasks.filter((t) => t.owner === agent.name && t.state === 'completed').length,
   };
+}
+
+/**
+ * The colour each agent reads as across the page, so the ledger's status dot and
+ * the stacked chart's band agree. Built on the same ordering `stackedSpend`
+ * uses, because two different mappings of agent to ramp step is how a legend
+ * stops meaning anything.
+ */
+export function seriesColors(agents: readonly Agent[]): Map<string, string> {
+  return new Map(
+    [...agents]
+      .sort((a, b) => Number(a.isLead) - Number(b.isLead))
+      .map((a, i) => [a.name, BAND_RAMP[i % BAND_RAMP.length]] as const),
+  );
 }
 
 export interface ModelSpend {
@@ -246,16 +295,6 @@ export interface StackedSpend {
   bands: SpendBand[];
   max: number;
 }
-
-// The ramp in order, never a categorical palette. More agents than steps wraps
-// rather than inventing a hue.
-const BAND_RAMP = [
-  'var(--color-accent-700)',
-  'var(--color-accent-600)',
-  'var(--color-accent-500)',
-  'var(--color-accent-400)',
-  'var(--color-accent-300)',
-];
 
 /**
  * The stacked-area series, built ONLY from samples this console took itself.

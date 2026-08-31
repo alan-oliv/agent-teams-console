@@ -13,6 +13,7 @@ import {
   messageBuckets,
   moneyLadder,
   serialEstimate,
+  seriesColors,
   spendBuckets,
   spendByModel,
   splitOf,
@@ -354,5 +355,64 @@ describe('serialEstimate', () => {
     )!;
     const expected = usdCost('claude-opus-5', split({ in: 300, out: 30, cacheRead: 900 }));
     expect(estimate).toBeCloseTo(expected, 12);
+  });
+});
+
+describe('ledgerRowOf — the rev 3c columns', () => {
+  const mail = (from: string, to: string) => ({
+    msgId: `${from}->${to}`, from, to, text: '', ts: 0, tsIsDelivery: false, read: true,
+  });
+  const task = (owner: string, state: 'completed' | 'in_progress') => ({
+    id: `${owner}-${state}`, subject: '', description: '', owner, state, blocks: [], blockedBy: [],
+  });
+
+  // Counting both directions would put one exchange on two rows, so the column
+  // could not be totalled against the mailbox it came from.
+  it('counts messages the agent sent, not messages it appeared in', () => {
+    const row = ledgerRowOf(
+      agent({ name: 'alpha' }),
+      [mail('alpha', 'bravo'), mail('bravo', 'alpha'), mail('alpha', 'lead')],
+    );
+    expect(row.msgs).toBe(2);
+  });
+
+  it('counts only the tasks this agent actually closed', () => {
+    const row = ledgerRowOf(
+      agent({ name: 'alpha' }),
+      [],
+      [task('alpha', 'completed'), task('alpha', 'in_progress'), task('bravo', 'completed')],
+    );
+    expect(row.tasksClosed).toBe(1);
+  });
+
+  it('reports zero rather than guessing when the team carries no mail or tasks', () => {
+    const row = ledgerRowOf(agent({ name: 'alpha' }));
+    expect(row.msgs).toBe(0);
+    expect(row.tasksClosed).toBe(0);
+  });
+
+  it('carries the identity columns straight off the agent', () => {
+    const row = ledgerRowOf(agent({ agentType: 'reviewer', status: 'idle', contextTokens: 50 }));
+    expect(row.agentType).toBe('reviewer');
+    expect(row.status).toBe('idle');
+    expect(row.contextTokens).toBe(50);
+  });
+});
+
+describe('seriesColors', () => {
+  it('gives the lead the same ramp step the stacked chart puts on top', () => {
+    const lead = agent({ name: 'lead', isLead: true });
+    const mate = agent({ name: 'mate' });
+    const colors = seriesColors([lead, mate]);
+    const series = stackedSpend([{ at: 1, cost: 2, byAgent: { lead: 1, mate: 1 } }], [lead, mate])!;
+    const top = series.bands[series.bands.length - 1];
+    expect(colors.get('lead')).toBe(top.color);
+  });
+
+  it('wraps rather than running out of colours on a team larger than the ramp', () => {
+    const many = Array.from({ length: 7 }, (_, i) => agent({ name: `a${i}` }));
+    const colors = seriesColors(many);
+    expect(colors.size).toBe(7);
+    for (const c of colors.values()) expect(c).toMatch(/var\(--color-accent-\d00\)/);
   });
 });

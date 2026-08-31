@@ -16,6 +16,7 @@ import {
   serialEstimate,
   spendBuckets,
   spendByModel,
+  seriesColors,
   stackedSpend,
   sumSplit,
   type ModelSpend,
@@ -104,6 +105,32 @@ const TILE_NOTE: CSSProperties = {
 };
 
 const EM_DASH = '—';
+
+// The study's `132 132 96 84 108 92 76 64 84 1fr`, scaled to the console's
+// narrower body. Cost takes the remainder so the row cannot overflow.
+const LEDGER_ROW: CSSProperties = { display: 'flex', alignItems: 'center', gap: '10px' };
+
+const cell = (width: string, align: CSSProperties['textAlign'] = 'right'): CSSProperties => ({
+  width,
+  flex: 'none',
+  textAlign: align,
+  whiteSpace: 'nowrap',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+});
+
+const COL = {
+  agent: cell('124px', 'left'),
+  type: cell('116px', 'left'),
+  model: cell('124px', 'left'),
+  status: cell('68px', 'left'),
+  context: { ...cell('132px'), textAlign: 'right' as const },
+  tokens: cell('74px'),
+  cache: cell('62px'),
+  msgs: cell('44px'),
+  tasks: cell('44px'),
+  cost: { ...cell('auto'), flex: 1, minWidth: '64px' },
+};
 
 function Tile({
   testId, label, value, valueColor, note,
@@ -637,7 +664,8 @@ export function UsageTeam({ state, now, focused, onFocus, spendSamples }: UsageT
   const maxBucket = Math.max(1e-9, ...buckets.map((b) => b.cost));
 
   const totalCost = agents.reduce((s, a) => s + a.costUsd, 0);
-  const series = stackedSpend(spendSamples, agents);
+  const stack = stackedSpend(spendSamples, agents);
+  const series = seriesColors(agents);
   // A lone agent runs on one model, so the serial estimate is priced at the
   // lead's — the model that would have carried the work.
   const serialModel = (agents.find((a) => a.isLead) ?? agents[0])?.model ?? '';
@@ -687,146 +715,186 @@ export function UsageTeam({ state, now, focused, onFocus, spendSamples }: UsageT
         />
       </div>
 
-      <StackedSpendPanel series={series} agents={agents} now={now} />
+      <StackedSpendPanel series={stack} agents={agents} now={now} />
 
-      <div style={{ display: 'flex', gap: '16px', alignItems: 'stretch', minHeight: 0 }}>
-        <div style={{ ...PANEL, flex: 1, overflow: 'hidden', padding: 0 }}>
-          <div style={{ ...PANEL_HEAD, padding: '13px 16px 11px', borderBottom: '1px solid var(--color-neutral-900)' }}>
-            <span style={PANEL_TITLE}>Per-agent ledger</span>
-            <span data-testid="usage-ledger-caption" style={PANEL_CAPTION}>
-              click a row to open that agent in the wall
-            </span>
-          </div>
-          <div className="tscroll" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-            {agents.map((agent) => {
-              const row = ledgerRowOf(agent);
-              return (
-                <div
-                  key={agent.name}
-                  data-testid="usage-ledger-row"
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => onFocus(agent.name)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onFocus(agent.name); }
-                  }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '10px',
-                    padding: '9px 12px',
-                    borderBottom: '1px solid var(--color-neutral-900)',
-                    background: agent.name === focused ? 'var(--color-accent-900)' : 'transparent',
-                    cursor: 'pointer',
-                    fontSize: '11.5px',
-                  }}
-                >
-                  <span
-                    data-testid="usage-row-name"
-                    style={{ width: '74px', flex: 'none', textAlign: 'right', color: 'var(--color-neutral-400)' }}
-                  >
-                    {agent.name}
-                  </span>
-                  <span style={{ flex: 1, minWidth: 0, height: '16px', borderRadius: '3px', overflow: 'hidden', display: 'flex', background: 'var(--term)' }}>
-                    {row.segments.map((seg) => (
-                      <span
-                        key={seg.key}
-                        data-testid="usage-row-segment"
-                        data-segment={seg.key}
-                        style={{ width: `${seg.pct}%`, height: '100%', background: SEGMENT_COLOR[seg.key] }}
-                      />
-                    ))}
-                  </span>
-                  <span data-testid="usage-row-cache" style={{ width: '52px', flex: 'none', textAlign: 'right', color: 'var(--color-accent-500)' }}>
-                    {row.cacheHit === undefined ? EM_DASH : formatPct(row.cacheHit)}
-                  </span>
-                  <span
-                    data-testid="usage-row-permtok"
-                    style={{ width: '64px', flex: 'none', textAlign: 'right', color: 'var(--color-neutral-500)' }}
-                    title="blended: cost over this agent's billed tokens, not a listed rate"
-                  >
-                    {row.perMtok === undefined ? EM_DASH : formatCost(row.perMtok)}
-                  </span>
-                  <span style={{ width: '64px', flex: 'none', textAlign: 'right', fontWeight: 500, color: 'var(--color-text)' }}>
-                    {formatCost(row.cost)}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-          <div
-            data-testid="usage-ledger-footer"
-            style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', background: 'var(--term)', fontSize: '11px' }}
-          >
-            <span style={{ width: '74px', flex: 'none', textAlign: 'right', color: 'var(--color-neutral-600)' }}>
-              {`${agents.length} agents`}
-            </span>
-            <span style={{ flex: 1 }} />
-            <span style={{ width: '52px', flex: 'none', textAlign: 'right', color: 'var(--color-accent-500)' }}>
-              {hit === undefined ? EM_DASH : formatPct(hit)}
-            </span>
-            <span
-              style={{ width: '64px', flex: 'none', textAlign: 'right', color: 'var(--color-neutral-500)' }}
-              title="blended: cost over total billed tokens, not a listed rate"
-            >
-              {tokens !== undefined && tokens > 0 ? formatCost(totalCost / (tokens / 1e6)) : EM_DASH}
-            </span>
-            <span data-testid="usage-foot-cost" style={{ width: '64px', flex: 'none', textAlign: 'right', fontWeight: 500, color: 'var(--color-text)' }}>
-              {formatCost(totalCost)}
-            </span>
-          </div>
+      {/* Panel 4 and panel 6 are separate in the spec and stay separate here:
+          the composition bar answers "what shape are this agent's tokens", the
+          ledger answers "what are its numbers". Merging them cost the ledger
+          eight columns. */}
+      <div data-testid="usage-composition" style={PANEL}>
+        <div style={PANEL_HEAD}>
+          <span style={PANEL_TITLE}>Where the tokens go</span>
+          <span style={PANEL_CAPTION}>cache read · cache write · input · output</span>
         </div>
-
-        <div style={{ width: '300px', flex: 'none', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <DonutPanel models={models} />
-
-          {showRateCard && <RateCardPanel models={models} />}
-
-          <div style={PANEL}>
-            <div style={PANEL_HEAD}>
-              <span style={PANEL_TITLE}>Spend per 2 min</span>
-              <span data-testid="usage-buckets-caption" style={PANEL_CAPTION}>
-                {spendSamples.length > 0
-                  ? `${formatElapsed(now - spendSamples[0].at)} sampled`
-                  : 'not sampled yet'}
-              </span>
-            </div>
-            {buckets.length === 0 ? (
-              <div data-testid="usage-buckets-empty" style={{ fontSize: '11px', color: 'var(--color-neutral-600)' }}>
-                no samples yet — this chart builds while the console stays open
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
+          {agents.map((agent) => {
+            const row = ledgerRowOf(agent);
+            return (
+              <div key={agent.name} data-testid="usage-composition-row" style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '11px' }}>
+                <span style={{ width: '74px', flex: 'none', textAlign: 'right', color: 'var(--color-neutral-400)' }}>
+                  {agent.name}
+                </span>
+                <span style={{ flex: 1, minWidth: 0, height: '16px', borderRadius: '3px', overflow: 'hidden', display: 'flex', background: 'var(--term)' }}>
+                  {row.segments.map((seg) => (
+                    <span
+                      key={seg.key}
+                      data-testid="usage-row-segment"
+                      data-segment={seg.key}
+                      style={{ width: `${seg.pct}%`, height: '100%', background: SEGMENT_COLOR[seg.key] }}
+                    />
+                  ))}
+                </span>
+                <span style={{ width: '72px', flex: 'none', textAlign: 'right', color: 'var(--color-neutral-500)' }}>
+                  {row.tokens === undefined ? EM_DASH : formatTokens(row.tokens)}
+                </span>
+                <span style={{ width: '64px', flex: 'none', textAlign: 'right', color: 'var(--color-text)' }}>
+                  {formatCost(row.cost)}
+                </span>
               </div>
-            ) : (
-              <div style={{ display: 'flex', alignItems: 'flex-end', gap: '3px', height: '48px' }}>
-                {buckets.map((b) => (
+            );
+          })}
+        </div>
+        <div data-testid="usage-composition-note" style={PROSE}>
+          {hit === undefined
+            ? 'Cache reads are the majority of a team\'s tokens and bill at 0.1x input — their share is unknown here because at least one agent has no split recorded. '
+            : `Cache reads are ${formatPct(hit)} of this team's billed tokens and bill at 0.1x input. `}
+          {"A teammate's cache TTL is 5 minutes by default, so a teammate idle longer than that pays the write again on its next turn."}
+        </div>
+      </div>
+
+      <div style={{ ...PANEL, padding: 0, overflow: 'hidden' }}>
+        <div style={{ ...PANEL_HEAD, padding: '13px 16px 11px', borderBottom: '1px solid var(--color-neutral-900)' }}>
+          <span style={PANEL_TITLE}>Per-agent ledger</span>
+          <span data-testid="usage-ledger-caption" style={PANEL_CAPTION}>
+            click a row to open that agent in the wall
+          </span>
+        </div>
+        <div style={{ ...LEDGER_ROW, padding: '7px 12px', background: 'var(--term)', color: 'var(--color-neutral-700)', fontSize: '9.5px', letterSpacing: '.06em', textTransform: 'uppercase' }}>
+          <span style={COL.agent}>agent</span>
+          <span style={COL.type}>type</span>
+          <span style={COL.model}>model</span>
+          <span style={COL.status}>status</span>
+          <span style={COL.context}>context</span>
+          <span style={COL.tokens}>tokens</span>
+          <span style={COL.cache}>cache hit</span>
+          <span style={COL.msgs} title="messages this agent sent">msgs</span>
+          <span style={COL.tasks}>tasks</span>
+          <span style={COL.cost}>cost</span>
+        </div>
+        <div className="tscroll" style={{ display: 'flex', flexDirection: 'column' }}>
+          {agents.map((agent) => {
+            const row = ledgerRowOf(agent, state.mail, tasks);
+            const ctx = row.contextLimit > 0 ? row.contextTokens / row.contextLimit : undefined;
+            return (
+              <div
+                key={agent.name}
+                data-testid="usage-ledger-row"
+                role="button"
+                tabIndex={0}
+                onClick={() => onFocus(agent.name)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onFocus(agent.name); }
+                }}
+                style={{
+                  ...LEDGER_ROW,
+                  padding: '8px 12px',
+                  borderTop: '1px solid var(--color-neutral-900)',
+                  background: agent.name === focused ? 'var(--color-accent-900)' : 'transparent',
+                  cursor: 'pointer',
+                  fontSize: '11.5px',
+                }}
+              >
+                <span data-testid="usage-row-name" style={{ ...COL.agent, display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--color-text)' }}>
                   <span
-                    key={b.at}
-                    data-testid="usage-bucket-bar"
-                    style={{
-                      flex: 1,
-                      minHeight: '2px',
-                      height: `${Math.max(2, (b.cost / maxBucket) * 100)}%`,
-                      background: 'var(--color-accent-600)',
-                      borderRadius: '2px 2px 0 0',
-                    }}
+                    data-testid="usage-row-dot"
+                    style={{ width: '6px', height: '6px', borderRadius: '50%', flex: 'none', background: series.get(agent.name) }}
                   />
-                ))}
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{agent.name}</span>
+                </span>
+                <span data-testid="usage-row-type" style={{ ...COL.type, color: 'var(--color-neutral-500)' }}>{row.agentType}</span>
+                <span data-testid="usage-row-model" style={{ ...COL.model, color: 'var(--color-neutral-500)' }}>{row.model}</span>
+                <span data-testid="usage-row-status" style={{ ...COL.status, color: 'var(--color-neutral-500)' }}>{row.status}</span>
+                <span data-testid="usage-row-context" style={{ ...COL.context, display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--color-neutral-500)' }}>
+                  <span style={{ flex: 1, minWidth: 0, height: '5px', borderRadius: '3px', background: 'var(--term)', overflow: 'hidden' }}>
+                    {ctx !== undefined && (
+                      <span style={{ display: 'block', width: `${Math.min(100, ctx * 100)}%`, height: '100%', background: 'var(--color-accent-600)' }} />
+                    )}
+                  </span>
+                  <span style={{ flex: 'none' }}>{ctx === undefined ? EM_DASH : formatTokens(row.contextTokens)}</span>
+                </span>
+                <span data-testid="usage-row-tokens" style={{ ...COL.tokens, color: 'var(--color-neutral-500)' }}>
+                  {row.tokens === undefined ? EM_DASH : formatTokens(row.tokens)}
+                </span>
+                <span data-testid="usage-row-cache" style={{ ...COL.cache, color: 'var(--color-accent-500)' }}>
+                  {row.cacheHit === undefined ? EM_DASH : formatPct(row.cacheHit)}
+                </span>
+                <span data-testid="usage-row-msgs" style={{ ...COL.msgs, color: 'var(--color-neutral-500)' }}>{row.msgs}</span>
+                <span data-testid="usage-row-tasks" style={{ ...COL.tasks, color: 'var(--color-neutral-500)' }}>{row.tasksClosed}</span>
+                <span data-testid="usage-row-cost" style={{ ...COL.cost, fontWeight: 500, color: 'var(--color-text)' }}>
+                  {formatCost(row.cost)}
+                </span>
               </div>
-            )}
-          </div>
+            );
+          })}
+        </div>
+        <div
+          data-testid="usage-ledger-footer"
+          style={{ ...LEDGER_ROW, padding: '9px 12px', background: 'var(--term)', fontSize: '11px', borderTop: '1px solid var(--color-neutral-900)' }}
+        >
+          <span style={{ ...COL.agent, color: 'var(--color-neutral-600)' }}>{`${agents.length} agents`}</span>
+          <span style={COL.type} />
+          <span style={COL.model} />
+          <span style={COL.status} />
+          <span style={COL.context} />
+          <span data-testid="usage-foot-tokens" style={{ ...COL.tokens, color: 'var(--color-neutral-500)' }}>
+            {tokens === undefined ? EM_DASH : formatTokens(tokens)}
+          </span>
+          <span data-testid="usage-foot-cache" style={{ ...COL.cache, color: 'var(--color-accent-500)' }}>
+            {hit === undefined ? EM_DASH : formatPct(hit)}
+          </span>
+          <span data-testid="usage-foot-msgs" style={{ ...COL.msgs, color: 'var(--color-neutral-500)' }}>
+            {agents.reduce((n, a) => n + ledgerRowOf(a, state.mail).msgs, 0)}
+          </span>
+          <span data-testid="usage-foot-tasks" style={{ ...COL.tasks, color: 'var(--color-neutral-500)' }}>{tasksDone}</span>
+          <span data-testid="usage-foot-cost" style={{ ...COL.cost, fontWeight: 500, color: 'var(--color-text)' }}>
+            {formatCost(totalCost)}
+          </span>
+        </div>
+      </div>
 
-          <div data-testid="usage-notes" style={{ ...PANEL, fontSize: '10.5px', lineHeight: 1.5, color: 'var(--color-neutral-600)' }}>
-            <p style={{ margin: 0 }}>
-              {"A teammate's cache TTL is 5 minutes by default, separate from the main conversation's — a teammate idle longer than that pays the write again on its next turn. "}
-              <code style={{ color: 'var(--color-accent-400)' }}>subagentPromptCacheTtl: 1h</code>
-              {' extends it and bills writes higher.'}
-            </p>
-            <p style={{ margin: 0 }}>
-              Compaction on the lead rewrites the cached prefix and costs a full cache write across the whole team, not just the lead.
-            </p>
-            <p style={{ margin: 0 }}>
-              Rates come from config (<code style={{ color: 'var(--color-accent-400)' }}>src/shared/catalog.json</code>) — an edit there takes effect on the next drain.
-            </p>
+      <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+        <DonutPanel models={models} />
+        {showRateCard && <RateCardPanel models={models} />}
+        <div style={{ ...PANEL, flex: 1, minWidth: 0 }}>
+          <div style={PANEL_HEAD}>
+            <span style={PANEL_TITLE}>Spend per 2 min</span>
+            <span data-testid="usage-buckets-caption" style={PANEL_CAPTION}>
+              {spendSamples.length > 0
+                ? `${formatElapsed(now - spendSamples[0].at)} sampled`
+                : 'not sampled yet'}
+            </span>
           </div>
+          {buckets.length === 0 ? (
+            <div data-testid="usage-buckets-empty" style={{ fontSize: '11px', color: 'var(--color-neutral-600)' }}>
+              no samples yet — this chart builds while the console stays open
+            </div>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '3px', height: '48px' }}>
+              {buckets.map((b) => (
+                <span
+                  key={b.at}
+                  data-testid="usage-bucket-bar"
+                  style={{
+                    flex: 1,
+                    minHeight: '2px',
+                    height: `${Math.max(2, (b.cost / maxBucket) * 100)}%`,
+                    background: 'var(--color-accent-600)',
+                    borderRadius: '2px 2px 0 0',
+                  }}
+                />
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -836,6 +904,20 @@ export function UsageTeam({ state, now, focused, onFocus, spendSamples }: UsageT
       </div>
 
       <WorthItPanel actual={totalCost} serial={serial} model={serialModel} />
+
+      <div data-testid="usage-notes" style={{ ...PANEL, ...PROSE }}>
+        <p style={{ margin: 0 }}>
+          {"A teammate's cache TTL is 5 minutes by default, separate from the main conversation's — a teammate idle longer than that pays the write again on its next turn. "}
+          <code style={{ color: 'var(--color-accent-400)' }}>subagentPromptCacheTtl: 1h</code>
+          {' extends it and bills writes higher.'}
+        </p>
+        <p style={{ margin: 0 }}>
+          Compaction on the lead rewrites the cached prefix and costs a full cache write across the whole team, not just the lead.
+        </p>
+        <p style={{ margin: 0 }}>
+          Rates come from config (<code style={{ color: 'var(--color-accent-400)' }}>src/shared/catalog.json</code>) — an edit there takes effect on the next drain. Every dollar on this page is derived at API list price; a subscription plan meters the same usage against plan limits instead.
+        </p>
+      </div>
     </div>
   );
 }
