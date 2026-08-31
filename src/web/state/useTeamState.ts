@@ -3,6 +3,18 @@ import type { Agent, Diff, TeamState, TranscriptLine, ViewId } from '../../share
 
 export const VIEW_IDS: readonly ViewId[] = ['wall', 'overview', 'comms', 'tasks', 'rail', 'grid', 'usage'];
 
+/**
+ * The switcher a solo session offers (decision 24): a view is offered when its
+ * subject exists, and the four compare-the-teammates views have nothing to
+ * compare on a roster of one. `wall` is the first pill — it LABELS itself
+ * `stream` there, because a single column already is the parent's stream; the
+ * id, route and component are unchanged.
+ */
+export const SOLO_VIEW_IDS: readonly ViewId[] = ['wall', 'trace', 'tasks', 'usage'];
+
+/** Every id a URL may carry, whatever mode the session turns out to be in. */
+const URL_VIEW_IDS: readonly ViewId[] = [...VIEW_IDS, 'trace'];
+
 export interface TeamStateStore {
   state: TeamState | null;
   connected: boolean;
@@ -87,7 +99,7 @@ export function readUrlState(search: string): {
 } {
   const params = new URLSearchParams(search);
   const raw = params.get('view');
-  const view = VIEW_IDS.find((v) => v === raw) ?? 'wall';
+  const view = URL_VIEW_IDS.find((v) => v === raw) ?? 'wall';
   return {
     view,
     agent: params.get('agent'),

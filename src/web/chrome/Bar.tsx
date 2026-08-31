@@ -85,6 +85,12 @@ export interface BarProps<T extends string> {
   views: readonly T[];
   view: T;
   onViewChange(view: T): void;
+  /**
+   * What a pill READS, when that differs from its id. Decision 24's one case:
+   * a solo session's `wall` labels itself `stream` — the single column already
+   * is the parent's stream, so only the word changes, never the route.
+   */
+  labelOf?(view: T): string;
   /** The right-hand readouts, in READING order. Each one carries {@link METRIC} and a key. */
   metrics: ReactElement[];
   /** The order those keys are SHED in when the bar runs out of room. Lower survives longer. */
@@ -105,7 +111,7 @@ export interface BarProps<T extends string> {
  * the mechanism is not written twice.
  */
 export function Bar<T extends string>({
-  wordmark, picker, views, view, onViewChange, metrics, metricRank, appearance,
+  wordmark, picker, views, view, onViewChange, labelOf, metrics, metricRank, appearance,
 }: BarProps<T>) {
   const [configOpen, setConfigOpen] = useState(false);
   const bar = useRef<HTMLDivElement>(null);
@@ -166,7 +172,7 @@ export function Bar<T extends string>({
               boxShadow: id === view ? 'inset 0 0 0 1px var(--color-accent-700)' : 'none',
             }}
           >
-            {id}
+            {labelOf?.(id) ?? id}
           </button>
         ))}
       </div>

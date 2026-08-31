@@ -40,12 +40,15 @@ export function parseHidden(raw: string | null): ReadonlySet<string> {
  * `teams/<session>/config.json` for every window, holding just that window's
  * own lead, so on a busy machine these are most of the list.
  *
- * A workflow run is the exception, and the reason this is not just a member
- * count: a workflow's agents never enter `members[]`, so the session running
- * one has a roster of one and is somewhere to go all the same.
+ * The bar is "is there anything in here to look at" (decision 23), not a
+ * member count: a workflow's agents never enter `members[]`, and neither does
+ * a Task subagent — the same deliberate exclusion — so a session running
+ * either has a roster of one and is somewhere to go all the same. A bare
+ * window with none of the three keeps §12's treatment exactly: dropped,
+ * revealable, inert.
  */
 export function isEmptySession(team: TeamSummary): boolean {
-  return team.members < 2 && !team.workflow;
+  return team.members < 2 && !team.workflow && !team.subagents;
 }
 
 /**

@@ -341,10 +341,12 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
               letterSpacing: '.12em',
             }}
           >
-            {/* "TEAMS", not the design's "SESSIONS": the list holds only
-                teams now, and calling them sessions is the exact conflation
-                that made four lead-only windows look like four teams. */}
-            <span>{`TEAMS ON THIS MACHINE \u00b7 ${teamCount}`}</span>
+            {/* Back to the design's "SESSIONS" (decision 23): the ruling that
+                chose "TEAMS" was compensating for a filter that listed bare
+                windows. With the filter fixed, the list holds teams, workflow
+                sessions and solo sessions \u2014 only SESSIONS is true of all
+                three, and bare windows still never list. */}
+            <span>{`SESSIONS ON THIS MACHINE \u00b7 ${teamCount}`}</span>
             <input
               ref={search}
               data-testid="team-search"
@@ -595,7 +597,9 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
                           ? 'running · not watching'
                           : run
                             ? `workflow · ${run.live ? 'running' : 'ended'}`
-                            : stateText(team, now)}
+                            : team.members < 2 && team.subagents
+                              ? `solo · ${team.subagents} subagent${team.subagents === 1 ? '' : 's'}`
+                              : stateText(team, now)}
                     </span>
                   </div>
                 </div>

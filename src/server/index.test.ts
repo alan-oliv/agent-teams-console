@@ -302,6 +302,31 @@ describe('listTeamSummaries', () => {
     if (mtimeMs !== undefined) await fs.utimes(journal, mtimeMs / 1000, mtimeMs / 1000);
   }
 
+  // The picker's second member-count exception (decision 23): Task-subagent
+  // transcripts under the session admit a solo row; sidecars and the nested
+  // workflows directory do not count toward it.
+  it('counts a session’s subagent transcripts onto its summary, absent when none', async () => {
+    const projects = path.join(dir, 'projects');
+    const cwd = '/Users/x/code/app';
+    await writeConfig('session-solo', team('session-solo', { createdAt: 1, leadSessionId: 's1', members: 1 }));
+    await writeConfig('session-bare', team('session-bare', { createdAt: 2, leadSessionId: 's2', members: 1 }));
+    const config = JSON.parse(await fs.readFile(path.join(teams(), 'session-solo', 'config.json'), 'utf8'));
+    config.members[0].cwd = cwd;
+    await fs.writeFile(path.join(teams(), 'session-solo', 'config.json'), JSON.stringify(config));
+
+    const subagents = path.join(sessionDirOf(projects, cwd, 's1'), 'subagents');
+    await fs.mkdir(path.join(subagents, 'workflows'), { recursive: true });
+    await fs.writeFile(path.join(subagents, 'agent-a1111222233334444.jsonl'), '');
+    await fs.writeFile(path.join(subagents, 'agent-aprobe-5555666677778888.jsonl'), '');
+    await fs.writeFile(path.join(subagents, 'agent-a1111222233334444.meta.json'), '{}');
+
+    const listed = await listTeamSummaries(teams(), sessions(), '', projects);
+    const solo = listed.teams.find((t) => t.name === 'session-solo');
+    const bare = listed.teams.find((t) => t.name === 'session-bare');
+    expect(solo?.subagents).toBe(2);
+    expect(bare?.subagents).toBeUndefined();
+  });
+
   // The other subtree of the same session, written only at termination.
   async function writeSnapshot(
     projects: string,
