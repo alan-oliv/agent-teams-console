@@ -141,6 +141,17 @@ describe('the run rollup', () => {
   it('counts the agents it actually covers, not the ones the run declared', () => {
     expect(folded(['a06eeee08bb883b02']).agents).toHaveLength(1);
   });
+
+  it('leaves out an agent whose transcript holds no billed turn yet', () => {
+    // A workflow agent writes its transcript before it has had a turn. A zero
+    // split for it would say it spent nothing, which is a different claim from
+    // "nothing measured yet" — and would count it as covered.
+    const fold = emptyWorkflowUsageFold();
+    foldWorkflowAgentRecords(fold, 'a1111111111111111', [
+      { type: 'user', uuid: 'u', timestamp: '2026-08-30T03:00:00.000Z' },
+    ]);
+    expect(workflowUsageOf(RUN, fold).agents).toEqual([]);
+  });
 });
 
 describe('the burn series', () => {

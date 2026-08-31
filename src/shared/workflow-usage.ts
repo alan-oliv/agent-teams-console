@@ -171,6 +171,11 @@ export function workflowUsageOf(runId: string, fold: WorkflowUsageFold): Workflo
   const split = emptySplit();
   const turns: Turn[] = [];
   for (const [agentId, byMessage] of fold.agents) {
+    // An agent whose transcript exists but holds no billed turn yet is NOT a
+    // measured agent. Reporting it with a zero split would both inflate
+    // `agentsMeasured` and put a row on the ledger saying it spent nothing,
+    // which is the one thing absent-rather-than-zero exists to prevent.
+    if (byMessage.size === 0) continue;
     const rows = recordsOf(byMessage);
     const own = splitTok(rows);
     addSplit(split, own);
