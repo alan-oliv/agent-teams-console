@@ -6,6 +6,7 @@ import type { Store } from '../store';
 import type { AgentUsageTotals, TaskPayload, TranscriptPayload } from '../project';
 import { parseLine, type TranscriptRecord } from '../../shared/transcript';
 import { tokensOf, totalCost, usageRecordsOf, type UsageRecord } from '../../shared/usage';
+import { splitTok } from '../../shared/cost';
 import type { TeamConfig, Sidecar } from '../../shared/roster';
 import type { InboxEntry } from '../../shared/mailbox';
 import { logError } from '../log';
@@ -444,7 +445,7 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
       }
       all = [...best.values()];
     }
-    return { costUsd: totalCost(all), tokens: tokensOf(all) };
+    return { costUsd: totalCost(all), tokens: tokensOf(all), split: splitTok(all) };
   };
 
   const transcriptOfSidecar = (file: string) => file.replace(/\.meta\.json$/, '.jsonl');

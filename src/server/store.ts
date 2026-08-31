@@ -18,6 +18,7 @@ import {
   totalCost,
   usageRecordsOf,
 } from '../shared/usage';
+import { splitTok, type TokenSplit } from '../shared/cost';
 import type { TranscriptRecord } from '../shared/transcript';
 
 export type EventKind =
@@ -222,6 +223,7 @@ function carriesTotals(payload: unknown): boolean {
 interface Snapshot {
   costUsd: number;
   tokens: number;
+  split: TokenSplit;
 }
 function totalsOf(payload: unknown): Snapshot | undefined {
   const totals =
@@ -249,7 +251,7 @@ function usageFrom(rows: StoredEvent[]): Snapshot {
   // but the log is a text file an operator can hand-edit.
   for (const e of rows) for (const r of recordsOf(e.payload)) if (r != null) recs.push(r);
   const usage = dedupeUsage(usageRecordsOf(recs));
-  return { costUsd: totalCost(usage), tokens: tokensOf(usage) };
+  return { costUsd: totalCost(usage), tokens: tokensOf(usage), split: splitTok(usage) };
 }
 
 /** A copy of `e` carrying `totals`. Everything else on the payload rides along. */

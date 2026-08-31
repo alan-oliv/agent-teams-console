@@ -1,3 +1,5 @@
+import type { TokenSplit } from './cost';
+
 export type AgentStatus = 'working' | 'idle' | 'plan_pending' | 'failed' | 'blocked' | 'departed';
 export type TaskState = 'pending' | 'in_progress' | 'completed' | 'plan_pending' | 'failed' | 'blocked';
 export type ViewId = 'wall' | 'overview' | 'comms' | 'tasks' | 'rail' | 'grid' | 'usage';
@@ -90,6 +92,11 @@ export interface Agent {
   contextLimit: number;
   compactAt: number;
   costUsd: number;
+  /**
+   * The four billed classes behind `costUsd` — absent on a fixture that never
+   * set it, so every consumer must fall back rather than assume it is there.
+   */
+  tokenSplit?: TokenSplit;
   startedAt: number;         // epoch ms
   transcript: TranscriptLine[];
   unread: number;

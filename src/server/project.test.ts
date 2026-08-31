@@ -12,6 +12,7 @@ import { TRANSCRIPT_RECORDS_PER_AGENT, type StoredEvent, type EventKind } from '
 import type { TeamConfig, Sidecar } from '../shared/roster';
 import { parseLine, TRANSCRIPT_TEXT_CAP, type TranscriptRecord } from '../shared/transcript';
 import { contextOccupancy, dedupeUsage, totalCost, tokensOf, usageRecordsOf } from '../shared/usage';
+import { splitTok, type TokenSplit } from '../shared/cost';
 import type { InboxEntry } from '../shared/mailbox';
 import { AGENT_STALE_MS } from '../shared/status';
 
@@ -765,6 +766,37 @@ describe('bounded transcript history', () => {
     );
     expect(state.agents[0].costUsd).toBeGreaterThan(0);
     expect(state.totalTokens).toBeGreaterThan(0);
+  });
+
+  // The usage view's per-agent ledger draws the four-class split, which rides
+  // the same carried-snapshot mechanism as cost — see AgentUsageTotals.
+  it('takes the token split from a totals snapshot instead of walking the records', () => {
+    const records = historyOf('solo', 6);
+    const split: TokenSplit = { in: 11, out: 22, cacheWrite: 33, cacheWrite1h: 0, cacheRead: 44 };
+    const snapshot = project(
+      [
+        rosterFor(['solo']),
+        {
+          seq: 2,
+          ts: 0,
+          kind: 'transcript',
+          agent: 'solo',
+          payload: { agent: 'solo', records, totals: { costUsd: 12.5, tokens: 777, split } },
+        },
+      ],
+      false,
+    );
+    expect(snapshot.agents[0].tokenSplit).toEqual(split);
+  });
+
+  it('still computes the token split from the records when no snapshot rides along', () => {
+    const records = historyOf('solo', 6);
+    const state = project(
+      [rosterFor(['solo']), { seq: 2, ts: 0, kind: 'transcript', agent: 'solo', payload: { agent: 'solo', records } }],
+      false,
+    );
+    const truth = splitTok(dedupeUsage(usageRecordsOf(records)));
+    expect(state.agents[0].tokenSplit).toEqual(truth);
   });
 
   // A per-agent record bound makes this routine: boot 1 leaves the newest 200
