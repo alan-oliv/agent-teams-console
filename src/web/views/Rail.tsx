@@ -1,5 +1,6 @@
 import { memo, useState, type KeyboardEvent } from 'react';
 import type { Agent } from '../../shared/domain';
+import { wallOrder } from '../../shared/roster';
 import { AGENT_STATUS, DORMANT_OPACITY, isDormant } from '../../shared/status';
 import { Composer } from '../components/Composer';
 import { Elapsed, NowContext } from '../components/Elapsed';
@@ -241,20 +242,21 @@ export function Rail({
   now: number;
   readOnly?: boolean;
 }) {
-  const startAt = Math.max(0, agents.findIndex((a) => a.name === focused));
+  const ordered = wallOrder(agents);
+  const startAt = Math.max(0, ordered.findIndex((a) => a.name === focused));
   const [cursor, setCursor] = useState(startAt);
 
-  if (agents.length === 0) return null;
+  if (ordered.length === 0) return null;
 
-  const attached = agents.find((a) => a.name === focused) ?? agents[0];
+  const attached = ordered.find((a) => a.name === focused) ?? ordered[0];
   // See Composer: the lead's inbox is drained by the team loop, not by the lead.
-  const teamLive = agents.some((a) => !a.isLead && a.status !== 'departed');
-  const cursorAgent = agents[Math.min(cursor, agents.length - 1)];
+  const teamLive = ordered.some((a) => !a.isLead && a.status !== 'departed');
+  const cursorAgent = ordered[Math.min(cursor, ordered.length - 1)];
 
   function onListKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setCursor((c) => Math.min(agents.length - 1, c + 1));
+      setCursor((c) => Math.min(ordered.length - 1, c + 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setCursor((c) => Math.max(0, c - 1));
@@ -286,7 +288,7 @@ export function Rail({
             letterSpacing: '.12em',
           }}
         >
-          <span>{`TEAM · ${agents.length}`}</span>
+          <span>{`TEAM · ${ordered.length}`}</span>
           <span>click to attach</span>
         </div>
 
@@ -307,7 +309,7 @@ export function Rail({
           }}
         >
           <NowContext value={now}>
-            {agents.map((agent) => (
+            {ordered.map((agent) => (
               <Row
                 key={agent.name}
                 agent={agent}
