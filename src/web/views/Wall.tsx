@@ -398,10 +398,13 @@ const Column = memo(function Column({
 });
 
 export function Wall({
-  agents, focused, onFocus, now, readOnly = false, widths = {}, onWidthChange, onOpenMail,
+  agents, focused, revealAlso = null, onFocus, now, readOnly = false, widths = {}, onWidthChange,
+  onOpenMail,
 }: {
   agents: Agent[];
   focused: string | null;
+  /** A second column (e.g. a comms pair's other half) to bring into view alongside `focused`. */
+  revealAlso?: string | null;
   onFocus: (name: string) => void;
   /** Jumps to this agent's queued messages. The badge is a readout otherwise. */
   onOpenMail?: (name: string) => void;
@@ -475,13 +478,18 @@ export function Wall({
     if (!focused) return;
     // Matched by dataset rather than a selector: an agent name is an arbitrary
     // string, so building one would need escaping to stay correct.
-    const column = [...(scroller.current?.children ?? [])].find(
-      (el) => (el as HTMLElement).dataset.agent === focused,
-    );
+    const children = [...(scroller.current?.children ?? [])] as HTMLElement[];
+    const column = children.find((el) => el.dataset.agent === focused);
+    const alsoColumn = revealAlso ? children.find((el) => el.dataset.agent === revealAlso) : undefined;
+    // The other pair member first, `nearest`: if both columns already fit the
+    // viewport, `focused`'s own nearest-scroll below then finds it already
+    // visible and does nothing, leaving both on screen. If they don't fit,
+    // `focused` wins — the deliberate fallback.
+    alsoColumn?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
     // `?agent=` and ↑↓ both set focus on a column the viewport may be thousands
     // of pixels away from; without this the deep link looks like it did nothing.
     column?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
-  }, [focused]);
+  }, [focused, revealAlso]);
 
   return (
     <div

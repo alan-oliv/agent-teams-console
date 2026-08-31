@@ -60,6 +60,13 @@ export function App() {
     if (store.view !== 'comms') setMailFor(null);
   }, [store.view]);
 
+  // A comms "show in wall" scroll hint — the pair's other half, dropped once
+  // the wall is left so a later plain focus change does not re-trigger it.
+  const [alsoReveal, setAlsoReveal] = useState<string | null>(null);
+  useEffect(() => {
+    if (store.view !== 'wall') setAlsoReveal(null);
+  }, [store.view]);
+
   // "Stop watching" is a view-local dismissal, never written to `~/.claude` and
   // scoped to this tab — the team keeps running and this state is the only
   // place that knows the console stopped following it.
@@ -345,6 +352,7 @@ export function App() {
           <Wall
             agents={state.agents}
             focused={store.agent}
+            revealAlso={alsoReveal}
             onFocus={store.setAgent}
             now={now}
             readOnly={state.readOnly}
@@ -367,8 +375,9 @@ export function App() {
             tasks={state.tasks}
             openThread={mailFor}
             onFocus={store.setAgent}
-            onShowInWall={(name) => {
+            onShowInWall={(name, reveal) => {
               store.setAgent(name);
+              setAlsoReveal(reveal ?? null);
               store.setView('wall');
             }}
             now={now}

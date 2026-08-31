@@ -450,6 +450,26 @@ describe('Wall column memoisation', () => {
       render(<Wall agents={agents} focused={null} onFocus={vi.fn()} now={FIXTURE_NOW} />);
       expect(scrolled).toEqual([]);
     });
+
+    // The other pair member scrolls into view first, so if both columns fit
+    // the viewport, `focused`'s own nearest-scroll finds it already visible and
+    // is a no-op — both stay in view. `revealAlso` is the comms show-in-wall hint.
+    it('scrolls the reveal-hint column into view alongside the focused one', () => {
+      const scrolled: string[] = [];
+      Element.prototype.scrollIntoView = function scrollIntoView(this: Element) {
+        scrolled.push(this.getAttribute('data-agent') ?? '');
+      };
+      render(
+        <Wall
+          agents={agents}
+          focused="probe-charlie"
+          revealAlso="probe-alpha"
+          onFocus={vi.fn()}
+          now={FIXTURE_NOW}
+        />,
+      );
+      expect(scrolled).toEqual(['probe-alpha', 'probe-charlie']);
+    });
   });
 });
 

@@ -323,6 +323,28 @@ it('hands the wall the agent whose thread was open — one store, not six screen
   expect(window.location.search).toBe('?view=wall&agent=probe-bravo&team=session-98b0b4a7');
 });
 
+// Focus stays single-valued (the URL only carries one `agent=`), but the wall
+// scroll itself brings both halves of a non-lead pair into view — the design's
+// "jumps to both agents' columns".
+it('scrolls both columns into view for a non-lead comms pair shown in the wall', () => {
+  window.history.replaceState(null, '', '/?view=comms');
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+
+  // The newest thread is the probe-alpha ⇄ probe-bravo exchange — neither is the lead.
+  fireEvent.click(screen.getAllByTestId('thread-row')[0]);
+
+  const scrolled: string[] = [];
+  Element.prototype.scrollIntoView = function scrollIntoView(this: Element) {
+    scrolled.push(this.getAttribute('data-agent') ?? '');
+  };
+  fireEvent.click(screen.getByTestId('show-in-wall'));
+
+  expect(screen.getByTestId('wall')).toBeTruthy();
+  expect(scrolled).toContain('probe-alpha');
+  expect(scrolled).toContain('probe-bravo');
+});
+
 it('clicking a usage ledger row focuses that agent in the same shared store the wall reads', () => {
   window.history.replaceState(null, '', '/?view=usage');
   render(<App />);

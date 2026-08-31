@@ -504,10 +504,19 @@ describe('Comms — shared state', () => {
     expect(within(screen.getByTestId('thread-head')).getByText('security ⇄ team-lead')).toBeTruthy();
   });
 
-  it('jumps to the wall on show in wall', () => {
+  it('jumps to the wall on show in wall, with the other half as a reveal hint', () => {
     const props = renderPair();
     fireEvent.click(screen.getByTestId('show-in-wall'));
-    expect(props.onShowInWall).toHaveBeenCalledWith('perf');
+    expect(props.onShowInWall).toHaveBeenCalledWith('perf', 'security');
+  });
+
+  // The lead column is pinned position:sticky left and is always on screen,
+  // so revealing the teammate alone already satisfies a lead+teammate pair —
+  // no second scroll target is needed.
+  it('passes no reveal hint for a lead+teammate pair — the lead column is always visible', () => {
+    const props = renderComms({ openThread: 'team-lead' });
+    fireEvent.click(screen.getByTestId('show-in-wall'));
+    expect(props.onShowInWall).toHaveBeenCalledWith('security', undefined);
   });
 });
 
@@ -654,6 +663,6 @@ describe('a themed comms', () => {
     fireEvent.click(pair);
     expect(screen.getAllByTestId('bubble-from').map((b) => b.textContent)).toContain('Arthur');
     fireEvent.click(screen.getByTestId('show-in-wall'));
-    expect(props.onShowInWall).toHaveBeenCalledWith('perf');
+    expect(props.onShowInWall).toHaveBeenCalledWith('perf', 'security');
   });
 });
