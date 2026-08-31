@@ -530,11 +530,17 @@ function CoordinationPanel({
       <div data-testid="usage-coord-note" style={PROSE}>
         Delivered counts the messages a recipient has actually drained at a turn
         boundary; idle time is measured from an agent&apos;s last transcript
-        line. The design also asks for the spend attributable to re-reading
-        inboxes, and that figure is absent on purpose: no token is attributable
-        to a message read. A turn re-reads the whole cached prefix whether or not
-        a message arrived, so any dollar split between the two would be an
-        apportionment invented here, not a measurement (USAGE-STATE.md §6).
+        line. The design asks for a third figure here — the spend attributable to
+        re-reading inboxes — and it is absent on purpose: no token is
+        attributable to a message read. The usage ledger reports per-turn totals
+        and never per-content-block attribution, so nothing on disk says which
+        tokens of a turn were the inbox. Deriving it would mean approximating the
+        message text&apos;s length, guessing how many turns it stayed in context
+        and applying the cache-read rate — three estimates chained and served
+        with a currency symbol. The serial estimate below survives where this
+        does not because it is an explicit counterfactual: a caption can mark a
+        thing that never happened, but it cannot turn an unmeasured actual into a
+        measured one.
       </div>
     </div>
   );

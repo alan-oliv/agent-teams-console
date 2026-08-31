@@ -43,10 +43,18 @@ describe('the pending phase rule', () => {
         ],
       }),
     );
-    const cells = screen.getAllByTestId('wfu-phase-context');
-    expect(cells[0].textContent).toBe('50.0k');
-    expect(cells[1].textContent).toBe('—');
-    expect(screen.getAllByTestId('wfu-phase-elapsed')[1].textContent).toBe('—');
+    const elapsed = screen.getAllByTestId('wfu-phase-elapsed');
+    expect(elapsed[0].textContent).not.toBe('—'); // the phase that ran is measured
+    expect(elapsed[1].textContent).toBe('—');
+  });
+
+  // Decision 21 keeps tokens and cost off the Gantt entirely — the figure the
+  // old flat table carried here is final context, and it belongs to the agent
+  // table where it can be labelled per agent.
+  it('carries no tokens or cost column on the Gantt itself', () => {
+    draw(run({ phases: [{ index: 1, title: 'Build' }] }));
+    expect(screen.queryByTestId('wfu-phase-context')).toBeNull();
+    expect(screen.getAllByTestId('wfu-agent-row')[0].textContent).toContain('50.0k');
   });
 
   it('says a pending phase is queued rather than counting its agents at zero', () => {
@@ -292,6 +300,12 @@ describe('the phase Gantt', () => {
     expect(within(rows[2]).getByTestId('wfu-phase-elapsed').textContent).toBe('—');
   });
 
+  it('draws cache hit and cost as em-dashes on the agent table, never zeros', () => {
+    draw(twoPhases());
+    expect(screen.getAllByTestId('wfu-agent-cachehit')[0].textContent).toBe('—');
+    expect(screen.getAllByTestId('wfu-agent-cost')[0].textContent).toBe('—');
+  });
+
   it('scopes the agent table to the phase whose row was clicked', () => {
     draw(twoPhases());
     fireEvent.click(screen.getAllByTestId('wfu-gantt-row')[1]);
@@ -318,12 +332,37 @@ describe('the per-agent scatter', () => {
     expect(screen.getAllByTestId('wfu-scatter-point')).toHaveLength(4);
   });
 
-  // §24: radius by cost is blocked on the transcript ingest, so every point is
-  // the same size until there is a cost to scale it by.
-  it('gives every point the same radius, because there is no cost to scale it by', () => {
+  // Decision 21 substitutes toolCalls for the cost the design wanted here,
+  // rather than leaving the radius channel carrying nothing.
+  it('scales the radius by tool calls, the measure that does exist', () => {
+    draw(
+      run({
+        agents: [
+          agent({ agentId: 'a1', startedAt: T0, durationMs: 1000, tokens: 100, toolCalls: 20 }),
+          agent({ agentId: 'a2', startedAt: T0, durationMs: 1000, tokens: 100, toolCalls: 1 }),
+        ],
+      }),
+    );
+    const [busy, quiet] = screen.getAllByTestId('wfu-scatter-point');
+    expect(Number(busy.getAttribute('r'))).toBeGreaterThan(Number(quiet.getAttribute('r')));
+  });
+
+  it('draws the smallest point, never a zero-area one, for an agent with no tool-call count', () => {
+    draw(
+      run({
+        agents: [
+          agent({ agentId: 'a1', startedAt: T0, durationMs: 1000, tokens: 100, toolCalls: 20 }),
+          agent({ agentId: 'a2', startedAt: T0, durationMs: 1000, tokens: 100 }),
+        ],
+      }),
+    );
+    const unknown = screen.getAllByTestId('wfu-scatter-point')[1];
+    expect(Number(unknown.getAttribute('r'))).toBeGreaterThan(0);
+  });
+
+  it('names tool calls as what the radius carries, so it is not read as cost', () => {
     draw(mixed());
-    const radii = screen.getAllByTestId('wfu-scatter-point').map((p) => p.getAttribute('r'));
-    expect(new Set(radii).size).toBe(1);
+    expect(screen.getByTestId('wfu-scatter-ylabel').textContent).toMatch(/tool calls/i);
   });
 
   it('draws a failed agent as a hollow ring so it is findable without a second hue', () => {

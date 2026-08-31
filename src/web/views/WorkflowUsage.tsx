@@ -251,10 +251,13 @@ function phaseTone(row: PhaseUsageRow, agents: readonly WorkflowAgent[]): string
 
 const SCATTER_W = 620;
 const SCATTER_H = 150;
-// §24: radius by cost is downstream of the transcript ingest. Until there is a
-// cost to scale by, every point is the same size — a radius scaled by something
-// else would answer a question nobody asked.
-const POINT_R = 4;
+// The design scales radius by cost, which has no source here. Decision 21
+// substitutes `toolCalls` rather than leaving the channel empty — a real
+// per-agent measure beats an unused dimension, and substitution over omission
+// is this console's established pattern. An agent with no count recorded draws
+// the minimum radius, never a zero-area point.
+const POINT_R_MIN = 3;
+const POINT_R_MAX = 7;
 
 const SCATTER_FILL: Partial<Record<WorkflowAgentState, string>> = {
   done: 'var(--color-accent-600)',
@@ -264,6 +267,12 @@ const SCATTER_FILL: Partial<Record<WorkflowAgentState, string>> = {
   block: 'var(--color-neutral-800)',
   wait: 'var(--color-neutral-800)',
 };
+
+/** Missing draws the minimum, never a zero — an invisible point is not a datum. */
+export function radiusOf(toolCalls: number | undefined, maxCalls: number): number {
+  if (toolCalls === undefined || maxCalls <= 0) return POINT_R_MIN;
+  return POINT_R_MIN + (Math.min(toolCalls, maxCalls) / maxCalls) * (POINT_R_MAX - POINT_R_MIN);
+}
 
 const CHIPS: Array<{ id: string; word: string; match: (a: WorkflowAgent) => boolean }> = [
   { id: 'all', word: 'all', match: () => true },
@@ -290,6 +299,7 @@ export function WorkflowUsage({ run, now }: { run: WorkflowRun; now: number }) {
     1,
     ...ran.map((a) => (a.durationMs === undefined ? now - a.startedAt! : a.durationMs)),
   );
+  const maxCalls = Math.max(0, ...ran.map((a) => a.toolCalls ?? 0));
   const { peak, msAtPeak } = concurrency(run.agents);
   const series = concurrencySeries(run.agents);
   const counts = liveCounts(run);
@@ -461,9 +471,6 @@ export function WorkflowUsage({ run, now }: { run: WorkflowRun; now: number }) {
                     <span data-testid="wfu-phase-tally" style={{ ...CELL, width: '132px', textAlign: 'left' }}>
                       {row.tally}
                     </span>
-                    <span data-testid="wfu-phase-context" style={{ ...CELL, width: '78px' }}>
-                      {row.contextTokens === undefined ? EM_DASH : formatTokens(row.contextTokens)}
-                    </span>
                     <span data-testid="wfu-phase-elapsed" style={{ ...CELL, width: '72px' }}>
                       {row.elapsedMs === undefined ? EM_DASH : formatElapsed(row.elapsedMs)}
                     </span>
@@ -500,6 +507,8 @@ export function WorkflowUsage({ run, now }: { run: WorkflowRun; now: number }) {
                 <span style={{ ...CELL, width: '92px' }}>status</span>
                 <span style={{ ...CELL, width: '72px' }}>time</span>
                 <span style={{ ...CELL, width: '78px' }}>final context</span>
+                <span style={{ ...CELL, width: '64px' }}>cache hit</span>
+                <span style={{ ...CELL, width: '64px' }}>cost</span>
               </div>
               {scoped.map((a, i) => (
                 <div
@@ -523,6 +532,11 @@ export function WorkflowUsage({ run, now }: { run: WorkflowRun; now: number }) {
                   <span style={{ ...CELL, width: '78px' }}>
                     {a.tokens === undefined ? EM_DASH : formatTokens(a.tokens)}
                   </span>
+                  {/* Both are em-dashes rather than absent columns: the figures
+                      exist on disk un-ingested, so the shape of the answer is
+                      known even though the answer is not. */}
+                  <span data-testid="wfu-agent-cachehit" style={{ ...CELL, width: '64px' }}>{EM_DASH}</span>
+                  <span data-testid="wfu-agent-cost" style={{ ...CELL, width: '64px' }}>{EM_DASH}</span>
                 </div>
               ))}
               {scoped.length === 0 && (
@@ -538,7 +552,7 @@ export function WorkflowUsage({ run, now }: { run: WorkflowRun; now: number }) {
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '12px' }}>
               <span style={PANEL_TITLE}>Every agent in the run</span>
               <span data-testid="wfu-scatter-ylabel" style={{ ...PROSE, fontSize: '10.5px' }}>
-                y: final context · x: wall time
+                y: final context · x: wall time · radius: tool calls
               </span>
             </div>
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
@@ -579,17 +593,18 @@ export function WorkflowUsage({ run, now }: { run: WorkflowRun; now: number }) {
               >
                 {points.map((a) => {
                   const dur = a.durationMs === undefined ? now - a.startedAt! : a.durationMs;
-                  const cx = (dur / maxDur) * (SCATTER_W - 2 * POINT_R) + POINT_R;
-                  const cy = SCATTER_H - ((a.tokens ?? 0) / maxTok) * (SCATTER_H - 2 * POINT_R) - POINT_R;
+                  const cx = (dur / maxDur) * (SCATTER_W - 2 * POINT_R_MAX) + POINT_R_MAX;
+                  const cy = SCATTER_H - ((a.tokens ?? 0) / maxTok) * (SCATTER_H - 2 * POINT_R_MAX) - POINT_R_MAX;
                   const hollow = a.state === 'fail';
                   return (
                     <circle
                       key={a.agentId}
                       data-testid="wfu-scatter-point"
                       data-state={a.state}
+                      data-tool-calls={a.toolCalls ?? ''}
                       cx={cx}
                       cy={cy}
-                      r={POINT_R}
+                      r={radiusOf(a.toolCalls, maxCalls)}
                       fill={hollow ? 'none' : SCATTER_FILL[a.state] ?? 'var(--color-neutral-800)'}
                       stroke={hollow ? 'var(--color-text)' : undefined}
                       strokeWidth={hollow ? 1.5 : undefined}
@@ -600,9 +615,10 @@ export function WorkflowUsage({ run, now }: { run: WorkflowRun; now: number }) {
             )}
             <div style={PROSE}>
               A failed agent is drawn as a hollow ring rather than a second hue,
-              so it is findable on a page that carries no failure colour. Every
-              point is the same size: the design scales radius by cost, and there
-              is no cost here to scale it by.
+              so it is findable on a page that carries no failure colour. The
+              design scales radius by cost; there is none here, so radius carries
+              tool calls instead, and an agent with no count recorded draws the
+              smallest point rather than none at all.
             </div>
           </div>
         </>
