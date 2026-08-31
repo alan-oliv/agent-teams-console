@@ -43,7 +43,7 @@ import {
   parseTeammateFrames,
   type InboxEntry,
 } from '../shared/mailbox';
-import { AGENT_STALE_MS, deriveTaskState } from '../shared/status';
+import { AGENT_STALE_MS, deriveTaskState, isWallClockLog } from '../shared/status';
 
 /**
  * How many transcript lines PER AGENT survive into the projected `TeamState`
@@ -88,6 +88,13 @@ export interface TranscriptPayload {
   fromStart?: boolean;
   /** Only on the LAST batch of a drain, so a partial read never publishes a partial total. */
   totals?: AgentUsageTotals;
+  /**
+   * The transcript file's own mtime, carried for the staleness rule alone —
+   * `isWallClockLog` compares it against the newest record here to decide
+   * whether the wall clock means anything on this log. Absent on a batch that
+   * came from a buffer rather than a read, and on any event a test built.
+   */
+  mtimeMs?: number;
 }
 export interface TaskPayload {
   id: string;
@@ -305,7 +312,7 @@ export function transcriptLineText(
   return undefined;
 }
 
-export function project(events: StoredEvent[], readOnly: boolean): TeamState {
+export function project(events: StoredEvent[], readOnly: boolean, now = Date.now()): TeamState {
   let config: TeamConfig | null = null;
   let sidecars: Array<{ meta: Sidecar; transcriptPath: string }> = [];
   let branch: string | undefined;
@@ -320,6 +327,10 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
   const currentTool = new Map<string, string | undefined>();
   const errors = new Map<string, string>();
   const lastActivity = new Map<string, number>();
+  // Per agent, the mtime of the transcript file its newest batch came from —
+  // the second clock `isWallClockLog` needs. Last-wins rather than max: the
+  // freshest read is the one that describes the file as it is now.
+  const logClock = new Map<string, number>();
   const needsYou = new Map<string, NeedsYouItem>();
   const usageTotals = new Map<string, AgentUsageTotals>();
   // Per roster agent, the `Task`/`Agent` calls its transcript made — collected
@@ -346,6 +357,7 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
         // Cumulative, so the newest snapshot REPLACES the last one. Summing them
         // would double-count every message id both cover.
         if (p.totals) usageTotals.set(p.agent, p.totals);
+        if (p.mtimeMs !== undefined) logClock.set(p.agent, p.mtimeMs);
         // The file is being read again from its first byte, so everything held
         // for this agent is about to arrive again. Clearing the uuid set matters
         // as much as clearing the list: without it every re-read record would be
@@ -520,6 +532,16 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
       // config.json survives a crashed process, so membership alone cannot
       // tell 'working' from 'gone'.
       else if (latestActivity - act > AGENT_STALE_MS) status = 'departed';
+      // The branch above measures each agent against the team's newest
+      // activity, and on a ONE-AGENT team that agent IS the newest, so the
+      // difference is always 0 and it can never fire. The wall clock can say
+      // what the team cannot — but only on a log whose own file clock proves it
+      // is on the wall clock, or every replayed fixture would depart at once.
+      // `idle` and not `departed`: the branch above has a contrast to read as
+      // evidence something died, and this one has only the silence.
+      else if (isWallClockLog(logClock.get(id.name), act) && now - act > AGENT_STALE_MS) {
+        status = 'idle';
+      }
     }
 
     return {

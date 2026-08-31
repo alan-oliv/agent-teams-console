@@ -456,6 +456,14 @@ describe('startFileIngest', () => {
     expect(tp.agent).toBe('probe-charlie');
     expect(tp.records).toHaveLength(21);
     expect(tp.records[0].uuid).toBe('11e6d4d8-e189-4e20-af44-164cbfed2cfa');
+    // The file's own clock rides with the records so the staleness rule can tell
+    // a session that went quiet from a log being replayed — see isWallClockLog.
+    // Asserted against the real stat rather than a range: this is the one place
+    // the tailer's mtime is proved to survive the whole path into the store.
+    const onDisk = await fs.stat(
+      path.join(paths.projects, SLUG, LEAD_SESSION, 'subagents', 'agent-aprobe-charlie-12ee4cb1ed35cf7c.jsonl'),
+    );
+    expect(tp.mtimeMs).toBe(onDisk.mtimeMs);
 
     const task = of(events, 'task').at(-1)!.payload as TaskPayload;
     expect(task.id).toBe('1');

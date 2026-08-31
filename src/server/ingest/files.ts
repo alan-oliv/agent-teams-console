@@ -518,7 +518,12 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
    * on the wire. (At boot there is no client at all: index.ts awaits the sweep
    * before it creates the HTTP server.)
    */
-  const appendTranscript = (agent: string, records: TranscriptRecord[], fromStart: boolean) => {
+  const appendTranscript = (
+    agent: string,
+    records: TranscriptRecord[],
+    fromStart: boolean,
+    mtimeMs?: number,
+  ) => {
     const totals = totalsFor(agent);
     for (let i = 0; i < records.length; i += INGEST_BATCH_RECORDS) {
       const payload: TranscriptPayload = {
@@ -527,8 +532,12 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
       };
       if (fromStart && i === 0) payload.fromStart = true;
       // Only the last chunk carries the snapshot, so a partial read of a drain
-      // can never publish a partial total.
-      if (i + INGEST_BATCH_RECORDS >= records.length) payload.totals = totals;
+      // can never publish a partial total. The file clock rides with it for the
+      // same reason: it describes the whole file, not this slice of it.
+      if (i + INGEST_BATCH_RECORDS >= records.length) {
+        payload.totals = totals;
+        if (mtimeMs !== undefined) payload.mtimeMs = mtimeMs;
+      }
       store.append('transcript', payload, agent);
     }
     appendDrainedMail(agent, records);
@@ -635,7 +644,7 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
     if (buf && buf.records.length > 0) appendTranscript(agent, buf.records, false);
   };
 
-  const handleLines = (file: string, lines: string[], fromStart: boolean) => {
+  const handleLines = (file: string, lines: string[], fromStart: boolean, mtimeMs?: number) => {
     // Before the claim and before `disowned`: a subagent is deliberately BOTH
     // of those — no claim on a roster name, and forgotten as a teammate — and
     // it is still read, just into its own contract.
@@ -673,7 +682,7 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
       // `fromStart` clear is scoped to the AGENT, not to the file, so it would
       // destroy the other run's stored history. The uuid dedupe and the store's
       // per-agent record bound carry a re-read instead.
-      appendTranscript(agent, records, fromStart && (ownedFiles.get(agent)?.size ?? 1) <= 1);
+      appendTranscript(agent, records, fromStart && (ownedFiles.get(agent)?.size ?? 1) <= 1, mtimeMs);
       return;
     }
     // Drop BEFORE the push: `buf` is the array the buffer already holds, so
@@ -936,13 +945,13 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
     else if (root === paths.sessions) await handleSessionJson(file);
   };
 
-  const transcripts = watchAppendOnly(paths.projects, (file, lines, fromStart) => {
+  const transcripts = watchAppendOnly(paths.projects, (file, lines, fromStart, mtimeMs) => {
     if (isWorkflowPath(file)) {
       void handleWorkflowFile(file).catch((err: unknown) => logError(`ingest ${file}`, err));
       return;
     }
     try {
-      handleLines(file, lines, fromStart);
+      handleLines(file, lines, fromStart, mtimeMs);
     } catch (err) {
       logError(`ingest ${file}`, err);
     }

@@ -637,6 +637,66 @@ describe('departed status', () => {
 });
 
 // ---------------------------------------------------------------------------
+// The rule above measures each agent against the team's own newest activity,
+// which on a ONE-AGENT team is that agent itself — so it can never fire and the
+// lead reads `working` forever. Decision 25: bring in the wall clock, but only
+// for a log that proves it is on the wall clock, by carrying the transcript
+// file's mtime beside the records it came from.
+// ---------------------------------------------------------------------------
+describe('staleness on a one-agent team', () => {
+  const SOLO: TeamConfig = {
+    name: 'session-solo',
+    createdAt: 0,
+    leadAgentId: 'lead',
+    leadSessionId: 'lead',
+    members: [{ agentId: 'lead', name: 'lead', joinedAt: 0, tmuxPaneId: '', subscriptions: [] }],
+  };
+  const at = (ts: number): TranscriptRecord => ({
+    type: 'assistant',
+    uuid: 'lead-1',
+    timestamp: new Date(ts).toISOString(),
+    message: { content: [{ type: 'text', text: 'hi' }] },
+  });
+  const logFor = (recordTs: number, mtimeMs?: number): StoredEvent[] => [
+    { seq: 1, ts: 0, kind: 'roster', payload: { config: SOLO, sidecars: [] } },
+    {
+      seq: 2,
+      ts: 0,
+      kind: 'transcript',
+      agent: 'lead',
+      payload: { agent: 'lead', records: [at(recordTs)], mtimeMs },
+    },
+  ];
+  const statusAt = (log: StoredEvent[], now: number) =>
+    project(log, false, now).agents.find((a) => a.name === 'lead')!.status;
+
+  const WROTE = 1787843400000;
+
+  it('still reads working while the silence is inside the window', () => {
+    expect(statusAt(logFor(WROTE, WROTE), WROTE + AGENT_STALE_MS - 1)).toBe('working');
+  });
+
+  it('goes idle once its own log has been silent past the window', () => {
+    expect(statusAt(logFor(WROTE, WROTE), WROTE + AGENT_STALE_MS + 1)).toBe('idle');
+  });
+
+  it('says idle rather than departed, because silence alone is not evidence of gone', () => {
+    // The relative branch keeps `departed` for the case with a contrast to
+    // measure against; this branch has only the silence.
+    expect(statusAt(logFor(WROTE, WROTE), WROTE + 20 * AGENT_STALE_MS)).not.toBe('departed');
+  });
+
+  it('leaves a replayed log alone: new file, records days old', () => {
+    const now = WROTE + 72 * 60 * 60 * 1000;
+    expect(statusAt(logFor(WROTE, now), now)).toBe('working');
+  });
+
+  it('leaves an event with no file clock alone, which is every fixture-built log', () => {
+    expect(statusAt(logFor(WROTE), WROTE + 20 * AGENT_STALE_MS)).toBe('working');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // The store now bounds transcript history per agent by RECORD count, so the
 // fold can no longer see every record an agent ever wrote. Cost and tokens ride
 // along on the payload as a cumulative snapshot; a from-byte-0 re-read says so
