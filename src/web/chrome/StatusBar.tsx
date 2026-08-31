@@ -2,7 +2,7 @@ import type { ReactElement } from 'react';
 import type { Subagent, TeamState, ViewId } from '../../shared/domain';
 import type { SettingsStore } from '../state/useSettings';
 import { formatCost, formatElapsed, formatTokens, meterCells } from '../format';
-import { VIEW_IDS } from '../state/useTeamState';
+import { SOLO_VIEW_IDS, VIEW_IDS } from '../state/useTeamState';
 import { Bar, METRIC } from './Bar';
 import { runOrder } from './RunSelect';
 import { TeamSelect } from './TeamSelect';
@@ -50,10 +50,16 @@ export interface StatusBarProps {
   /** Opens workflow mode for a run this session also has. */
   onSelectRun(runId: string): void;
   appearance: SettingsStore;
+  /**
+   * A lead-only session with a subagent tree (decision 24): the switcher
+   * offers stream · trace · tasks · usage, where `stream` is the wall's own
+   * pill wearing the word a single column deserves.
+   */
+  solo?: boolean;
 }
 
 export function StatusBar({
-  state, view, onViewChange, now, teamsOpen, onTeamsOpenChange, onSelectRun, appearance,
+  state, view, onViewChange, now, teamsOpen, onTeamsOpenChange, onSelectRun, appearance, solo,
 }: StatusBarProps) {
   const done = state.tasks.filter((t) => t.state === 'completed').length;
   // Team context occupancy — what the meter has always looked like it meant.
@@ -157,9 +163,10 @@ export function StatusBar({
           )}
         </>
       }
-      views={VIEW_IDS}
+      views={solo ? SOLO_VIEW_IDS : VIEW_IDS}
       view={view}
       onViewChange={onViewChange}
+      labelOf={solo ? (id) => (id === 'wall' ? 'stream' : id) : undefined}
       metrics={metrics}
       metricRank={METRIC_RANK}
       appearance={appearance}

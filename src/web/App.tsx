@@ -24,6 +24,7 @@ import { NoSessions } from './views/NoSessions';
 import { Overview } from './views/Overview';
 import { Rail } from './views/Rail';
 import { Tasks } from './views/Tasks';
+import { Trace } from './views/Trace';
 import { Usage } from './views/Usage';
 import { Wall } from './views/Wall';
 import { Workflow } from './views/Workflow';
@@ -46,6 +47,15 @@ export function App() {
   }, []);
 
   const state = store.state;
+
+  // Solo (decisions 23/24): a roster of one whose session carries a subagent
+  // tree. The switcher then offers stream · trace · tasks · usage, and a
+  // `trace` in the URL of any OTHER session falls back to the wall rather
+  // than mounting a view its switcher never offered.
+  const soloLead = state !== null && state.agents.length === 1 ? state.agents[0] : null;
+  const solo =
+    soloLead !== null && Object.values(state?.subagents ?? {}).some((list) => list.length > 0);
+  const view = store.view === 'trace' && !solo ? 'wall' : store.view;
   // Lives here, not in the view, so switching away from usage and back does
   // not restart the sampler — the same reason widths and hidden sessions live
   // above the views that read them.
@@ -56,16 +66,19 @@ export function App() {
   // on any plain view switch, and only the in-flight badge asks it for one
   // agent's messages. Dropped on the way out, so the next visit is plain again.
   const [mailFor, setMailFor] = useState<string | null>(null);
+  // The trace view's selected lane. Lives here like mailFor so leaving and
+  // returning to trace keeps the operator's place.
+  const [traceSelected, setTraceSelected] = useState<string | null>(null);
   useEffect(() => {
-    if (store.view !== 'comms') setMailFor(null);
-  }, [store.view]);
+    if (view !== 'comms') setMailFor(null);
+  }, [view]);
 
   // A comms "show in wall" scroll hint — the pair's other half, dropped once
   // the wall is left so a later plain focus change does not re-trigger it.
   const [alsoReveal, setAlsoReveal] = useState<string | null>(null);
   useEffect(() => {
-    if (store.view !== 'wall') setAlsoReveal(null);
-  }, [store.view]);
+    if (view !== 'wall') setAlsoReveal(null);
+  }, [view]);
 
   // "Stop watching" is a view-local dismissal, never written to `~/.claude` and
   // scoped to this tab — the team keeps running and this state is the only
@@ -98,7 +111,9 @@ export function App() {
    * flash the empty screen on its way to becoming real.
    */
   const currentHidden = state ? hidden.has(state.teamName) : false;
-  const leadOnlyHere = state ? state.mode !== 'workflow' && state.agents.length < 2 : false;
+  // `!solo`: a lead-only session WITH a subagent tree is somewhere to be
+  // (decision 23) — the empty screen is for the bare window, not for it.
+  const leadOnlyHere = state ? state.mode !== 'workflow' && state.agents.length < 2 && !solo : false;
   // A team that has ENDED is not somewhere the console has to be, so it does not
   // hold the empty screen off — even though the lists below keep it, because
   // paging back into a finished session is what they are for.
@@ -245,7 +260,7 @@ export function App() {
 
   useKeyboard({
     agents: wallOrder,
-    view: store.view,
+    view,
     focused: store.agent,
     setFocused: store.setAgent,
     setView: store.setView,
@@ -317,13 +332,14 @@ export function App() {
     >
       <StatusBar
         state={state}
-        view={store.view}
+        view={view}
         onViewChange={store.setView}
         now={now}
         teamsOpen={teamsOpen}
         onTeamsOpenChange={setTeamsOpen}
         onSelectRun={store.setRun}
         appearance={appearance}
+        solo={solo}
       />
       <main className="console-body">
         {/* Hiding wins over dismissal: a session taken out of the picker has no
@@ -348,7 +364,7 @@ export function App() {
           />
         ) : (
         <>
-        {store.view === 'wall' && (
+        {view === 'wall' && (
           <Wall
             agents={state.agents}
             focused={store.agent}
@@ -366,7 +382,7 @@ export function App() {
             subagents={state.subagents}
           />
         )}
-        {store.view === 'overview' && (
+        {view === 'overview' && (
           <Overview
             agents={state.agents}
             focused={store.agent}
@@ -375,7 +391,7 @@ export function App() {
             subagents={state.subagents}
           />
         )}
-        {store.view === 'comms' && (
+        {view === 'comms' && (
           <Comms
             agents={state.agents}
             mail={state.mail}
@@ -391,8 +407,19 @@ export function App() {
             readOnly={state.readOnly}
           />
         )}
-        {store.view === 'tasks' && <Tasks tasks={state.tasks} teamName={state.teamName} />}
-        {store.view === 'rail' && (
+        {view === 'tasks' && <Tasks tasks={state.tasks} teamName={state.teamName} />}
+        {view === 'trace' && soloLead && (
+          <Trace
+            agent={soloLead.name}
+            subagents={
+              state.subagents?.[soloLead.name] ?? Object.values(state.subagents ?? {}).flat()
+            }
+            now={now}
+            selected={traceSelected}
+            onSelect={setTraceSelected}
+          />
+        )}
+        {view === 'rail' && (
           <Rail
             agents={state.agents}
             focused={store.agent}
@@ -402,7 +429,7 @@ export function App() {
             subagents={state.subagents}
           />
         )}
-        {store.view === 'grid' && (
+        {view === 'grid' && (
           <Grid
             agents={state.agents}
             focused={store.agent}
@@ -411,7 +438,7 @@ export function App() {
             subagents={state.subagents}
           />
         )}
-        {store.view === 'usage' && (
+        {view === 'usage' && (
           <Usage
             mode="team"
             state={state}

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { Diff } from '../shared/domain';
 import { App } from './App';
 import { MockEventSource, installMockEventSource } from './test/mockEventSource';
-import { sampleTeamState, sampleTeams } from './test/state-fixture';
+import { FIXTURE_NOW, sampleTeamState, sampleTeams } from './test/state-fixture';
 
 beforeEach(() => {
   installMockEventSource();
@@ -870,4 +870,67 @@ it('keeps a finished session in the list you can page back into', async () => {
   expect(rows.map((r) => r.textContent ?? '').some((t) => t.includes('session-done0004'))).toBe(
     true,
   );
+});
+
+// ————— the solo-session mode (decisions 23/24, old-batch #28) —————
+
+function soloState() {
+  const state = sampleTeamState();
+  const lead = state.agents[0];
+  return {
+    ...state,
+    agents: [lead],
+    subagents: {
+      [lead.name]: [
+        {
+          toolUseId: 'toolu_solo1',
+          name: 'probe',
+          agent: lead.name,
+          parent: lead.name,
+          depth: 1,
+          spawnIndex: 0,
+          siblingGroup: 'rec-1',
+          state: 'returned' as const,
+          queuedAt: FIXTURE_NOW - 60_000,
+          startedAt: FIXTURE_NOW - 59_000,
+          returnedAt: FIXTURE_NOW - 10_000,
+          durationMs: 49_000,
+          tokens: 28_700,
+          returnedSummary: 'probe finished',
+          children: [],
+        },
+      ],
+    },
+  };
+}
+
+it('offers a solo session the four-pill switcher, with the wall labelled stream', async () => {
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', soloState()));
+
+  const tabs = await screen.findAllByRole('tab');
+  expect(tabs.map((t) => t.textContent)).toEqual(['stream', 'trace', 'tasks', 'usage']);
+});
+
+it('mounts the trace view over the session’s own tree when its pill is picked', async () => {
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', soloState()));
+
+  fireEvent.click((await screen.findAllByRole('tab')).find((t) => t.textContent === 'trace')!);
+  expect(await screen.findByTestId('trace-view')).toBeTruthy();
+  expect(screen.getAllByTestId('trace-lane-name').some((n) => n.textContent?.includes('probe'))).toBe(
+    true,
+  );
+});
+
+// A team session keeps its seven pills, and a URL-forced 'trace' on one falls
+// back to the wall rather than mounting a view its switcher never offered.
+it('keeps the team switcher at seven views on a real team', async () => {
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+
+  const tabs = await screen.findAllByRole('tab');
+  expect(tabs.map((t) => t.textContent)).toEqual([
+    'wall', 'overview', 'comms', 'tasks', 'rail', 'grid', 'usage',
+  ]);
 });

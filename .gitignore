@@ -14,3 +14,4 @@ probe.mjs
 live.mjs
 live-*.png
 probe-*.mjs
+graphify-out/
