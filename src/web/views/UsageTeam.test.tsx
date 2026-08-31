@@ -345,7 +345,7 @@ describe('UsageTeam — donut, rate card, pressure, coordination, worth-it', () 
 
   it('hides the rate card when the appearance store turns it off', () => {
     render(
-      <SettingsContext.Provider value={{ ...DEFAULT_SETTINGS, showRateCard: false } as never}>
+      <SettingsContext.Provider value={{ ...DEFAULT_SETTINGS, showRateCard: false }}>
         <UsageTeam state={sampleTeamState()} now={FIXTURE_NOW} focused={null} onFocus={vi.fn()} spendSamples={[]} />
       </SettingsContext.Provider>,
     );

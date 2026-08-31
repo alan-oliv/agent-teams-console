@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react';
 import type { Agent, TeamState } from '../../shared/domain';
 import { RATES, rateOf } from '../../shared/cost';
 import { formatCost, formatElapsed, formatPct, formatTokens } from '../format';
-import { useAppearance, type Settings } from '../state/useSettings';
+import { useAppearance } from '../state/useSettings';
 import {
   billedTokens,
   cacheHitRatio,
@@ -640,10 +640,7 @@ export interface UsageTeamProps {
  */
 export function UsageTeam({ state, now, focused, onFocus, spendSamples }: UsageTeamProps) {
   const { agents, tasks } = state;
-  // The toggle itself belongs to the appearance store, which another owner is
-  // adding it to. Absent reads as visible, which is the setting's default.
-  // TODO(film): drop the cast once `showRateCard` lands on Settings.
-  const showRateCard = (useAppearance() as Settings & { showRateCard?: boolean }).showRateCard !== false;
+  const { showRateCard } = useAppearance();
   // Undefined, not zero, when any agent's split is unrecorded — a pre-existing
   // log the split widening hasn't reached yet, or an agent mid-way through its
   // first drain. Partial data reads as "unknown", never as a smaller measurement.
