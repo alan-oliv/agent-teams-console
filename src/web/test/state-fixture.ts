@@ -9,6 +9,7 @@ import type {
   TeamState,
   TeamSummary,
 } from '../../shared/domain';
+import type { TokenSplit } from '../../shared/cost';
 
 const OPUS = { contextLimit: 1_000_000, compactAt: 967_000 };
 const HAIKU = { contextLimit: 200_000, compactAt: 167_000 };
@@ -22,13 +23,30 @@ interface Tuning {
   compactAt: number;
   costUsd: number;
   model: string;
+  tokenSplit: TokenSplit;
 }
 
+// Cache reads dominate real usage (~95% on the live team USAGE-STATE.md
+// audited), so every fixture split follows that shape rather than an even
+// spread — a usage-view test rendering an unrealistic split would not catch
+// the bug it exists to catch.
 const TUNING: Record<string, Tuning> = {
-  'team-lead': { status: 'working', contextTokens: 53_100, costUsd: 1.31, model: 'claude-opus-5', ...OPUS },
-  'probe-alpha': { status: 'idle', contextTokens: 120_000, costUsd: 0.42, model: 'claude-opus-5', ...OPUS },
-  'probe-bravo': { status: 'working', contextTokens: 500_000, costUsd: 0.61, model: 'claude-opus-5', ...OPUS },
-  'probe-charlie': { status: 'idle', contextTokens: 156_000, costUsd: 0.22, model: 'claude-haiku-4-5', ...HAIKU },
+  'team-lead': {
+    status: 'working', contextTokens: 53_100, costUsd: 1.31, model: 'claude-opus-5', ...OPUS,
+    tokenSplit: { in: 4200, out: 3800, cacheWrite: 18_000, cacheWrite1h: 0, cacheRead: 2_400_000 },
+  },
+  'probe-alpha': {
+    status: 'idle', contextTokens: 120_000, costUsd: 0.42, model: 'claude-opus-5', ...OPUS,
+    tokenSplit: { in: 1800, out: 2600, cacheWrite: 9600, cacheWrite1h: 0, cacheRead: 1_180_000 },
+  },
+  'probe-bravo': {
+    status: 'working', contextTokens: 500_000, costUsd: 0.61, model: 'claude-opus-5', ...OPUS,
+    tokenSplit: { in: 2100, out: 3100, cacheWrite: 8800, cacheWrite1h: 0, cacheRead: 1_420_000 },
+  },
+  'probe-charlie': {
+    status: 'idle', contextTokens: 156_000, costUsd: 0.22, model: 'claude-haiku-4-5', ...HAIKU,
+    tokenSplit: { in: 900, out: 1200, cacheWrite: 6200, cacheWrite1h: 0, cacheRead: 410_000 },
+  },
 };
 
 /** epoch ms 45m 12s after the fixture team was created */
@@ -101,6 +119,7 @@ export function sampleTeamState(): TeamState {
       contextLimit: t.contextLimit,
       compactAt: t.compactAt,
       costUsd: t.costUsd,
+      tokenSplit: t.tokenSplit,
       startedAt: m.joinedAt,
       transcript: [],
       // An inbox drains oldest first, so this is how many of the agent's

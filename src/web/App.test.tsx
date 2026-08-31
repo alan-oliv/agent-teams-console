@@ -173,6 +173,13 @@ it('wires each view into the body and never unmounts the chrome switching betwee
   expectChromeMounted();
   expect(screen.getByRole('tablist')).toBe(tablist);
   expect(screen.getByText('PANEL')).toBe(panel);
+
+  fireEvent.click(screen.getByRole('tab', { name: 'usage' }));
+  expect(screen.getByTestId('usage')).toBeTruthy();
+  expect(screen.queryByTestId('grid')).toBeNull();
+  expectChromeMounted();
+  expect(screen.getByRole('tablist')).toBe(tablist);
+  expect(screen.getByText('PANEL')).toBe(panel);
 });
 
 it('wires useKeyboard to the store — ⌘2 switches from the wall to overview', () => {
@@ -182,6 +189,16 @@ it('wires useKeyboard to the store — ⌘2 switches from the wall to overview',
   expect(screen.getByTestId('wall')).toBeTruthy();
   fireEvent.keyDown(document.body, { key: '2', metaKey: true });
   expect(screen.getByTestId('overview')).toBeTruthy();
+  expect(screen.queryByTestId('wall')).toBeNull();
+});
+
+it('⌘7 switches to the seventh pill, usage', () => {
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+
+  expect(screen.getByTestId('wall')).toBeTruthy();
+  fireEvent.keyDown(document.body, { key: '7', metaKey: true });
+  expect(screen.getByTestId('usage')).toBeTruthy();
   expect(screen.queryByTestId('wall')).toBeNull();
 });
 
@@ -304,6 +321,19 @@ it('hands the wall the agent whose thread was open — one store, not six screen
   // and the panel are looking at the same teammate. With nothing focused the
   // room is what opens, and the room points at whoever spoke last.
   expect(window.location.search).toBe('?view=wall&agent=probe-bravo&team=session-98b0b4a7');
+});
+
+it('clicking a usage ledger row focuses that agent in the same shared store the wall reads', () => {
+  window.history.replaceState(null, '', '/?view=usage');
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+
+  const rows = screen.getAllByTestId('usage-ledger-row');
+  fireEvent.click(rows[2]);
+
+  // One store, not six screens: the agent chosen in the ledger lands in the
+  // same URL-backed selection the wall, rail and overview already read.
+  expect(window.location.search).toContain('agent=probe-bravo');
 });
 
 it('⌘3 switches to comms', () => {

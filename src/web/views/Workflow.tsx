@@ -5,13 +5,14 @@ import { RunSelect } from '../chrome/RunSelect';
 import { TeamSelect } from '../chrome/TeamSelect';
 import { formatElapsed } from '../format';
 import type { SettingsStore } from '../state/useSettings';
+import { Usage } from './Usage';
 import { WorkflowAgents } from './WorkflowAgents';
 import { WorkflowJournal } from './WorkflowJournal';
 import { WorkflowRun } from './WorkflowRun';
 import { WorkflowScript } from './WorkflowScript';
 import { runTotalsText } from './workflow-grid';
 
-export const WORKFLOW_VIEW_IDS = ['run', 'agents', 'script', 'journal'] as const;
+export const WORKFLOW_VIEW_IDS = ['run', 'agents', 'script', 'journal', 'usage'] as const;
 export type WorkflowViewId = (typeof WORKFLOW_VIEW_IDS)[number];
 
 /**
@@ -146,6 +147,7 @@ export function Workflow({
         {view === 'agents' && <WorkflowAgents agents={run.agents} />}
         {view === 'script' && <WorkflowScript run={run} />}
         {view === 'journal' && <WorkflowJournal agents={run.agents} />}
+        {view === 'usage' && <Usage mode="workflow" run={run} now={now} />}
       </main>
     </>
   );

@@ -13,6 +13,7 @@ import {
   type FileIngest,
 } from './files';
 import { dedupeUsage, tokensOf, totalCost, usageRecordsOf } from '../../shared/usage';
+import { splitTok } from '../../shared/cost';
 import { buildRoster } from '../../shared/roster';
 import { toTranscriptLines, type TranscriptRecord } from '../../shared/transcript';
 import { project } from '../project';
@@ -1081,6 +1082,8 @@ describe('a stranger that shares a teammate name', () => {
       await ingest.sweep(); // and our teammate says one more thing
 
       expect(storedTotals().costUsd).toBeCloseTo(totalCost(dedupeUsage(usageRecordsOf(all))), 12);
+      const truthSplit = splitTok(dedupeUsage(usageRecordsOf(all)));
+      expect(storedTotals().split).toEqual(truthSplit);
     } finally {
       ingest.close();
     }

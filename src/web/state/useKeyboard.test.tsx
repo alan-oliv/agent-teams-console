@@ -92,20 +92,20 @@ describe('useKeyboard — wall navigation', () => {
 });
 
 describe('useKeyboard — view switching', () => {
-  it('⌘1-6 select the six views in switcher order', () => {
+  it('⌘1-7 select the seven views in switcher order', () => {
     mount();
     for (const [key, view] of [
-      ['1', 'wall'], ['2', 'overview'], ['3', 'comms'], ['4', 'tasks'], ['5', 'rail'], ['6', 'grid'],
+      ['1', 'wall'], ['2', 'overview'], ['3', 'comms'], ['4', 'tasks'], ['5', 'rail'], ['6', 'grid'], ['7', 'usage'],
     ] as Array<[string, ViewId]>) {
       fireEvent.keyDown(document.body, { key, metaKey: true });
       expect(actions.setView).toHaveBeenCalledWith(view);
     }
-    expect(actions.setView).toHaveBeenCalledTimes(6);
+    expect(actions.setView).toHaveBeenCalledTimes(7);
   });
 
-  it('⌘7 is not a view', () => {
+  it('⌘8 is not a view', () => {
     mount();
-    fireEvent.keyDown(document.body, { key: '7', metaKey: true });
+    fireEvent.keyDown(document.body, { key: '8', metaKey: true });
     expect(actions.setView).not.toHaveBeenCalled();
   });
 

@@ -1,7 +1,7 @@
 import { createContext, useCallback, useEffect, useState } from 'react';
 import type { Agent, Diff, TeamState, TranscriptLine, ViewId } from '../../shared/domain';
 
-export const VIEW_IDS: readonly ViewId[] = ['wall', 'overview', 'comms', 'tasks', 'rail', 'grid'];
+export const VIEW_IDS: readonly ViewId[] = ['wall', 'overview', 'comms', 'tasks', 'rail', 'grid', 'usage'];
 
 export interface TeamStateStore {
   state: TeamState | null;
@@ -135,16 +135,32 @@ function sameTranscript(prev: TranscriptLine[], next: TranscriptLine[]): boolean
   return true;
 }
 
+// tokenSplit is the one other field on Agent that is an object rather than a
+// scalar, so it needs the same by-value treatment transcript gets: a fresh
+// JSON.parse hands it a new identity every frame even when every number in it
+// is unchanged.
+function sameTokenSplit(prev: Agent['tokenSplit'], next: Agent['tokenSplit']): boolean {
+  if (prev === next) return true;
+  if (!prev || !next) return false;
+  return (
+    prev.in === next.in &&
+    prev.out === next.out &&
+    prev.cacheWrite === next.cacheWrite &&
+    prev.cacheWrite1h === next.cacheWrite1h &&
+    prev.cacheRead === next.cacheRead
+  );
+}
+
 // Deliberately a key walk rather than a hand-listed field set: a list rots the moment a
 // field is added to Agent, and the failure mode is a silently stale console.
 function sameAgent(prev: Agent, next: Agent): boolean {
   const keys = Object.keys(next) as Array<keyof Agent>;
   if (keys.length !== Object.keys(prev).length) return false;
   for (const k of keys) {
-    if (k === 'transcript') continue;
+    if (k === 'transcript' || k === 'tokenSplit') continue;
     if (prev[k] !== next[k]) return false;
   }
-  return sameTranscript(prev.transcript, next.transcript);
+  return sameTranscript(prev.transcript, next.transcript) && sameTokenSplit(prev.tokenSplit, next.tokenSplit);
 }
 
 /**

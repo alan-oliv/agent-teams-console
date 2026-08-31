@@ -14,6 +14,8 @@ import {
 } from './store';
 import { project } from './project';
 import type { NeedsYouItem } from '../shared/domain';
+import { dedupeUsage, usageRecordsOf } from '../shared/usage';
+import { splitTok } from '../shared/cost';
 
 let dir: string;
 
@@ -375,6 +377,8 @@ describe('transcript retention', () => {
   };
   const costOfAgent = (events: ReturnType<ReturnType<typeof openStore>['replay']>) =>
     project(events, false).agents.find((x) => x.name === 'a')!.costUsd;
+  const splitOfAgent = (events: ReturnType<ReturnType<typeof openStore>['replay']>) =>
+    project(events, false).agents.find((x) => x.name === 'a')!.tokenSplit;
 
   // A log written before the cumulative snapshot existed carries records and no
   // totals, and project() derives that agent's cost by summing them. The bound
@@ -411,6 +415,29 @@ describe('transcript retention', () => {
     }
   });
 
+  // Same rule as cost, for the four-class split the usage view's ledger draws:
+  // bounding must write it down before the records it came from are dropped.
+  it('bounds an agent with no snapshot, having first written its token split down', () => {
+    const store = openStore(path.join(dir, 'legacy-split.db'), 'session-leg00000');
+    try {
+      store.append('roster', roster);
+      for (let i = 0; i < PRUNE_EVERY - 2; i++) {
+        store.append('transcript', { agent: 'a', records: spend('a', `b${i}`, 200) }, 'a');
+      }
+      store.append('transcript', { agent: 'a', records: spend('a', 'last', 200) }, 'a');
+
+      const allRecords = Array.from({ length: PRUNE_EVERY - 1 }, (_, i) =>
+        spend('a', i === PRUNE_EVERY - 2 ? 'last' : `b${i}`, 200),
+      ).flat();
+      const whole = splitTok(dedupeUsage(usageRecordsOf(allRecords)));
+
+      expect(recordsIn(store.replay())).toBe(TRANSCRIPT_RECORDS_PER_AGENT);
+      expect(splitOfAgent(store.replay())).toEqual(whole);
+    } finally {
+      store.close();
+    }
+  });
+
   // project() reads cost from the NEWEST row that carries `totals` and ignores
   // the records once it has one. Dropping that row therefore drops the money —
   // so its snapshot moves to a row that survives instead.
@@ -434,6 +461,30 @@ describe('transcript retention', () => {
       expect(recordsIn(store.replay())).toBe(TRANSCRIPT_RECORDS_PER_AGENT);
       expect(costOfAgent(store.replay())).toBe(99.5);
       expect(project(store.replay(), false).totalTokens).toBe(1234);
+    } finally {
+      store.close();
+    }
+  });
+
+  // Same carrying rule, for the split riding alongside cost on the same row.
+  it("carries a dropped row's snapshot split onto a surviving row", () => {
+    const store = openStore(path.join(dir, 'carry-split.db'), 'session-leg00000');
+    const split = { in: 10, out: 20, cacheWrite: 30, cacheWrite1h: 0, cacheRead: 5000 };
+    try {
+      store.append('roster', roster);
+      store.append(
+        'transcript',
+        { agent: 'a', records: spend('a', 'b0', 200), totals: { costUsd: 99.5, tokens: 1234, split } },
+        'a',
+      );
+      for (let i = 1; i <= 6; i++) {
+        store.append('transcript', { agent: 'a', records: spend('a', `b${i}`, 200) }, 'a');
+      }
+      expect(splitOfAgent(store.replay())).toEqual(split);
+
+      for (let i = 0; i < PRUNE_EVERY; i++) store.append('hook', { event: 'x' }, 'a');
+      expect(recordsIn(store.replay())).toBe(TRANSCRIPT_RECORDS_PER_AGENT);
+      expect(splitOfAgent(store.replay())).toEqual(split);
     } finally {
       store.close();
     }

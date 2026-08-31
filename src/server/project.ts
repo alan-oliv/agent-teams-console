@@ -12,6 +12,7 @@ import type {
 } from '../shared/domain';
 import { buildRoster, type Sidecar, type TeamConfig } from '../shared/roster';
 import { resolveModel } from '../shared/catalog';
+import { splitTok, type TokenSplit } from '../shared/cost';
 import {
   contextOccupancy,
   dedupeUsage,
@@ -66,6 +67,8 @@ export interface RosterPayload {
 export interface AgentUsageTotals {
   costUsd: number;
   tokens: number;
+  /** The four billed classes behind `costUsd` — what the usage view's per-agent ledger draws. */
+  split: TokenSplit;
 }
 export interface TranscriptPayload {
   agent: string;
@@ -471,6 +474,7 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
       contextLimit: resolved.window,
       compactAt: resolved.compactAt,
       costUsd: carried ? carried.costUsd : totalCost(usage),
+      tokenSplit: carried ? carried.split : splitTok(usage),
       startedAt: id.joinedAt,
       transcript: lines.slice(-PROJECTED_TRANSCRIPT_LINES),
       unread: unread.get(id.name) ?? 0,
