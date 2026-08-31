@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
-import { MOVIE_THEMES } from '../../shared/cast';
+import { MOVIE_THEMES, themeFor } from '../../shared/cast';
 import {
   ACCENT_KEYS,
   DENSITY,
@@ -25,6 +25,13 @@ export interface Settings {
   numbers: boolean;
   /** The film the team is cast from; null is off, and off is the real names. */
   movieTheme: string | null;
+  /**
+   * Whether the picked film's grade drives the console's colours too. Off, the
+   * film reaches names and portrait tints only and the ground stays on `theme`
+   * — which is why `theme` is the fallback and no second field records one: it
+   * can only ever hold a system id, so it IS the last system theme picked.
+   */
+  filmPalette: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -36,6 +43,7 @@ export const DEFAULT_SETTINGS: Settings = {
   motion: true,
   numbers: true,
   movieTheme: null,
+  filmPalette: true,
 };
 
 // Appearance is a property of this machine, not of the team being watched — a
@@ -64,7 +72,7 @@ export function parseSettings(raw: string | null): Settings {
   }
   if (!stored || typeof stored !== 'object') return DEFAULT_SETTINGS;
   const s = stored as Record<string, unknown>;
-  const bool = (key: 'fade' | 'avatars' | 'motion' | 'numbers'): boolean =>
+  const bool = (key: 'fade' | 'avatars' | 'motion' | 'numbers' | 'filmPalette'): boolean =>
     typeof s[key] === 'boolean' ? (s[key] as boolean) : DEFAULT_SETTINGS[key];
   return {
     theme: inList(THEME_IDS, s.theme) ? s.theme : DEFAULT_SETTINGS.theme,
@@ -75,6 +83,7 @@ export function parseSettings(raw: string | null): Settings {
     motion: bool('motion'),
     numbers: bool('numbers'),
     movieTheme: inList(CAST_KEYS, s.movieTheme) ? s.movieTheme : DEFAULT_SETTINGS.movieTheme,
+    filmPalette: bool('filmPalette'),
   };
 }
 
@@ -125,9 +134,16 @@ export function useSettings(): SettingsStore {
 
   const reset = useCallback(() => persist(DEFAULT_SETTINGS), [persist]);
 
+  // `themeFor(null)` is the off entry, which carries no palette, so "no film"
+  // and "switch off" collapse to the same absent third argument.
   const vars = useMemo(
-    () => cssVarsFor(settings.theme, settings.scheme),
-    [settings.theme, settings.scheme],
+    () =>
+      cssVarsFor(
+        settings.theme,
+        settings.scheme,
+        settings.filmPalette ? themeFor(settings.movieTheme).palette : undefined,
+      ),
+    [settings.theme, settings.scheme, settings.movieTheme, settings.filmPalette],
   );
 
   return { settings, set, reset, vars, gap: DENSITY[settings.density] };
