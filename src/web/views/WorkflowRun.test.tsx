@@ -184,6 +184,9 @@ describe('WorkflowRun', () => {
     const totals = screen.getByTestId('wf-totals').textContent ?? '';
     expect(totals).toContain('219 tool calls');
     expect(totals).toContain('4 agents');
+    // The figure is each agent's final context, summed — not the run's spend.
+    // §20: labeling it bare next to "tool calls" and "agents" read as a bill.
+    expect(totals).toContain('699k final context');
     // Absent by fact, not by omission — and the panel has to say so, or the
     // missing meter reads as a console that failed to read one.
     expect(totals).toMatch(/no budget on disk/i);
@@ -229,6 +232,13 @@ describe('WorkflowRun', () => {
       expect(screen.queryByTestId('wf-row')).toBeNull();
       expect(screen.queryByTestId('wf-phase-group')).toBeNull();
       expect(screen.queryByTestId('wf-layout')).toBeNull();
+    });
+
+    // The design: "Draw the flat list, and say what it is" — the list below the
+    // note is in dispatch order, not an arbitrary or sorted one.
+    it('says the flat list is in dispatch order', () => {
+      render(<WorkflowRun run={LIVE} />);
+      expect(screen.getByTestId('wf-live-note').textContent).toMatch(/in dispatch order/i);
     });
 
     // Live, NO agent has a phase — phases reach disk with the snapshot. So the
