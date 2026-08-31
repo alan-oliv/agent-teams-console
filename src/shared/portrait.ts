@@ -83,17 +83,22 @@ export const SPRITES: Record<PortraitId, string[]> = {
     '...skkkks...',
     '...SssssS...',
     '....SSSS....',
-    '..eeeeeeee..',
-    '.eeeeeeeeee.',
-    '.ee.eeee.ee.',
+    '..aaaaaaaa..',
+    '.aaaaaaaaaa.',
+    '.aa.aaaa.aa.',
   ],
 };
 
 /**
- * Shirts and hats follow the theme's accent ramp, and a failed teammate's shirt
- * the failure rose, so a face does not stay Nocturne purple on a clay or cool
- * grey ground. SVG `fill` resolves a custom property against the element's own
- * cascade, so the sprite themes with everything else.
+ * Shirts and hats follow the theme's accent ramp, so a face does not stay
+ * Nocturne purple on a clay or cool grey ground. SVG `fill` resolves a custom
+ * property against the element's own cascade, so the sprite themes with
+ * everything else.
+ *
+ * `d` and `e` are the semantic pair and no sprite paints its REST state in
+ * either (decision 29): a status colour that is always on cannot signal status,
+ * and repro used to wear the failure rose at rest — so a repro agent that had
+ * actually failed looked exactly like one that had not.
  *
  * The structural greys (`h` hats and hair, `k` outlines) stay literal on
  * purpose: they are the artwork's internal contrast, and running them through

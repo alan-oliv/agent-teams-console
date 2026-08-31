@@ -84,8 +84,30 @@ describe('sprite data', () => {
     expect(Object.values(SKIN_PAIRS).flat()).toHaveLength(12);
   });
 
-  it('bakes the failure rose into the repro shirt', () => {
-    expect(SPRITES.repro[9]).toBe('..eeeeeeee..');
+  // Decision 29. The shirt rows are identical geometry on every role, and repro
+  // used to draw them in `e` — the failure rose — which made a repro agent that
+  // ACTUALLY failed indistinguishable from one at rest, and left ten films
+  // declaring a repro garment that could never be painted.
+  it('dresses every role shirt in the garment glyph, semantic tokens never', () => {
+    const SEMANTIC = ['d', 'e'];
+    for (const id of PORTRAIT_IDS) {
+      for (const row of SPRITES[id].slice(9)) {
+        for (const ch of row) {
+          expect(SEMANTIC, `${id} rest shirt paints a semantic glyph: ${row}`).not.toContain(ch);
+        }
+      }
+    }
+  });
+
+  it('gives repro the same shirt geometry as the roles that always had it', () => {
+    expect(SPRITES.repro.slice(9)).toEqual(SPRITES.perf.slice(9));
+    expect(SPRITES.repro.slice(9)).toEqual(SPRITES.tests.slice(9));
+  });
+
+  // `e` keeps its meaning: it is the failed-STATUS treatment, for any role.
+  it('keeps the failure rose available as a colour, unused at rest', () => {
+    expect(SPRITE_COLORS.e).toBe('var(--fail)');
+    expect(Object.values(SPRITES).flat().join('')).not.toContain('e');
   });
 });
 
@@ -220,8 +242,12 @@ describe('portraitSvg', () => {
     expect(one).not.toContain('#e0c3a8');
   });
 
-  it('paints the repro shirt with the failure rose and the security badge with white', () => {
-    expect(portraitSvg('repro', 0)).toContain('var(--fail)');
+  it('paints the repro shirt on the accent ramp, like every other role', () => {
+    // Decision 29: it used to be var(--fail), which spent a status colour on a
+    // resting role. The security badge's literal white is untouched — that one
+    // is artwork, not a semantic token.
+    expect(portraitSvg('repro', 0)).toContain('var(--color-accent-400)');
+    expect(portraitSvg('repro', 0)).not.toContain('var(--fail)');
     expect(portraitSvg('security', 0)).toContain('#e9e9ed');
   });
 
@@ -414,5 +440,27 @@ describe('portraitSvg painted from a film', () => {
     expect(portraitSvg('lead', 0, { look, ground, feats: ['bald'] })).not.toBe(
       portraitSvg('lead', 0, { look, ground }),
     );
+  });
+});
+
+// Decision 29's other half: the data that had no consumer now has one.
+describe('every film repro garment reaches the portrait', () => {
+  const FILMS = ['inception', 'stranger', 'lotr', 'starwars', 'bttf', 'pulp', 'godfather', 'dogs', 'matrix', 'breakingbad'];
+
+  it('paints the declared repro garment on all ten films', () => {
+    for (const key of FILMS) {
+      const theme = themeFor(key);
+      const look = parseLook(theme.looks!.repro)!;
+      const ground = theme.palette!.bg;
+      const svg = portraitSvg('repro', 0, { look, ground, feats: theme.feats?.repro });
+      const painted = lift(look.garment, ground, LIFT_TARGETS.garment);
+      expect(svg, `${key} repro garment`).toContain(painted);
+      expect(svg, `${key} must not paint a rest shirt in the failure rose`).not.toContain('var(--fail)');
+    }
+  });
+
+  it('is the accent, not the failure rose, when no film is casting', () => {
+    expect(portraitSvg('repro', 0)).toContain('var(--color-accent-400)');
+    expect(portraitSvg('repro', 0)).not.toContain('var(--fail)');
   });
 });
