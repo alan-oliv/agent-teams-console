@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MOVIE_THEMES, buildCast, themeFor, type CastAgent } from './cast';
+import { FEAT_IDS, MOVIE_THEMES, buildCast, themeFor, type CastAgent } from './cast';
 
 const lead = (name: string): CastAgent => ({ name, agentType: 'team-lead', isLead: true });
 const mate = (name: string, agentType: string): CastAgent => ({ name, agentType, isLead: false });
@@ -34,6 +34,100 @@ describe('the theme database', () => {
     expect(themeFor(null).key).toBe('off');
     expect(themeFor('a film nobody made').key).toBe('off');
     expect(themeFor('inception').film).toBe('Inception');
+  });
+});
+
+// v3 adds three keys per film. Nothing consumes them yet — the palette engine,
+// the picker and the portraits land separately — so these tests are about the
+// data being present and the shape those consumers will read it through.
+describe('the v3 film data', () => {
+  const inception = themeFor('inception');
+  const films = MOVIE_THEMES.filter((theme) => theme.key !== 'off');
+  const HEX = /^#[0-9a-f]{6}$/;
+
+  it('carries Inception the grade its palette declares', () => {
+    expect(inception.palette).toMatchObject({
+      label: 'steel & kick',
+      neutralsFrom: 'nocturne',
+      term: '#101419',
+      bg: '#161c25',
+      text: '#e6e9ee',
+      warn: '#f0a08c',
+      fail: '#b86a6a',
+    });
+  });
+
+  it('carries one accent ramp per film, base and name included', () => {
+    expect(inception.palette?.accent).toMatchObject({
+      base: '#c9924f',
+      name: 'kick amber',
+      500: '#c9924f',
+    });
+  });
+
+  it('carries a look per role slot as five pipe-joined hex, without the hash', () => {
+    // The database stores them bare; whatever paints them prepends the `#`.
+    expect(inception.looks?.lead).toBe('e0c3a8|b99a80|6b7f9e|3d4a63|31241b');
+    for (const [slot, look] of Object.entries(inception.looks ?? {})) {
+      expect(look.split('|'), `inception.${slot}`).toHaveLength(5);
+    }
+  });
+
+  it('carries accessories per role slot, in the order they are drawn', () => {
+    expect(inception.feats).toEqual({ perf: ['specs'], architect: ['longhair'] });
+  });
+
+  it('declares warn and fail per palette rather than deriving them from the accent', () => {
+    // noSemanticRecolour, and the rev 4b fix: the three gold films drew warn in
+    // amber beside a gold accent, so all three shifted to a rose-orange.
+    for (const key of ['inception', 'lotr', 'godfather']) {
+      const palette = themeFor(key).palette;
+      expect(palette?.warn, key).toBe('#f0a08c');
+      expect(palette?.warn, key).not.toBe(palette?.accent.base);
+      expect(palette?.fail, key).not.toBe(palette?.accent.base);
+    }
+  });
+
+  it('inherits its neutral ramp from one of the two base themes that have one', () => {
+    for (const film of films) {
+      expect(['nocturne', 'slate'], film.key).toContain(film.palette?.neutralsFrom);
+    }
+  });
+
+  it('gives every film all three keys, and every palette colour as a hex', () => {
+    for (const film of films) {
+      expect(film.palette, film.key).toBeDefined();
+      expect(film.looks, film.key).toBeDefined();
+      expect(film.feats, film.key).toBeDefined();
+      const p = film.palette!;
+      for (const value of [p.term, p.bg, p.text, p.warn, p.warnEdge, p.warnTint, p.fail]) {
+        expect(value, film.key).toMatch(HEX);
+      }
+      for (const step of [300, 400, 500, 600, 700, 900] as const) {
+        expect(p.accent[step], `${film.key} accent-${step}`).toMatch(HEX);
+      }
+      expect(p.accent.base, film.key).toMatch(HEX);
+    }
+  });
+
+  it('draws every accessory from the published vocabulary', () => {
+    for (const film of films) {
+      for (const [slot, feats] of Object.entries(film.feats ?? {})) {
+        for (const feat of feats) {
+          expect(FEAT_IDS, `${film.key}.${slot}`).toContain(feat);
+        }
+      }
+    }
+  });
+
+  // The off entry is the absence of a theme, and it has none of the three. Every
+  // consumer has to survive that, so it is asserted here rather than assumed.
+  it('leaves the off entry without a palette, looks or accessories', () => {
+    const off = themeFor(null);
+    expect(off.palette).toBeUndefined();
+    expect(off.looks).toBeUndefined();
+    expect(off.feats).toBeUndefined();
+    expect(buildCast(crew, null).asChar('ada')).toEqual({ display: 'ada', real: 'ada' });
   });
 });
 
