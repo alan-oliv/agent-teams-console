@@ -10,6 +10,7 @@ import {
   foldSubagentRecords,
   type SubagentFold,
 } from '../../shared/subagents';
+import { createWorkflowUsageIngest, workflowAgentClaimOf } from './workflow-agents';
 import { parseLine, type TranscriptRecord } from '../../shared/transcript';
 import { tokensOf, totalCost, usageRecordsOf, type UsageRecord } from '../../shared/usage';
 import { splitTok } from '../../shared/cost';
@@ -352,6 +353,10 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
   // rows and the trace view read. Keyed by the transcript file, like `sidecars`.
   const subagentOf = new Map<string, { toolUseId: string; agentId: string; meta: Sidecar }>();
   const subagentFolds = new Map<string, SubagentFold>();
+  // What a workflow run actually spent, read from its agents' own transcripts.
+  // Scoped on the same session chain as the run's journal and snapshot, but at
+  // the PUBLISH step rather than the read step — see workflow-agents.ts.
+  const workflowUsage = createWorkflowUsageIngest(store, (sessionId) => chainHas(chain, sessionId));
   const unresolvedWorkflows = new Set<string>();
   // Every transcript this ingest has attributed to an agent, so the tail poll
   // and drainAgent can reach a file without walking the tree to find it. A
@@ -769,6 +774,10 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
       }
       unresolvedSidecars.clear();
       for (const f of [...unresolvedWorkflows]) await handleWorkflowFile(f);
+      // A run folded while its session was unknown has nothing left to publish
+      // it — a finished run's files never move again, so no later drain would
+      // ever come. This is the one moment that can.
+      if (learned) workflowUsage.flush();
       // The inbox reader below fails closed while the team is unknown, and the
       // mtime gate would never offer those files again, so claim our own now
       // that we can tell which they are.
@@ -967,6 +976,11 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
       return;
     }
     try {
+      // Before the team-side handlers, and it can never reach `deferred`: a
+      // workflow agent's transcript is not placeable as a teammate and never
+      // becomes one, so it is taken here or not at all. Its own scope check
+      // happens at the publish step — see createWorkflowUsageIngest.
+      if (workflowUsage.handle(file, lines, fromStart)) return;
       handleLines(file, lines, fromStart, mtimeMs);
     } catch (err) {
       logError(`ingest ${file}`, err);
@@ -988,7 +1002,7 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
       await handleWorkflowFile(file);
       return;
     }
-    if (subagentOf.has(file)) {
+    if (subagentOf.has(file) || workflowAgentClaimOf(file)) {
       await transcripts.pump(file);
       return;
     }
