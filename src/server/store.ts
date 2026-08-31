@@ -31,7 +31,9 @@ export type EventKind =
   | 'substatus'
   | 'needsyou'
   | 'needsyou-resolved'
-  | 'workflow';
+  | 'workflow'
+  | 'workflow-usage'
+  | 'subagent';
 
 export interface StoredEvent {
   seq: number;
@@ -86,6 +88,17 @@ export const KIND_RETENTION: Partial<Record<EventKind, number>> = {
   // with how many there are — and 16 runs was the whole of a heavy week on the
   // capture machine. Rows are ~9 KB each with the script stripped (leanRun).
   workflow: 500,
+  // One row per RUN per drain of any of its agent transcripts, folded last-wins
+  // per runId. A live run re-appends as its agents write, so like `workflow`
+  // this caps re-reads rather than runs. Rows are small by construction — the
+  // per-agent totals plus a burn series capped at WORKFLOW_BURN_SAMPLES points,
+  // never the turns behind them.
+  'workflow-usage': 500,
+  // One digest per subagent per drain, folded last-wins per toolUseId — so this
+  // caps re-reads, not subagents. A LIVE subagent re-appends on every drain of
+  // its transcript, and a fan-out runs several at once, which is why the cap is
+  // higher than workflow's: a digest is a few hundred bytes, not nine kilobytes.
+  subagent: 2_000,
 };
 
 /**

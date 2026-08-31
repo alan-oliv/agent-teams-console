@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { formatCost, formatElapsed } from '../format';
 import { FIXTURE_NOW, sampleTeamState, sampleTeams } from '../test/state-fixture';
@@ -35,6 +35,34 @@ it('heads the screen with the session that was dismissed, not a generic message'
     `You stopped watching ${state.teamName}.`,
   );
   expect(screen.getByText(/nothing was interrupted/i)).toBeTruthy();
+});
+
+it('names the card with the team id and carries no goal line for an unnamed session', () => {
+  renderScreen();
+  expect(screen.getByTestId('left-session-name').textContent).toBe(state.teamName);
+  expect(screen.queryByTestId('left-session-goal')).toBeNull();
+});
+
+// `/branch` names the session, distinct from the team's own directory id — the
+// card shows both rather than letting the goal replace the name.
+it('adds the goal, ellipsised, once the session has been named', () => {
+  const named = { ...state, sessionName: 'implement-usage-view' };
+  renderScreen({ state: named });
+  expect(screen.getByTestId('left-session-name').textContent).toBe(state.teamName);
+  const goal = screen.getByTestId('left-session-goal');
+  expect(goal.textContent).toBe('implement-usage-view');
+  expect(goal.style.textOverflow).toBe('ellipsis');
+  expect(goal.style.whiteSpace).toBe('nowrap');
+});
+
+it('states in a footer that the server stays up and the dismissal is this browser only', () => {
+  renderScreen();
+  const footer = screen.getByTestId('left-session-footer');
+  expect(footer.style.borderTop).toBe('1px solid var(--color-neutral-900)');
+  expect(footer.style.color).toBe('var(--color-neutral-600)');
+  expect(footer.style.fontSize).toBe('10.5px');
+  expect(within(footer).getByText(/the server stays up to serve this screen/)).toBeTruthy();
+  expect(within(footer).getByText(/dismissed in this browser only/)).toBeTruthy();
 });
 
 // The whole point of this screen is that it never claims the session stopped —

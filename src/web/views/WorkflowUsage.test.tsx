@@ -1,8 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
-import type { WorkflowAgent, WorkflowRun } from '../../shared/domain';
-import { WorkflowUsage, bannerFires, concurrency, phaseRows } from './WorkflowUsage';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import type { WorkflowAgent, WorkflowRun, WorkflowUsage as WorkflowUsageFigures } from '../../shared/domain';
+import { usdCost, type TokenSplit } from '../../shared/cost';
+import { billedTokens, cacheHitRatio } from './usage-team';
+import { formatCost, formatPct, formatTokens } from '../format';
+import { WorkflowUsage, bannerFires, concurrency, phaseRows, runCost } from './WorkflowUsage';
 
 afterEach(cleanup);
 
@@ -43,10 +46,18 @@ describe('the pending phase rule', () => {
         ],
       }),
     );
-    const cells = screen.getAllByTestId('wfu-phase-context');
-    expect(cells[0].textContent).toBe('50.0k');
-    expect(cells[1].textContent).toBe('—');
-    expect(screen.getAllByTestId('wfu-phase-elapsed')[1].textContent).toBe('—');
+    const elapsed = screen.getAllByTestId('wfu-phase-elapsed');
+    expect(elapsed[0].textContent).not.toBe('—'); // the phase that ran is measured
+    expect(elapsed[1].textContent).toBe('—');
+  });
+
+  // Decision 21 keeps tokens and cost off the Gantt entirely — the figure the
+  // old flat table carried here is final context, and it belongs to the agent
+  // table where it can be labelled per agent.
+  it('carries no tokens or cost column on the Gantt itself', () => {
+    draw(run({ phases: [{ index: 1, title: 'Build' }] }));
+    expect(screen.queryByTestId('wfu-phase-context')).toBeNull();
+    expect(screen.getAllByTestId('wfu-agent-row')[0].textContent).toContain('50.0k');
   });
 
   it('says a pending phase is queued rather than counting its agents at zero', () => {
@@ -195,8 +206,10 @@ describe('what this mode does not draw, and says so', () => {
   // different quantity.
   it('never labels the run snapshot figure as spend', () => {
     draw(run());
-    expect(screen.getByTestId('wfu-no-cost').textContent).toMatch(/context/i);
-    expect(screen.queryByText(/\$/)).toBeNull();
+    expect(screen.getByTestId('wfu-basis').textContent).toMatch(/context/i);
+    // No usage was measured for this run, so no dollar figure may appear —
+    // measured money exists now, but never from the snapshot's own numbers.
+    expect(screen.queryByText(/\$\d/)).toBeNull();
   });
 
   it('names the runtime caps as caps in the footer', () => {
@@ -243,5 +256,281 @@ describe('a live run', () => {
   it('still draws the footer, whose caps do not depend on the run', () => {
     draw(liveRun);
     expect(screen.getByTestId('wfu-footer')).toBeTruthy();
+  });
+});
+
+describe('the phase Gantt', () => {
+  const twoPhases = () =>
+    run({
+      startedAt: T0,
+      durationMs: 300_000,
+      phases: [
+        { index: 1, title: 'Survey' },
+        { index: 2, title: 'Build' },
+        { index: 3, title: 'Never reached' },
+      ],
+      agents: [
+        agent({ agentId: 'a1', phaseIndex: 1, startedAt: T0, durationMs: 60_000, tokens: 10_000 }),
+        agent({ agentId: 'a2', phaseIndex: 2, startedAt: T0 + 60_000, durationMs: 120_000, tokens: 20_000 }),
+      ],
+    });
+
+  it('folds each phase to its own first start and last return', () => {
+    const rows = phaseRows(twoPhases());
+    expect(rows[0].startMs).toBe(T0);
+    expect(rows[0].endMs).toBe(T0 + 60_000);
+    expect(rows[1].startMs).toBe(T0 + 60_000);
+    expect(rows[1].endMs).toBe(T0 + 180_000);
+  });
+
+  it('leaves a phase the run never reached without a span at all', () => {
+    const rows = phaseRows(twoPhases());
+    expect(rows[2].startMs).toBeUndefined();
+    expect(rows[2].endMs).toBeUndefined();
+    expect(rows[2].pending).toBe(true);
+  });
+
+  it('positions each bar as a percentage of the run span', () => {
+    draw(twoPhases());
+    const bars = screen.getAllByTestId('wfu-gantt-bar');
+    expect(bars).toHaveLength(2); // the pending phase draws no bar
+    expect(bars[0].style.left).toBe('0%');
+    expect(parseFloat(bars[0].style.width)).toBeCloseTo(33.33, 1);
+  });
+
+  it('says "queued" and draws em-dashes for a pending row, never a zero', () => {
+    draw(twoPhases());
+    const rows = screen.getAllByTestId('wfu-gantt-row');
+    expect(rows[2].textContent).toContain('queued');
+    expect(within(rows[2]).getByTestId('wfu-phase-elapsed').textContent).toBe('—');
+  });
+
+  it('draws cache hit and cost as em-dashes on the agent table, never zeros', () => {
+    draw(twoPhases());
+    expect(screen.getAllByTestId('wfu-agent-cachehit')[0].textContent).toBe('—');
+    expect(screen.getAllByTestId('wfu-agent-cost')[0].textContent).toBe('—');
+  });
+
+  it('scopes the agent table to the phase whose row was clicked', () => {
+    draw(twoPhases());
+    fireEvent.click(screen.getAllByTestId('wfu-gantt-row')[1]);
+    expect(screen.getByTestId('wfu-agent-table-title').textContent).toContain('Build');
+    expect(screen.getAllByTestId('wfu-agent-row')).toHaveLength(1);
+  });
+});
+
+describe('the per-agent scatter', () => {
+  const mixed = () =>
+    run({
+      startedAt: T0,
+      durationMs: 300_000,
+      agents: [
+        agent({ agentId: 'a1', state: 'done', startedAt: T0, durationMs: 60_000, tokens: 10_000 }),
+        agent({ agentId: 'a2', state: 'fail', startedAt: T0, durationMs: 30_000, tokens: 5_000 }),
+        agent({ agentId: 'a3', state: 'run', startedAt: T0 + 10_000, tokens: 8_000 }),
+        agent({ agentId: 'a4', state: 'null', startedAt: T0, durationMs: 10_000, tokens: 1_000 }),
+      ],
+    });
+
+  it('draws one point per agent that actually ran', () => {
+    draw(mixed());
+    expect(screen.getAllByTestId('wfu-scatter-point')).toHaveLength(4);
+  });
+
+  // Decision 21 substitutes toolCalls for the cost the design wanted here,
+  // rather than leaving the radius channel carrying nothing.
+  it('scales the radius by tool calls, the measure that does exist', () => {
+    draw(
+      run({
+        agents: [
+          agent({ agentId: 'a1', startedAt: T0, durationMs: 1000, tokens: 100, toolCalls: 20 }),
+          agent({ agentId: 'a2', startedAt: T0, durationMs: 1000, tokens: 100, toolCalls: 1 }),
+        ],
+      }),
+    );
+    const [busy, quiet] = screen.getAllByTestId('wfu-scatter-point');
+    expect(Number(busy.getAttribute('r'))).toBeGreaterThan(Number(quiet.getAttribute('r')));
+  });
+
+  it('draws the smallest point, never a zero-area one, for an agent with no tool-call count', () => {
+    draw(
+      run({
+        agents: [
+          agent({ agentId: 'a1', startedAt: T0, durationMs: 1000, tokens: 100, toolCalls: 20 }),
+          agent({ agentId: 'a2', startedAt: T0, durationMs: 1000, tokens: 100 }),
+        ],
+      }),
+    );
+    const unknown = screen.getAllByTestId('wfu-scatter-point')[1];
+    expect(Number(unknown.getAttribute('r'))).toBeGreaterThan(0);
+  });
+
+  it('names tool calls as what the radius carries, so it is not read as cost', () => {
+    draw(mixed());
+    expect(screen.getByTestId('wfu-scatter-ylabel').textContent).toMatch(/tool calls/i);
+  });
+
+  it('draws a failed agent as a hollow ring so it is findable without a second hue', () => {
+    draw(mixed());
+    const failed = screen.getAllByTestId('wfu-scatter-point').find((p) => p.getAttribute('data-state') === 'fail')!;
+    expect(failed.getAttribute('fill')).toBe('none');
+    expect(failed.getAttribute('stroke')).toBeTruthy();
+  });
+
+  it('counts each state on its filter chip', () => {
+    draw(mixed());
+    const chips = screen.getAllByTestId('wfu-scatter-chip').map((c) => c.textContent);
+    expect(chips.some((c) => c?.includes('all') && c?.includes('4'))).toBe(true);
+    expect(chips.some((c) => c?.includes('failed') && c?.includes('1'))).toBe(true);
+  });
+
+  it('filters the points down to the chip that was clicked', () => {
+    draw(mixed());
+    const done = screen.getAllByTestId('wfu-scatter-chip').find((c) => c.textContent?.includes('done'))!;
+    fireEvent.click(done);
+    expect(screen.getAllByTestId('wfu-scatter-point')).toHaveLength(1);
+  });
+
+  // The y axis is final context occupancy, not billed spend. Labelling it
+  // "tokens" is the exact conflation the whole mode exists to avoid.
+  it('names its y axis final context rather than tokens', () => {
+    draw(mixed());
+    expect(screen.getByTestId('wfu-scatter-ylabel').textContent).toMatch(/final context/i);
+  });
+});
+
+describe('what the mode still refuses, and why', () => {
+  it('refuses the cap line and the 1.5M threshold by name', () => {
+    draw(run());
+    const why = screen.getByTestId('wfu-basis').textContent ?? '';
+    expect(why).toContain('1.5M');
+    expect(why.toLowerCase()).toContain('cap');
+  });
+
+  it('never reaches for --warn or --fail anywhere on the page', () => {
+    const { container } = draw(run());
+    expect(container.innerHTML).not.toContain('--warn');
+    expect(container.innerHTML).not.toContain('--fail');
+  });
+});
+
+// ————— the money half, from the ingested classes (old-batch #25) —————
+//
+// Every dollar below reconciles against usdCost over the same tokenSplit the
+// row draws, so the test computes its expectation from the one cost model
+// rather than hardcoding a figure the rate card could drift from.
+
+const SPLIT_A: TokenSplit = { in: 1_000, out: 500, cacheWrite: 2_000, cacheWrite1h: 0, cacheRead: 50_000 };
+const SPLIT_B: TokenSplit = { in: 800, out: 300, cacheWrite: 1_000, cacheWrite1h: 0, cacheRead: 30_000 };
+
+const sumSplits = (a: TokenSplit, b: TokenSplit): TokenSplit => ({
+  in: a.in + b.in,
+  out: a.out + b.out,
+  cacheWrite: a.cacheWrite + b.cacheWrite,
+  cacheWrite1h: a.cacheWrite1h + b.cacheWrite1h,
+  cacheRead: a.cacheRead + b.cacheRead,
+});
+
+const USAGE: WorkflowUsageFigures = {
+  split: sumSplits(SPLIT_A, SPLIT_B),
+  byPhase: [{ phaseIndex: 1, split: sumSplits(SPLIT_A, SPLIT_B) }],
+  burn: { startedAt: T0, stepMs: 10_000, cumulative: [10_000, 40_000, 85_600] },
+  agentsMeasured: 2,
+};
+
+const measuredAgents = () => [
+  agent({ agentId: 'a1', phaseIndex: 1, tokens: 50_000, startedAt: T0, durationMs: 60_000, model: 'claude-opus-5', tokenSplit: SPLIT_A, toolCalls: 4 }),
+  agent({ agentId: 'a2', phaseIndex: 1, tokens: 30_000, startedAt: T0, durationMs: 30_000, model: 'claude-sonnet-5', tokenSplit: SPLIT_B }),
+];
+
+const measuredRun = (over: Partial<WorkflowRun> = {}) =>
+  run({ agents: measuredAgents(), usage: USAGE, ...over });
+
+const EXPECTED_USD = usdCost('claude-opus-5', SPLIT_A) + usdCost('claude-sonnet-5', SPLIT_B);
+
+describe('the measured-spend figure (decision 31)', () => {
+  it('prices a fully measured finished run through the one cost model', () => {
+    draw(measuredRun());
+    expect(screen.getByTestId('wfu-cost-value').textContent).toBe(formatCost(EXPECTED_USD));
+    expect(screen.getByTestId('wfu-money').textContent).toContain('2 of 2 agents measured');
+  });
+
+  it('em-dashes a finished run with an unmeasured agent — a permanent hole of unknown size', () => {
+    draw(
+      measuredRun({
+        agents: [...measuredAgents(), agent({ agentId: 'a3', phaseIndex: 1, startedAt: T0 })],
+      }),
+    );
+    expect(screen.getByTestId('wfu-cost-value').textContent).toBe('—');
+    expect(screen.getByTestId('wfu-money').textContent).toContain('2 of 3');
+  });
+
+  it('draws a live run partial WITH its coverage — spend to date is a true figure', () => {
+    draw(
+      measuredRun({
+        live: true,
+        status: 'running',
+        phases: [],
+        agentCount: undefined,
+        agents: [...measuredAgents(), agent({ agentId: 'a3', state: 'run' })],
+      }),
+    );
+    expect(screen.getByTestId('wfu-cost-value').textContent).toBe(formatCost(EXPECTED_USD));
+    expect(screen.getByTestId('wfu-money').textContent).toContain('2 of 3 agents measured');
+  });
+
+  it('runCost refuses to price a measured agent that names no model', () => {
+    const agents = measuredAgents().map((a) => ({ ...a, model: undefined }));
+    expect(runCost(run({ agents, usage: USAGE, defaultModel: undefined })).usd).toBeUndefined();
+  });
+
+  it('shows the measured tokens with cache reads included, beside their split', () => {
+    draw(measuredRun());
+    const money = screen.getByTestId('wfu-money').textContent ?? '';
+    expect(money).toContain(formatTokens(billedTokens(USAGE.split)));
+    expect(money).toMatch(/cache read/i);
+  });
+});
+
+describe('the per-agent money cells', () => {
+  it('fills cache hit and cost from the agent’s own split and model', () => {
+    draw(measuredRun());
+    const hits = screen.getAllByTestId('wfu-agent-cachehit').map((c) => c.textContent);
+    const costs = screen.getAllByTestId('wfu-agent-cost').map((c) => c.textContent);
+    expect(hits[0]).toBe(formatPct(cacheHitRatio(SPLIT_A)!));
+    expect(costs[0]).toBe(formatCost(usdCost('claude-opus-5', SPLIT_A)));
+  });
+
+  it('keeps the em-dash for an agent with no measured split', () => {
+    draw(
+      measuredRun({
+        agents: [...measuredAgents(), agent({ agentId: 'a3', phaseIndex: 1, startedAt: T0 })],
+      }),
+    );
+    // The hole rule gates only the TOTAL; a row still shows what was measured
+    // for it, and an unmeasured row keeps the em-dash it always had.
+    expect(screen.getAllByTestId('wfu-agent-cachehit').at(-1)?.textContent).toBe('—');
+    expect(screen.getAllByTestId('wfu-agent-cost').at(-1)?.textContent).toBe('—');
+  });
+});
+
+describe('the burn line', () => {
+  it('draws the cumulative measured series as geometry with an HTML max label', () => {
+    draw(measuredRun());
+    expect(screen.getByTestId('wfu-burn-line')).toBeTruthy();
+    expect(screen.getByTestId('wfu-burn-max').textContent).toBe(formatTokens(85_600));
+  });
+
+  it('falls back to prose, not an empty chart, when nothing is measured yet', () => {
+    draw(run());
+    expect(screen.queryByTestId('wfu-burn-line')).toBeNull();
+  });
+});
+
+describe('the basis note', () => {
+  it('labels every dollar as derived at API list price from the agents’ own transcripts', () => {
+    draw(measuredRun());
+    expect(screen.getByTestId('wfu-basis').textContent).toMatch(/list price/i);
+    expect(screen.getByTestId('wfu-footer').textContent).toMatch(/list price/i);
   });
 });

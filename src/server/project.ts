@@ -10,6 +10,17 @@ import type {
   TeamState,
   TranscriptLine,
 } from '../shared/domain';
+import {
+  applySpawnEvents,
+  buildSubagentTree,
+  emptySubagentFold,
+  spawnEventsOf,
+  type SpawnEvent,
+  type SubagentDigest,
+  type SubagentFacts,
+  type SubagentFold,
+  type SubagentMeta,
+} from '../shared/subagents';
 import { buildRoster, type Sidecar, type TeamConfig } from '../shared/roster';
 import { resolveModel } from '../shared/catalog';
 import { splitTok, type TokenSplit } from '../shared/cost';
@@ -32,7 +43,7 @@ import {
   parseTeammateFrames,
   type InboxEntry,
 } from '../shared/mailbox';
-import { AGENT_STALE_MS, deriveTaskState } from '../shared/status';
+import { AGENT_STALE_MS, deriveTaskState, isWallClockLog } from '../shared/status';
 
 /**
  * How many transcript lines PER AGENT survive into the projected `TeamState`
@@ -77,6 +88,13 @@ export interface TranscriptPayload {
   fromStart?: boolean;
   /** Only on the LAST batch of a drain, so a partial read never publishes a partial total. */
   totals?: AgentUsageTotals;
+  /**
+   * The transcript file's own mtime, carried for the staleness rule alone —
+   * `isWallClockLog` compares it against the newest record here to decide
+   * whether the wall clock means anything on this log. Absent on a batch that
+   * came from a buffer rather than a read, and on any event a test built.
+   */
+  mtimeMs?: number;
 }
 export interface TaskPayload {
   id: string;
@@ -119,6 +137,21 @@ export interface SubstatusPayload {
 }
 export interface NeedsYouResolvedPayload {
   id: string;
+}
+/**
+ * One subagent's own two files, folded. Cumulative and last-wins per
+ * `toolUseId`, for the same reason `AgentUsageTotals` is: the log cannot hold a
+ * subagent's records — a fan-out of twenty would put twenty whole transcripts
+ * through it — so a digest replaces the last one rather than adding to it.
+ *
+ * `toolUseId` is the key rather than `agentId` because it is what the PARENT's
+ * transcript names, and the parent is the only side that always exists.
+ */
+export interface SubagentPayload {
+  toolUseId: string;
+  agentId: string;
+  meta?: SubagentMeta;
+  digest: SubagentDigest;
 }
 
 function lastAssistantModel(records: TranscriptRecord[]): string | undefined {
@@ -192,6 +225,23 @@ function toolOf(rec: TranscriptRecord): string | undefined {
 }
 
 /**
+ * The same memo again, for the subagent dispatches a record reports. Empty for
+ * all but a handful of records, but the check that PROVES it is empty walks the
+ * record's content blocks — and this fold runs over every stored record of
+ * every agent, four times a second.
+ */
+const spawnMemo = new WeakMap<TranscriptRecord, SpawnEvent[]>();
+function spawnEventsFor(rec: TranscriptRecord): SpawnEvent[] {
+  if (!memoisable(rec)) return spawnEventsOf(rec);
+  let events = spawnMemo.get(rec);
+  if (events === undefined) {
+    events = spawnEventsOf(rec);
+    spawnMemo.set(rec, events);
+  }
+  return events;
+}
+
+/**
  * Every line the log still holds for one agent, oldest first.
  *
  * The live frame carries only the last {@link PROJECTED_TRANSCRIPT_LINES} per
@@ -262,7 +312,7 @@ export function transcriptLineText(
   return undefined;
 }
 
-export function project(events: StoredEvent[], readOnly: boolean): TeamState {
+export function project(events: StoredEvent[], readOnly: boolean, now = Date.now()): TeamState {
   let config: TeamConfig | null = null;
   let sidecars: Array<{ meta: Sidecar; transcriptPath: string }> = [];
   let branch: string | undefined;
@@ -277,8 +327,17 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
   const currentTool = new Map<string, string | undefined>();
   const errors = new Map<string, string>();
   const lastActivity = new Map<string, number>();
+  // Per agent, the mtime of the transcript file its newest batch came from —
+  // the second clock `isWallClockLog` needs. Last-wins rather than max: the
+  // freshest read is the one that describes the file as it is now.
+  const logClock = new Map<string, number>();
   const needsYou = new Map<string, NeedsYouItem>();
   const usageTotals = new Map<string, AgentUsageTotals>();
+  // Per roster agent, the `Task`/`Agent` calls its transcript made — collected
+  // inside the record loop below rather than by a second walk, because that
+  // walk would be over every stored record on every publish.
+  const spawnFolds = new Map<string, SubagentFold>();
+  const subagentFacts = new Map<string, SubagentFacts>();
   let mail: MailMessage[] = [];
 
   const bump = (agent: string, ts: number) => {
@@ -298,6 +357,7 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
         // Cumulative, so the newest snapshot REPLACES the last one. Summing them
         // would double-count every message id both cover.
         if (p.totals) usageTotals.set(p.agent, p.totals);
+        if (p.mtimeMs !== undefined) logClock.set(p.agent, p.mtimeMs);
         // The file is being read again from its first byte, so everything held
         // for this agent is about to arrive again. Clearing the uuid set matters
         // as much as clearing the list: without it every re-read record would be
@@ -305,9 +365,11 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
         if (p.fromStart) {
           records.set(p.agent, []);
           seenRecords.set(p.agent, new Set<string>());
+          spawnFolds.set(p.agent, emptySubagentFold());
         }
         const list = records.get(p.agent) ?? [];
         const seen = seenRecords.get(p.agent) ?? new Set<string>();
+        const spawns = spawnFolds.get(p.agent) ?? emptySubagentFold();
         for (const rec of p.records) {
           // The 5s reconciliation sweep deliberately re-reads files, so the same
           // record can arrive twice; the record uuid is the dedupe key.
@@ -328,11 +390,23 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
               errors.delete(p.agent);
             }
           }
+          applySpawnEvents(spawns, spawnEventsFor(rec));
           const ts = rec.timestamp ? Date.parse(rec.timestamp) : NaN;
           if (!Number.isNaN(ts)) bump(p.agent, ts);
         }
         records.set(p.agent, list);
         seenRecords.set(p.agent, seen);
+        spawnFolds.set(p.agent, spawns);
+        break;
+      }
+      case 'subagent': {
+        const p = ev.payload as SubagentPayload;
+        // Cumulative, so the newest digest REPLACES the last one, like `totals`.
+        subagentFacts.set(p.toolUseId, {
+          agentId: p.agentId,
+          meta: p.meta,
+          digest: p.digest,
+        });
         break;
       }
       case 'task': {
@@ -458,6 +532,16 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
       // config.json survives a crashed process, so membership alone cannot
       // tell 'working' from 'gone'.
       else if (latestActivity - act > AGENT_STALE_MS) status = 'departed';
+      // The branch above measures each agent against the team's newest
+      // activity, and on a ONE-AGENT team that agent IS the newest, so the
+      // difference is always 0 and it can never fire. The wall clock can say
+      // what the team cannot — but only on a log whose own file clock proves it
+      // is on the wall clock, or every replayed fixture would depart at once.
+      // `idle` and not `departed`: the branch above has a contrast to read as
+      // evidence something died, and this one has only the silence.
+      else if (isWallClockLog(logClock.get(id.name), act) && now - act > AGENT_STALE_MS) {
+        status = 'idle';
+      }
     }
 
     return {
@@ -513,6 +597,13 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
     if (owned.some((t) => t.state === 'blocked')) agent.status = 'blocked';
   }
 
+  // Roster order, so the tree walks the same agents the wall does — and only
+  // roster agents, so a subagent can never be mistaken for a team member.
+  const subagents = buildSubagentTree(
+    agents.map((a) => ({ agent: a.name, spawns: spawnFolds.get(a.name)?.spawns ?? [] })),
+    subagentFacts,
+  );
+
   return {
     teamName: config?.name ?? '',
     sessionName,
@@ -527,5 +618,6 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
     mail,
     needsYou: cards,
     readOnly,
+    ...(Object.keys(subagents).length > 0 ? { subagents } : {}),
   };
 }

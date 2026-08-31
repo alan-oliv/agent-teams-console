@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { promises as fs } from 'node:fs';
+import { promises as fs, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { openStore, type Store, type StoredEvent } from '../store';
@@ -17,6 +17,7 @@ import { splitTok } from '../../shared/cost';
 import { buildRoster } from '../../shared/roster';
 import { toTranscriptLines, type TranscriptRecord } from '../../shared/transcript';
 import { project } from '../project';
+import { foldWorkflows } from '../workflow';
 import type { Agent, WorkflowRun } from '../../shared/domain';
 import type { RosterPayload, TranscriptPayload, TaskPayload, MailPayload } from '../project';
 
@@ -737,6 +738,30 @@ describe('transcript latency', () => {
       await ingest.drainAgent('probe-charlie');
       expect(recordsFor('probe-charlie')).toHaveLength(before + 1);
       expect(recordsFor('probe-charlie').at(-1)!.uuid).toBe('hook-1');
+    } finally {
+      ingest.close();
+    }
+  });
+
+  // The file's own clock rides with the records so the staleness rule can tell a
+  // session that went quiet from a log being replayed — see isWallClockLog. Read
+  // after admission on purpose: lines that arrive before their sidecar are
+  // buffered and flushed WITHOUT a clock, which is deliberate (a buffered batch
+  // has no file read behind it) and would make an assertion here race the walk.
+  it('carries the transcript file mtime into the store, on a batch read straight from the file', async () => {
+    const ingest = await startWithoutFsWatch({ sweepIntervalMs: 0, tailPollMs: 0 });
+    try {
+      await layout();
+      await ingest.sweep();
+
+      await write(charlieTranscript(), 'clock-1');
+      await ingest.drainAgent('probe-charlie');
+
+      const onDisk = await fs.stat(charlieTranscript());
+      const mine = of(store.replay(), 'transcript')
+        .map((e) => e.payload as TranscriptPayload)
+        .filter((p) => p.agent === 'probe-charlie');
+      expect(mine.at(-1)!.mtimeMs).toBe(onDisk.mtimeMs);
     } finally {
       ingest.close();
     }
@@ -1929,6 +1954,40 @@ describe("the lead session's own file", () => {
     }
     expect(project(store.replay(), false).sessionName).toBeUndefined();
   });
+
+  // The lead's file has no `pending` buffer to fall back on — the buffer serves
+  // an unscoped CLAIM, and this file makes no claim at all until the chain
+  // names it. So a watcher event that arrives before config.json used to read
+  // the file, drop every line, and leave the offset past them for good: the
+  // console showed its own lead with an empty transcript until a restart.
+  // Deferring keeps the bytes recoverable; the sweep that learns the chain
+  // rewinds and re-reads. Same mechanism as the forked-teammate case.
+  it('recovers its prefix when a watcher read it before config.json named the session', async () => {
+    await fs.mkdir(path.join(paths.projects, SLUG), { recursive: true });
+    const ingest = startFileIngest(store, { paths, sweepIntervalMs: 0 });
+    try {
+      // Written while the ingest knows no team and no session: the watcher
+      // reads it, and nothing can place it yet.
+      await fs.writeFile(
+        path.join(paths.projects, SLUG, `${LEAD_SESSION}.jsonl`),
+        `${JSON.stringify({ type: 'assistant', uuid: 'prefix-1', timestamp: new Date().toISOString(), message: { content: [{ type: 'text', text: 'before the team existed' }] } })}\n`,
+      );
+      await settle();
+
+      await fs.mkdir(path.join(paths.teams, TEAM), { recursive: true });
+      await fs.copyFile(
+        path.join(FIXTURES, 'config-4-members.json'),
+        path.join(paths.teams, TEAM, 'config.json'),
+      );
+      await settle();
+      await ingest.sweep();
+    } finally {
+      ingest.close();
+    }
+
+    const lead = project(store.replay(), false).agents.find((a) => a.name === 'team-lead');
+    expect(lead!.transcript.map((l) => l.text)).not.toEqual([]);
+  });
 });
 
 // Workflow mode. The scope rule above stays exactly as it was — a workflow
@@ -2016,5 +2075,238 @@ describe('workflow runs', () => {
     expect(run.live).toBe(true);
     expect(run.status).toBe('running');
     expect(run.agents).toEqual([{ agentId: 'a1234567890abcdef', state: 'run' }]);
+  });
+});
+
+// The other half of the scope rule. A subagent is not a team member and must
+// never reach members[], the roster or the team's spend — but the two files it
+// leaves behind are what the Task rows and the trace view are built on, so
+// "not a teammate" cannot keep meaning "not read".
+describe('subagent trees', () => {
+  const AGENT_DIR = () => path.join(paths.projects, SLUG, LEAD_SESSION, 'subagents');
+  const tree = JSON.parse(
+    readFileSync(path.join(FIXTURES, 'subagent-tree.json'), 'utf8'),
+  ) as {
+    parent: { records: unknown[] };
+    subagents: Array<{ agentId: string; meta: Record<string, unknown>; records: unknown[] }>;
+  };
+  const jsonl = (records: unknown[]) => records.map((r) => `${JSON.stringify(r)}\n`).join('');
+  const sub = (agentId: string) => tree.subagents.find((s) => s.agentId === agentId)!;
+
+  async function write(agentId: string, opts: { sidecar?: boolean } = {}): Promise<void> {
+    const found = sub(agentId);
+    await fs.writeFile(path.join(AGENT_DIR(), `agent-${agentId}.jsonl`), jsonl(found.records));
+    if (opts.sidecar === false) return;
+    await fs.writeFile(
+      path.join(AGENT_DIR(), `agent-${agentId}.meta.json`),
+      JSON.stringify(found.meta),
+    );
+  }
+
+  // Scoped up front, as index.ts scopes a real ingest from discoverTeam: the
+  // lead's OWN session transcript is only claimable once the chain names its
+  // session, and a watcher that reaches it first consumes the bytes either way.
+  async function sweep(): Promise<StoredEvent[]> {
+    const ingest = startFileIngest(store, {
+      paths,
+      teamName: TEAM,
+      leadSessionId: LEAD_SESSION,
+      sweepIntervalMs: 0,
+    });
+    try {
+      await settle();
+      await ingest.sweep();
+    } finally {
+      ingest.close();
+    }
+    return store.replay();
+  }
+
+  beforeEach(async () => {
+    await layout();
+    // The lead dispatches the fan-out from its own session transcript.
+    await fs.writeFile(
+      path.join(paths.projects, SLUG, `${LEAD_SESSION}.jsonl`),
+      jsonl(tree.parent.records),
+    );
+  });
+
+  it('reads a subagent through the store into the published tree', async () => {
+    await write('ascout-0011223344556677');
+    await write('agrepper-1122334455667788');
+    await write('aauditor-8899aabbccddeeff');
+
+    const state = project(await sweep(), false);
+    const lead = state.subagents?.['team-lead'] ?? [];
+    expect(lead.map((s) => s.name)).toEqual(['scout', 'auditor', 'Chase the flaky watcher']);
+    expect(lead[0].children.map((c) => c.name)).toEqual(['grepper']);
+    expect(lead[0].children[0].depth).toBe(2);
+    expect(lead[0].state).toBe('returned');
+    expect(lead[0].toolCalls).toBe(2);
+    expect(lead[0].tokens).toBeGreaterThan(0);
+  });
+
+  it('degrades a subagent with no sidecar to what the lead’s journal knows', async () => {
+    await write('ascout-0011223344556677', { sidecar: false });
+
+    const state = project(await sweep(), false);
+    const scout = state.subagents?.['team-lead']?.[0];
+    expect(scout).toMatchObject({ name: 'scout', agentId: 'ascout-0011223344556677' });
+    // Its transcript is right there on disk; without a sidecar there is no
+    // toolUseId to join it on, so none of it is claimed.
+    expect(scout?.tokens).toBeUndefined();
+    expect(scout?.startedAt).toBeUndefined();
+  });
+
+  it('keeps a subagent out of the roster and out of the team’s spend', async () => {
+    await write('ascout-0011223344556677');
+    const events = await sweep();
+    const state = project(events, false);
+
+    expect(state.agents.map((a) => a.name)).not.toContain('scout');
+    // A transcript row and a roster sidecar are the only two routes into an
+    // agent's cost and the team's token total. It takes neither.
+    expect(
+      of(events, 'transcript').map((e) => (e.payload as TranscriptPayload).agent),
+    ).not.toContain('scout');
+    expect(
+      of(events, 'roster').flatMap((e) =>
+        (e.payload as RosterPayload).sidecars.map((s) => s.meta.name),
+      ),
+    ).not.toContain('scout');
+    // …while the tree still bills it, out of its own digest.
+    expect(state.subagents!['team-lead'][0].tokens).toBeGreaterThan(0);
+  });
+
+  it('ignores a workflow fan-out, which is not a subagent of ours either', async () => {
+    const wfDir = path.join(AGENT_DIR(), 'workflows', 'wf_abc');
+    await fs.mkdir(wfDir, { recursive: true });
+    await fs.writeFile(
+      path.join(wfDir, 'agent-a2a07e2a8ef27d692.jsonl'),
+      jsonl(sub('aauditor-8899aabbccddeeff').records),
+    );
+    await fs.writeFile(
+      path.join(wfDir, 'agent-a2a07e2a8ef27d692.meta.json'),
+      JSON.stringify({ ...sub('aauditor-8899aabbccddeeff').meta, toolUseId: 'toolu_auditor' }),
+    );
+
+    const events = await sweep();
+    expect(of(events, 'subagent')).toHaveLength(0);
+    expect(project(events, false).subagents?.['team-lead']?.[1].tokens).toBeUndefined();
+  });
+
+  it('ignores a subagent belonging to another session', async () => {
+    const otherDir = path.join(paths.projects, SLUG, 'aaaaaaaa-1111-2222-3333-444444444444', 'subagents');
+    await fs.mkdir(otherDir, { recursive: true });
+    const found = sub('aauditor-8899aabbccddeeff');
+    await fs.writeFile(path.join(otherDir, `agent-${found.agentId}.jsonl`), jsonl(found.records));
+    await fs.writeFile(
+      path.join(otherDir, `agent-${found.agentId}.meta.json`),
+      JSON.stringify(found.meta),
+    );
+
+    expect(of(await sweep(), 'subagent')).toHaveLength(0);
+  });
+
+  it('re-reads a digest without adding it to the last one', async () => {
+    await write('aauditor-8899aabbccddeeff');
+    const first = project(await sweep(), false).subagents!['team-lead'][1];
+    // A second ingest re-reads the same file from byte zero.
+    const second = project(await sweep(), false).subagents!['team-lead'][1];
+    expect(second.tokens).toBe(first.tokens);
+    expect(second.toolCalls).toBe(first.toolCalls);
+  });
+});
+
+// The fourth kind of transcript under a project root, and the one the console
+// used to drop: what a workflow run actually spent. A workflow agent is still
+// not a team member — this asserts both halves, that the usage arrives AND that
+// nothing about the roster moved. See CONSOLE-NOTES.md §24.
+describe('workflow agent usage', () => {
+  const RUN = 'wf_d36b25c0-f96';
+  const usage = JSON.parse(
+    readFileSync(path.join(FIXTURES, 'workflow-agent-usage.json'), 'utf8'),
+  ) as { agents: Record<string, unknown[]> };
+
+  const runDir = (session = LEAD_SESSION) =>
+    path.join(paths.projects, SLUG, session, 'subagents', 'workflows', RUN);
+
+  async function writeRun(session = LEAD_SESSION): Promise<void> {
+    await fs.mkdir(runDir(session), { recursive: true });
+    for (const [agentId, records] of Object.entries(usage.agents)) {
+      await fs.writeFile(
+        path.join(runDir(session), `agent-${agentId}.jsonl`),
+        records.map((r) => `${JSON.stringify(r)}\n`).join(''),
+      );
+    }
+  }
+
+  async function sweep(): Promise<StoredEvent[]> {
+    const ingest = startFileIngest(store, {
+      paths,
+      teamName: TEAM,
+      leadSessionId: LEAD_SESSION,
+      sweepIntervalMs: 0,
+    });
+    try {
+      await settle();
+      await ingest.sweep();
+    } finally {
+      ingest.close();
+    }
+    return store.replay();
+  }
+
+  beforeEach(async () => {
+    await layout();
+  });
+
+  it('reads the four classes off the run’s own agent transcripts', async () => {
+    await writeRun();
+    const rows = of(await sweep(), 'workflow-usage');
+    expect(rows.length).toBeGreaterThan(0);
+    const last = rows.at(-1)!.payload as { runId: string; split: { cacheRead: number } };
+    expect(last.runId).toBe(RUN);
+    // The hand-summed total of the fixture's four agents.
+    expect(last.split.cacheRead).toBe(63000);
+  });
+
+  it('reaches the published frame as the run’s usage', async () => {
+    await writeRun();
+    // The snapshot too, so the run model has phases to roll up into.
+    await fs.mkdir(path.join(paths.projects, SLUG, LEAD_SESSION, 'workflows'), { recursive: true });
+    await fs.copyFile(
+      path.join(FIXTURES, 'workflow-run.json'),
+      path.join(paths.projects, SLUG, LEAD_SESSION, 'workflows', `${RUN}.json`),
+    );
+
+    const [run] = foldWorkflows(await sweep());
+    expect(run.usage?.split.cacheRead).toBe(63000);
+    expect(run.usage?.agentsMeasured).toBe(4);
+    expect(run.usage?.byPhase.map((p) => p.phaseIndex)).toEqual([1, 2]);
+    expect(run.agents.find((a) => a.agentId === 'a06eeee08bb883b02')?.tokenSplit?.cacheRead).toBe(
+      30000,
+    );
+    // Two different quantities, side by side and never merged.
+    expect(run.totalTokens).toBe(698551);
+  });
+
+  it('keeps every one of the run’s agents out of the team', async () => {
+    await writeRun();
+    const events = await sweep();
+    const state = project(events, false);
+    // Not a roster row, not a transcript under anybody's name, not a subagent.
+    for (const agentId of Object.keys(usage.agents)) {
+      expect(state.agents.map((a) => a.name)).not.toContain(agentId);
+      expect(
+        of(events, 'transcript').map((e) => (e.payload as TranscriptPayload).agent),
+      ).not.toContain(agentId);
+    }
+    expect(of(events, 'subagent')).toHaveLength(0);
+  });
+
+  it('ignores a run belonging to another session', async () => {
+    await writeRun('aaaaaaaa-1111-2222-3333-444444444444');
+    expect(of(await sweep(), 'workflow-usage')).toHaveLength(0);
   });
 });

@@ -7,6 +7,17 @@ const usageRecords = JSON.parse(
 ) as Array<{ agent: string; id: string; model: string }>;
 
 describe('resolveModel', () => {
+  it('resolves the Fable 5 tier and its 1M window', () => {
+    const m = resolveModel('claude-fable-5');
+    expect(m.canonical).toBe('claude-fable-5');
+    expect(m.window).toBe(1_000_000);
+    expect(m.compactAt).toBe(967_000);
+    expect(m.approximate).toBe(false);
+    expect(m.pricing).toEqual({
+      input: 10, output: 50, cacheWrite5m: 12.5, cacheWrite1h: 20, cacheRead: 1, webSearch: 0.01,
+    });
+  });
+
   it('resolves the Opus 5 tier and its 1M window', () => {
     const m = resolveModel('claude-opus-5');
     expect(m.canonical).toBe('claude-opus-5');

@@ -2,8 +2,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { FIXTURE_NOW, sampleTeamState } from '../test/state-fixture';
-import { formatCost } from '../format';
-import { dollarsAvoided, spendByModel } from './usage-team';
+import { formatCost, formatTokens } from '../format';
+import { dollarsAvoided, seriesColors, spendByModel } from './usage-team';
+import { DEFAULT_SETTINGS, SettingsContext } from '../state/useSettings';
 import { UsageTeam } from './UsageTeam';
 
 afterEach(cleanup);
@@ -86,7 +87,6 @@ describe('UsageTeam — em dashes for unknowns', () => {
     render(<UsageTeam state={fresh} now={FIXTURE_NOW} focused={null} onFocus={vi.fn()} spendSamples={[]} />);
     const row = screen.getAllByTestId('usage-ledger-row')[0];
     expect(within(row).getByTestId('usage-row-cache').textContent).toBe('—');
-    expect(within(row).getByTestId('usage-row-permtok').textContent).toBe('—');
   });
 
   // A row on disk from before this widening shipped carries `totals` (cost,
@@ -110,10 +110,11 @@ describe('UsageTeam — em dashes for unknowns', () => {
     expect(screen.getByTestId('usage-tokens-note').textContent).toBe('—');
     expect(screen.getByTestId('usage-cache-note').textContent).toContain('—');
     // The row with no split draws nothing rather than a zero-width bar.
+    const bars = screen.getAllByTestId('usage-composition-row')[0];
+    expect(within(bars).queryAllByTestId('usage-row-segment')).toHaveLength(0);
     const row = screen.getAllByTestId('usage-ledger-row')[0];
-    expect(within(row).queryAllByTestId('usage-row-segment')).toHaveLength(0);
     expect(within(row).getByTestId('usage-row-cache').textContent).toBe('—');
-    expect(within(row).getByTestId('usage-row-permtok').textContent).toBe('—');
+    expect(within(row).getByTestId('usage-row-tokens').textContent).toBe('—');
   });
 });
 
@@ -129,14 +130,14 @@ describe('UsageTeam — per-agent ledger', () => {
 
   it('draws the four segments in fixed order cache-read, cache-write, input, output', () => {
     renderUsage();
-    const row = screen.getAllByTestId('usage-ledger-row')[0];
+    const row = screen.getAllByTestId('usage-composition-row')[0];
     const segments = within(row).getAllByTestId('usage-row-segment');
     expect(segments.map((s) => s.dataset.segment)).toEqual(['cacheRead', 'cacheWrite', 'in', 'out']);
   });
 
   it('colours the segments from the accent ramp, never a warn or fail token', () => {
     renderUsage();
-    const row = screen.getAllByTestId('usage-ledger-row')[0];
+    const row = screen.getAllByTestId('usage-composition-row')[0];
     const segments = within(row).getAllByTestId('usage-row-segment');
     const colors = segments.map((s) => s.style.background);
     expect(colors).toEqual([
@@ -152,6 +153,14 @@ describe('UsageTeam — per-agent ledger', () => {
     const rows = screen.getAllByTestId('usage-ledger-row');
     fireEvent.click(rows[2]);
     expect(onFocus).toHaveBeenCalledWith(state.agents[2].name);
+  });
+
+  // The caption is the promise the click has to keep. It said "focus that
+  // agent" while the click also left the view, which reads as a stray
+  // navigation rather than the thing the operator asked for.
+  it('says the row opens the agent in the wall, which is where the click actually lands', () => {
+    renderUsage();
+    expect(screen.getByTestId('usage-ledger-caption').textContent).toContain('wall');
   });
 
   it('totals tokens, cache hit and cost in a footer row on the same ground', () => {
@@ -171,16 +180,21 @@ describe('UsageTeam — right rail', () => {
     expect(rows).toHaveLength(models.length);
   });
 
+  // Deliberately a model id the catalog cannot know. Naming a real one couples
+  // this test to which models happen to be listed today: it was written against
+  // `claude-fable-5` and went green-to-red the moment that row was added.
+  const UNCATALOGUED = 'claude-not-in-the-catalog-9';
+
   it('marks a fallback-priced model as approximate on the rate panel', () => {
     const state = sampleTeamState();
-    const withFable = {
+    const withUnknown = {
       ...state,
-      agents: state.agents.map((a, i) => (i === 0 ? { ...a, model: 'claude-fable-5' } : a)),
+      agents: state.agents.map((a, i) => (i === 0 ? { ...a, model: UNCATALOGUED } : a)),
     };
-    render(<UsageTeam state={withFable} now={FIXTURE_NOW} focused={null} onFocus={vi.fn()} spendSamples={[]} />);
+    render(<UsageTeam state={withUnknown} now={FIXTURE_NOW} focused={null} onFocus={vi.fn()} spendSamples={[]} />);
     const panel = screen.getByTestId('usage-spend-by-model');
-    const fableRow = within(panel).getAllByTestId('usage-model-row').find((r) => r.textContent?.includes('claude-fable-5'));
-    expect(within(fableRow!).getByTestId('usage-model-approx')).toBeTruthy();
+    const row = within(panel).getAllByTestId('usage-model-row').find((r) => r.textContent?.includes(UNCATALOGUED));
+    expect(within(row!).getByTestId('usage-model-approx')).toBeTruthy();
   });
 
   it('carries the cache-TTL, compaction and rates-from-config notes', () => {
@@ -221,4 +235,253 @@ it('never paints from a hard-coded hex — every colour is a var(--…) token', 
   );
   const hex = container.innerHTML.match(/#[0-9a-fA-F]{3,8}\b/g);
   expect(hex).toBeNull();
+});
+
+describe('UsageTeam — cumulative spend stacked by agent', () => {
+  const samples = (over: Array<{ at: number; cost: number; byAgent: Record<string, number> }>) => over;
+
+  it('says it has nothing to plot rather than drawing an empty chart, and says why', () => {
+    renderUsage(vi.fn(), { spendSamples: [] });
+    const empty = screen.getByTestId('usage-stacked-empty').textContent ?? '';
+    expect(empty).toMatch(/backfill|spawn/i);
+  });
+
+  // The whole reason the panel exists. A console open for four minutes must not
+  // present four minutes as the session's whole history.
+  it('captions the chart with its own sampling window, not the session length', () => {
+    renderUsage(vi.fn(), {
+      spendSamples: samples([
+        { at: FIXTURE_NOW - 240_000, cost: 1, byAgent: { 'team-lead': 1 } },
+        { at: FIXTURE_NOW, cost: 2.56, byAgent: { 'team-lead': 2.56 } },
+      ]),
+    });
+    expect(screen.getByTestId('usage-stacked-caption').textContent).toMatch(/sampled/i);
+  });
+
+  it('draws one filled area per agent as SVG geometry', () => {
+    const { state } = renderUsage(vi.fn(), {
+      spendSamples: samples([
+        { at: FIXTURE_NOW - 240_000, cost: 1, byAgent: { 'team-lead': 1 } },
+        { at: FIXTURE_NOW, cost: 2.56, byAgent: { 'team-lead': 1.31, 'probe-alpha': 0.42, 'probe-bravo': 0.61, 'probe-charlie': 0.22 } },
+      ]),
+    });
+    expect(screen.getAllByTestId('usage-stacked-area')).toHaveLength(state.agents.length);
+  });
+
+  it('labels the money ladder in whole-dollar steps as HTML, not svg text', () => {
+    const { container } = render(
+      <UsageTeam
+        state={sampleTeamState()}
+        now={FIXTURE_NOW}
+        focused={null}
+        onFocus={vi.fn()}
+        spendSamples={samples([
+          { at: FIXTURE_NOW - 240_000, cost: 1, byAgent: { 'team-lead': 1 } },
+          { at: FIXTURE_NOW, cost: 2.56, byAgent: { 'team-lead': 2.56 } },
+        ])}
+      />,
+    );
+    expect(screen.getAllByTestId('usage-stacked-tick').length).toBeGreaterThan(1);
+    expect(container.querySelector('svg text')).toBeNull();
+  });
+
+  it('marks each teammate spawn that falls inside the sampled window', () => {
+    const state = sampleTeamState();
+    // probe-* all joined ~45,275s after the team was created; sample across it.
+    renderUsage(vi.fn(), {
+      spendSamples: samples([
+        { at: state.agents[1].startedAt - 1000, cost: 1, byAgent: { 'team-lead': 1 } },
+        { at: state.agents[3].startedAt + 1000, cost: 2.56, byAgent: { 'team-lead': 1.31, 'probe-alpha': 0.42, 'probe-bravo': 0.61, 'probe-charlie': 0.22 } },
+      ]),
+    });
+    expect(screen.getAllByTestId('usage-stacked-spawn')).toHaveLength(3);
+  });
+});
+
+describe('UsageTeam — donut, rate card, pressure, coordination, worth-it', () => {
+  it('draws one donut arc per model', () => {
+    const { state } = renderUsage();
+    expect(screen.getAllByTestId('usage-donut-arc')).toHaveLength(spendByModel(state.agents).length);
+  });
+
+  it('carries a blended $/Mtok on each donut legend row, which is why the panel exists', () => {
+    renderUsage();
+    const rows = screen.getAllByTestId('usage-model-permtok');
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) expect(row.textContent).toContain('/Mtok');
+  });
+
+  it('draws an em-dash $/Mtok, never a zero rate, when a model\'s split is unrecorded', () => {
+    const state = sampleTeamState();
+    const noSplit = {
+      ...state,
+      agents: state.agents.map((a, i) => (i === 0 ? { ...a, tokenSplit: undefined } : a)),
+    };
+    render(<UsageTeam state={noSplit} now={FIXTURE_NOW} focused={null} onFocus={vi.fn()} spendSamples={[]} />);
+    const permtoks = screen.getAllByTestId('usage-model-permtok').map((n) => n.textContent);
+    expect(permtoks.some((t) => t?.startsWith('—'))).toBe(true);
+  });
+
+  // CONSOLE-NOTES §18: the console's rates come from catalog.json, and the
+  // design's own card overstates this catalog's Opus rate 3x. The panel exists
+  // to show which numbers produced the totals, so it must show the real ones.
+  it('draws the rate card from the catalog, not from the design\'s published figures', () => {
+    renderUsage();
+    const rows = screen.getAllByTestId('usage-rate-row');
+    const opus = rows.find((r) => r.textContent?.includes('claude-opus-5'));
+    expect(opus!.textContent).toContain('5.00');
+    expect(opus!.textContent).not.toContain('15.00');
+  });
+
+  it('shows the derived cache-write and cache-read columns and the 5-minute TTL footnote', () => {
+    renderUsage();
+    const opus = screen.getAllByTestId('usage-rate-row').find((r) => r.textContent?.includes('claude-opus-5'))!;
+    expect(opus.textContent).toContain('6.25'); // 1.25x input
+    expect(opus.textContent).toContain('0.50'); // 0.1x input
+    const note = screen.getByTestId('usage-rate-note').textContent ?? '';
+    expect(note).toContain('5 minutes');
+    expect(note).toContain('subagentPromptCacheTtl');
+  });
+
+  it('hides the rate card when the appearance store turns it off', () => {
+    render(
+      <SettingsContext.Provider value={{ ...DEFAULT_SETTINGS, showRateCard: false }}>
+        <UsageTeam state={sampleTeamState()} now={FIXTURE_NOW} focused={null} onFocus={vi.fn()} spendSamples={[]} />
+      </SettingsContext.Provider>,
+    );
+    expect(screen.queryByTestId('usage-rate-card')).toBeNull();
+  });
+
+  it('shows the rate card by default, so the panel is visible before the setting exists', () => {
+    renderUsage();
+    expect(screen.getByTestId('usage-rate-card')).toBeTruthy();
+  });
+
+  // USAGE-STATE.md §6: metered against each agent's OWN window, never a fixed
+  // 200k — Opus-5's window is 1,000,000 here, so a fixed denominator would read
+  // every lead as permanently over its limit.
+  it('meters context pressure against each agent\'s own limit, not a fixed 200k', () => {
+    const { state } = renderUsage();
+    const rows = screen.getAllByTestId('usage-pressure-row');
+    expect(rows).toHaveLength(state.agents.length);
+    const lead = rows[0];
+    expect(lead.textContent).toContain('1M'); // the lead's real window, not 200k
+  });
+
+  it('bands the pressure bars on the accent ramp and never on warn or fail', () => {
+    renderUsage();
+    for (const bar of screen.getAllByTestId('usage-pressure-bar')) {
+      expect(bar.style.background).toMatch(/var\(--color-accent-(300|500|700)\)/);
+    }
+  });
+
+  it('carries the compaction consequence under the pressure bars', () => {
+    renderUsage();
+    const note = screen.getByTestId('usage-pressure-note').textContent ?? '';
+    expect(note.toLowerCase()).toContain('compaction');
+    expect(note.toLowerCase()).toContain('cache write');
+  });
+
+  it('draws the design\'s 17 coordination bars and counts what was delivered', () => {
+    renderUsage();
+    expect(screen.getAllByTestId('usage-coord-bar')).toHaveLength(17);
+    expect(screen.getByTestId('usage-coord-delivered').textContent).toMatch(/\d+ of \d+/);
+  });
+
+  // The design asks for "spend attributable to re-reading inboxes". No token is
+  // attributable to a message read, so the figure is absent and the panel says
+  // so rather than apportioning one.
+  it('says why the inbox-spend figure is absent instead of inventing an apportionment', () => {
+    renderUsage();
+    const note = screen.getByTestId('usage-coord-note').textContent ?? '';
+    expect(note).toMatch(/no token is attributable/i);
+  });
+
+  it('captions the serial comparison as an estimate and names its assumption', () => {
+    renderUsage();
+    expect(screen.getByTestId('usage-worth-it-caption').textContent).toMatch(/estimate/i);
+    expect(screen.getByTestId('usage-worth-note').textContent).toMatch(/only the first bar is measured/i);
+  });
+
+  it('reconciles the worth-it panel\'s measured bar with the ledger total', () => {
+    const { state } = renderUsage();
+    const truth = state.agents.reduce((s, a) => s + a.costUsd, 0);
+    expect(screen.getByTestId('usage-worth-actual').textContent).toBe(formatCost(truth));
+  });
+
+  it('draws an em-dash serial estimate and ratio, never a zero, when a split is unrecorded', () => {
+    const state = sampleTeamState();
+    const noSplit = {
+      ...state,
+      agents: state.agents.map((a, i) => (i === 0 ? { ...a, tokenSplit: undefined } : a)),
+    };
+    render(<UsageTeam state={noSplit} now={FIXTURE_NOW} focused={null} onFocus={vi.fn()} spendSamples={[]} />);
+    expect(screen.getByTestId('usage-worth-serial').textContent).toBe('—');
+    expect(screen.getByTestId('usage-worth-ratio').textContent).toBe('—');
+  });
+});
+
+describe('UsageTeam — the rev 3c ledger columns', () => {
+  it('carries type, model, status, context, tokens, msgs and tasks on every row', () => {
+    const { state } = renderUsage();
+    const row = screen.getAllByTestId('usage-ledger-row')[0];
+    const lead = state.agents[0];
+    expect(within(row).getByTestId('usage-row-type').textContent).toBe(lead.agentType);
+    expect(within(row).getByTestId('usage-row-model').textContent).toBe(lead.model);
+    expect(within(row).getByTestId('usage-row-status').textContent).toBe(lead.status);
+    expect(within(row).getByTestId('usage-row-context').textContent).toContain(formatTokens(lead.contextTokens));
+    expect(within(row).getByTestId('usage-row-tokens')).toBeTruthy();
+    expect(within(row).getByTestId('usage-row-msgs')).toBeTruthy();
+    expect(within(row).getByTestId('usage-row-tasks')).toBeTruthy();
+  });
+
+  // The dot has to be the colour that agent reads as on the stacked chart, or
+  // the legend and the ledger are two different mappings of agent to ramp step.
+  it('dots each row in the same series colour the stacked chart gives that agent', () => {
+    const { state } = renderUsage();
+    const colors = seriesColors(state.agents);
+    const dots = screen.getAllByTestId('usage-row-dot');
+    expect(dots[0].style.background).toBe(colors.get(state.agents[0].name));
+  });
+
+  // The choice of "sent" over "involved in" has to be legible to an operator,
+  // not only to this test — a bare "msgs" header reads as traffic.
+  it('says in the header that the column counts messages sent', () => {
+    renderUsage();
+    const header = screen.getByTitle('messages this agent sent');
+    expect(header.textContent).toBe('msgs');
+  });
+
+  it('counts messages sent, so the column totals to something real', () => {
+    const { state } = renderUsage();
+    const rows = screen.getAllByTestId('usage-row-msgs').map((n) => Number(n.textContent));
+    const sent = state.mail.filter((m) => state.agents.some((a) => a.name === m.from)).length;
+    expect(rows.reduce((a, b) => a + b, 0)).toBe(sent);
+    expect(Number(screen.getByTestId('usage-foot-msgs').textContent)).toBe(sent);
+  });
+
+  it('reconciles the footer totals with the tiles above them', () => {
+    const { state } = renderUsage();
+    const truth = state.agents.reduce((s, a) => s + a.costUsd, 0);
+    expect(screen.getByTestId('usage-foot-cost').textContent).toBe(formatCost(truth));
+    // The tokens tile and the ledger footer must be the same figure — two
+    // "tokens" numbers 23x apart is the failure USAGE-STATE.md §2 names.
+    expect(screen.getByTestId('usage-foot-tokens').textContent).toBe(
+      screen.getByTestId('usage-tokens-value').textContent,
+    );
+    expect(screen.getByTestId('usage-foot-tasks').textContent).toBe('1');
+  });
+
+  it('draws em dashes across the footer aggregates when one agent has no split', () => {
+    const state = sampleTeamState();
+    const noSplit = {
+      ...state,
+      agents: state.agents.map((a, i) => (i === 0 ? { ...a, tokenSplit: undefined } : a)),
+    };
+    render(<UsageTeam state={noSplit} now={FIXTURE_NOW} focused={null} onFocus={vi.fn()} spendSamples={[]} />);
+    expect(screen.getByTestId('usage-foot-tokens').textContent).toBe('—');
+    expect(screen.getByTestId('usage-foot-cache').textContent).toBe('—');
+    // Cost never depended on the split, so it stays measured.
+    expect(screen.getByTestId('usage-foot-cost').textContent).toBe(formatCost(noSplit.totalCostUsd));
+  });
 });

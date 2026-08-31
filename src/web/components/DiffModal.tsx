@@ -418,6 +418,7 @@ export function DiffModal({ diff, onClose }: { diff: Diff | null; onClose(): voi
         >
           <span style={{ flex: 'none', whiteSpace: 'nowrap' }}>esc close</span>
           <span style={{ flex: 'none', whiteSpace: 'nowrap' }}>j/k next change</span>
+          <span style={{ flex: 'none', whiteSpace: 'nowrap' }}>wall keys suspended while open</span>
           {/* The chip above says the patch is short; this says what that costs
               you, at the one moment it matters — the button that copies it. */}
           {diff.truncated && (

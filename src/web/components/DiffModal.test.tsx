@@ -3,17 +3,23 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import type { Diff } from '../../shared/domain';
 import { buildCast } from '../../shared/cast';
+import { clockLabel } from '../format';
 import { CastContext } from '../state/useCast';
 import { DiffModal } from './DiffModal';
 
 afterEach(cleanup);
+
+const DIFF_TS = Date.parse('2026-08-27T14:22:08.000Z');
+// clockLabel is local time, not UTC, so the meta line's clock is built the
+// same way rather than assumed to match the instant's UTC digits.
+const DIFF_CLOCK = clockLabel(DIFF_TS);
 
 const DIFF: Diff = {
   path: 'src/web/state/useTeamState.ts',
   added: 14,
   removed: 2,
   agent: 'lead',
-  ts: Date.parse('2026-08-27T14:22:08.000Z'),
+  ts: DIFF_TS,
   commit: '9be5ee0',
   hunks: [
     {
@@ -97,7 +103,7 @@ describe('DiffModal', () => {
       expect(screen.getByTestId('diff-path').textContent).toBe(DIFF.path);
       expect(screen.getByTestId('diff-stat').textContent).toBe('+14 −2');
       expect(screen.getByTestId('diff-stat').style.color).toBe('var(--json-string)');
-      expect(screen.getByTestId('diff-meta').textContent).toBe('lead · 14:22:08 · 9be5ee0');
+      expect(screen.getByTestId('diff-meta').textContent).toBe(`lead · ${DIFF_CLOCK} · 9be5ee0`);
     });
 
     // The agent that made the edit is a name, so it is cast; the path, the
@@ -109,13 +115,13 @@ describe('DiffModal', () => {
           <DiffModal diff={DIFF} onClose={() => {}} />
         </CastContext.Provider>,
       );
-      expect(screen.getByTestId('diff-meta').textContent).toBe('Cobb · 14:22:08 · 9be5ee0');
+      expect(screen.getByTestId('diff-meta').textContent).toBe(`Cobb · ${DIFF_CLOCK} · 9be5ee0`);
     });
 
     it('leaves the sha out of the meta for an uncommitted edit', () => {
       const uncommitted: Diff = { ...DIFF, commit: undefined };
       render(<DiffModal diff={uncommitted} onClose={() => {}} />);
-      expect(screen.getByTestId('diff-meta').textContent).toBe('lead · 14:22:08');
+      expect(screen.getByTestId('diff-meta').textContent).toBe(`lead · ${DIFF_CLOCK}`);
     });
 
     it('ellipsises a long path rather than pushing the meta off the card', () => {
@@ -540,7 +546,12 @@ describe('DiffModal', () => {
     render(<DiffModal diff={DIFF} onClose={() => {}} />);
     const footer = screen.getByTestId('diff-footer');
     expect(footer.textContent).toBe(
-      ['esc close', 'j/k next change', 'the transcript keeps its one line — the patch lives here'].join(''),
+      [
+        'esc close',
+        'j/k next change',
+        'wall keys suspended while open',
+        'the transcript keeps its one line — the patch lives here',
+      ].join(''),
     );
     expect(footer.textContent).not.toContain('⌘⏎');
   });

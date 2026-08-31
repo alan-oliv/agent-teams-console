@@ -263,3 +263,95 @@ describe('leanRun', () => {
     expect(lean.totalTokens).toBe(full.totalTokens);
   });
 });
+
+// A run's real token traffic arrives on its own rows, read from the agent
+// transcripts under subagents/workflows/wf_<runId>/. The run model is what
+// knows which phase an agent ran in, so the rollup happens here rather than in
+// the ingest — see CONSOLE-NOTES.md §24.
+describe('folding measured workflow usage into a run', () => {
+  const split = (n: number) => ({
+    in: n,
+    out: n,
+    cacheWrite: n,
+    cacheWrite1h: 0,
+    cacheRead: n * 10,
+  });
+
+  const usageRow = (runId: string, agentIds: string[]): StoredEvent => ({
+    seq: 2,
+    ts: 2,
+    kind: 'workflow-usage',
+    payload: {
+      runId,
+      agents: agentIds.map((agentId, i) => ({ agentId, split: split(i + 1), model: 'claude-opus-5' })),
+      split: split(agentIds.length),
+      burn: { startedAt: 1000, stepMs: 10, cumulative: [10, 30] },
+    },
+  });
+
+  const runRow = (run: Partial<WorkflowRun> & { runId: string }): StoredEvent => ({
+    seq: 1,
+    ts: 1,
+    kind: 'workflow',
+    payload: { status: 'completed', live: false, agents: [], phases: [], logs: [], ...run },
+  });
+
+  it('puts each agent’s measured split on its row and rolls up per phase', () => {
+    const run = foldWorkflows([
+      runRow({
+        runId: 'wf_a',
+        agents: [
+          { agentId: 'a1', state: 'done', phaseIndex: 1 },
+          { agentId: 'a2', state: 'done', phaseIndex: 1 },
+        ],
+      }),
+      usageRow('wf_a', ['a1', 'a2']),
+    ])[0];
+
+    expect(run.agents.map((a) => a.tokenSplit?.in)).toEqual([1, 2]);
+    expect(run.usage?.byPhase).toEqual([{ phaseIndex: 1, split: split(3) }]);
+    expect(run.usage?.agentsMeasured).toBe(2);
+  });
+
+  it('joins whichever row arrived first', () => {
+    const rows = [
+      runRow({ runId: 'wf_a', agents: [{ agentId: 'a1', state: 'done' }] }),
+      usageRow('wf_a', ['a1']),
+    ];
+    const forwards = foldWorkflows(rows);
+    const backwards = foldWorkflows([rows[1], rows[0]]);
+    expect(backwards[0].usage).toEqual(forwards[0].usage);
+  });
+
+  it('survives the snapshot landing after the usage, which is the ordinary order', () => {
+    // The agents write their transcripts during the run; the snapshot is
+    // written once, at termination. So usage almost always lands first.
+    const run = foldWorkflows([
+      { seq: 1, ts: 1, kind: 'workflow', payload: { runId: 'wf_a', status: 'running', live: true, agents: [{ agentId: 'a1', state: 'run' }], phases: [], logs: [] } },
+      usageRow('wf_a', ['a1']),
+      runRow({ runId: 'wf_a', agents: [{ agentId: 'a1', state: 'done', phaseIndex: 2 }] }),
+    ])[0];
+    expect(run.live).toBe(false);
+    expect(run.usage?.byPhase).toEqual([{ phaseIndex: 2, split: split(1) }]);
+  });
+
+  it('leaves a run with no measured usage exactly as it was', () => {
+    const run = foldWorkflows([runRow({ runId: 'wf_a', agents: [{ agentId: 'a1', state: 'done' }] })])[0];
+    expect(run.usage).toBeUndefined();
+    expect(run.agents[0].tokenSplit).toBeUndefined();
+  });
+
+  it('ignores a usage row for a run it has never seen', () => {
+    expect(foldWorkflows([usageRow('wf_ghost', ['a1'])])).toEqual([]);
+  });
+
+  it('keeps the snapshot’s totalTokens beside the measured split, never merged', () => {
+    const run = foldWorkflows([
+      runRow({ runId: 'wf_a', totalTokens: 698551, agents: [{ agentId: 'a1', state: 'done' }] }),
+      usageRow('wf_a', ['a1']),
+    ])[0];
+    // Two different quantities: context occupancy, and what was actually spent.
+    expect(run.totalTokens).toBe(698551);
+    expect(run.usage?.split).toEqual(split(1));
+  });
+});

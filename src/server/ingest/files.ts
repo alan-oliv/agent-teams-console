@@ -3,7 +3,14 @@ import path from 'node:path';
 import { watchAppendOnly } from '../watch/tail';
 import { readJsonSafe, watchJsonTree } from '../watch/jsonfile';
 import type { Store } from '../store';
-import type { AgentUsageTotals, TaskPayload, TranscriptPayload } from '../project';
+import type { AgentUsageTotals, SubagentPayload, TaskPayload, TranscriptPayload } from '../project';
+import {
+  digestOf,
+  emptySubagentFold,
+  foldSubagentRecords,
+  type SubagentFold,
+} from '../../shared/subagents';
+import { createWorkflowUsageIngest, workflowAgentClaimOf } from './workflow-agents';
 import { parseLine, type TranscriptRecord } from '../../shared/transcript';
 import { tokensOf, totalCost, usageRecordsOf, type UsageRecord } from '../../shared/usage';
 import { splitTok } from '../../shared/cost';
@@ -44,6 +51,13 @@ export const INGEST_BATCH_RECORDS = 200;
  */
 export const PENDING_RECORDS = 6_000;
 const SUBAGENT_FILE = /^agent-a(.+)-[0-9a-f]{16}\.jsonl$/;
+/**
+ * A subagent transcript and the agentId it is named for. `SUBAGENT_FILE` above
+ * only matches a NAMED one, because it splits the name back out; an `Agent`
+ * call made without a `name` lands as `agent-a<16 hex>.jsonl`, which has no
+ * name to split and is the shape most subagents on a real machine take.
+ */
+const SUBAGENT_TRANSCRIPT = /^agent-(a(?:.+-)?[0-9a-f]{16})\.jsonl$/;
 
 export interface IngestPaths {
   projects: string;
@@ -158,6 +172,24 @@ export function agentOfTranscript(
   leadName: string,
 ): string | null {
   return claimOfTranscript(file, leadSessionId, leadName)?.agent ?? null;
+}
+
+/**
+ * The agentId a subagent transcript under OUR session chain is named for.
+ *
+ * Deliberately not part of `claimOfTranscript`: that function answers "which
+ * team member is this", and the answer for a subagent is none — the scope rule
+ * above stands. This answers a different question, "is this a subagent of a
+ * session we are watching", and its result never reaches the roster, the team's
+ * spend or `members[]`. Workflow fan-outs are excluded here as they are there.
+ */
+export function subagentIdOf(file: string, leadSessionId: LeadChain): string | null {
+  if (file.includes(WORKFLOW_SEGMENT)) return null;
+  const m = SUBAGENT_TRANSCRIPT.exec(path.basename(file));
+  if (!m) return null;
+  // <projects>/<slug>/<sessionId>/subagents/agent-<agentId>.jsonl
+  if (!chainHas(leadSessionId, path.basename(path.dirname(path.dirname(file))))) return null;
+  return m[1];
 }
 
 /** Which of a workflow run's two files this is, and the run it belongs to. */
@@ -315,6 +347,16 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
   // Sidecars read while the team was still unknown, held until config.json can
   // judge them. See handleProjectsJson.
   const unresolvedSidecars = new Map<string, Sidecar>();
+  // Transcripts a sidecar has proven belong to an ordinary Agent-tool subagent
+  // dispatched from inside our own session. NOT teammates — they own no roster
+  // row and no share of the team's spend — but their trees are what the Task
+  // rows and the trace view read. Keyed by the transcript file, like `sidecars`.
+  const subagentOf = new Map<string, { toolUseId: string; agentId: string; meta: Sidecar }>();
+  const subagentFolds = new Map<string, SubagentFold>();
+  // What a workflow run actually spent, read from its agents' own transcripts.
+  // Scoped on the same session chain as the run's journal and snapshot, but at
+  // the PUBLISH step rather than the read step — see workflow-agents.ts.
+  const workflowUsage = createWorkflowUsageIngest(store, (sessionId) => chainHas(chain, sessionId));
   const unresolvedWorkflows = new Set<string>();
   // Every transcript this ingest has attributed to an agent, so the tail poll
   // and drainAgent can reach a file without walking the tree to find it. A
@@ -459,6 +501,13 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
   // the same breath.
   const disowned = new Set<string>();
 
+  // Files a watcher event reached before the lead's session chain could place
+  // them. Their bytes were read and dropped, so the offset moved past content
+  // nothing has stored — the next sweep that CAN place the file rewinds it and
+  // reads it whole. Paths only, cleared as each one is recovered, and the
+  // recovery costs one re-read of one file exactly once.
+  const deferred = new Set<string>();
+
   // A TRANSCRIPT this run has proven is not a teammate's keeps nothing. Keyed by
   // the file the sidecar describes, never by the name it carries: a name is not
   // unique across teams (166 sidecars on one ordinary machine, 13 teammate names
@@ -481,7 +530,12 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
    * on the wire. (At boot there is no client at all: index.ts awaits the sweep
    * before it creates the HTTP server.)
    */
-  const appendTranscript = (agent: string, records: TranscriptRecord[], fromStart: boolean) => {
+  const appendTranscript = (
+    agent: string,
+    records: TranscriptRecord[],
+    fromStart: boolean,
+    mtimeMs?: number,
+  ) => {
     const totals = totalsFor(agent);
     for (let i = 0; i < records.length; i += INGEST_BATCH_RECORDS) {
       const payload: TranscriptPayload = {
@@ -490,8 +544,12 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
       };
       if (fromStart && i === 0) payload.fromStart = true;
       // Only the last chunk carries the snapshot, so a partial read of a drain
-      // can never publish a partial total.
-      if (i + INGEST_BATCH_RECORDS >= records.length) payload.totals = totals;
+      // can never publish a partial total. The file clock rides with it for the
+      // same reason: it describes the whole file, not this slice of it.
+      if (i + INGEST_BATCH_RECORDS >= records.length) {
+        payload.totals = totals;
+        if (mtimeMs !== undefined) payload.mtimeMs = mtimeMs;
+      }
       store.append('transcript', payload, agent);
     }
     appendDrainedMail(agent, records);
@@ -524,6 +582,72 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
     }
   };
 
+  /**
+   * The cumulative digest of one subagent's own transcript. Its RECORDS never
+   * enter the store — a fan-out of twenty would put twenty whole transcripts
+   * through the log to draw twenty rows — so the fold is kept here and only its
+   * result travels, last-wins per toolUseId.
+   */
+  const appendSubagent = (transcript: string, records: TranscriptRecord[], fromStart = false) => {
+    const known = subagentOf.get(transcript);
+    if (!known) return;
+    let fold = subagentFolds.get(transcript);
+    if (!fold || fromStart) {
+      fold = emptySubagentFold();
+      subagentFolds.set(transcript, fold);
+    }
+    if (records.length > 0) foldSubagentRecords(fold, records);
+    const payload: SubagentPayload = {
+      toolUseId: known.toolUseId,
+      agentId: known.agentId,
+      meta: {
+        name: known.meta.name,
+        agentType: known.meta.agentType,
+        model: known.meta.model,
+        description: known.meta.description,
+      },
+      digest: digestOf(fold),
+    };
+    // No `agent`: the store's per-agent budgets are a roster device, and a
+    // subagent must not spend a teammate's.
+    store.append('subagent', payload);
+  };
+
+  /**
+   * Registers a subagent from its sidecar. `toolUseId` is what makes it
+   * placeable — it names the parent tool_use the tree hangs it off — so a
+   * sidecar without one describes something this console cannot draw and is
+   * left alone.
+   */
+  const adoptSubagent = (transcript: string, meta: Sidecar): void => {
+    const toolUseId = meta.toolUseId;
+    if (!toolUseId) return;
+    const agentId = subagentIdOf(transcript, chain);
+    if (!agentId) return; // another session's, or a workflow fan-out
+    const first = !subagentOf.has(transcript);
+    subagentOf.set(transcript, { toolUseId, agentId, meta });
+    if (!first) return;
+    // Whatever the pending buffer read before the sidecar could say what this
+    // file was. Never `fromStart`: PENDING_CAP may have dropped its front.
+    const buffered = pending.get(transcript)?.records ?? [];
+    dropPending(transcript);
+    appendSubagent(transcript, buffered);
+    // The sweep records a file's mtime whether or not it read it, so a subagent
+    // that had already finished when its sidecar was judged would never be
+    // offered again — asking for it here is the only thing that reads it.
+    void transcripts.pump(transcript);
+  };
+
+  const handleSubagentLines = (transcript: string, lines: string[], fromStart: boolean) => {
+    const records: TranscriptRecord[] = [];
+    for (const l of lines) {
+      const rec = parseLine(l);
+      if (rec) records.push(rec);
+    }
+    if (records.length === 0) return;
+    appendSubagent(transcript, records, fromStart);
+  };
+
   const flushPending = (agent: string, transcript: string) => {
     const buf = pending.get(transcript);
     dropPending(transcript);
@@ -532,9 +656,25 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
     if (buf && buf.records.length > 0) appendTranscript(agent, buf.records, false);
   };
 
-  const handleLines = (file: string, lines: string[], fromStart: boolean) => {
+  const handleLines = (file: string, lines: string[], fromStart: boolean, mtimeMs?: number) => {
+    // Before the claim and before `disowned`: a subagent is deliberately BOTH
+    // of those — no claim on a roster name, and forgotten as a teammate — and
+    // it is still read, just into its own contract.
+    if (subagentOf.has(file)) {
+      handleSubagentLines(file, lines, fromStart);
+      return;
+    }
     const claim = claimOfTranscript(file, chain, leadName);
-    if (!claim) return;
+    // Not "not ours" — "not placeable YET". A subagent transcript whose session
+    // has not joined the lead's chain, or the lead's own file seen before
+    // config.json named the session, both land here and both become claimable
+    // moments later. The drain that produced these lines already advanced the
+    // offset, so returning without a note loses them permanently: the sweep's
+    // own pump then reads zero new bytes and the agent stays empty forever.
+    if (!claim) {
+      deferred.add(file);
+      return;
+    }
     if (disowned.has(file)) return;
     // The sidecar's own `name` is the roster's join key, so it decides the
     // identity of the file it describes; the path-derived name is a fallback for
@@ -563,7 +703,7 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
       // `fromStart` clear is scoped to the AGENT, not to the file, so it would
       // destroy the other run's stored history. The uuid dedupe and the store's
       // per-agent record bound carry a re-read instead.
-      appendTranscript(agent, records, fromStart && (ownedFiles.get(agent)?.size ?? 1) <= 1);
+      appendTranscript(agent, records, fromStart && (ownedFiles.get(agent)?.size ?? 1) <= 1, mtimeMs);
       return;
     }
     // Drop BEFORE the push: `buf` is the array the buffer already holds, so
@@ -628,9 +768,16 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
           if (claimOfTranscript(f, chain, leadName)?.scoped !== true) forget(f);
         }
       }
-      for (const [f, meta] of unresolvedSidecars) acceptSidecar(f, meta);
+      for (const [f, meta] of unresolvedSidecars) {
+        if (meta.taskKind === 'in_process_teammate') acceptSidecar(f, meta);
+        else adoptSubagent(transcriptOfSidecar(f), meta);
+      }
       unresolvedSidecars.clear();
       for (const f of [...unresolvedWorkflows]) await handleWorkflowFile(f);
+      // A run folded while its session was unknown has nothing left to publish
+      // it — a finished run's files never move again, so no later drain would
+      // ever come. This is the one moment that can.
+      if (learned) workflowUsage.flush();
       // The inbox reader below fails closed while the team is unknown, and the
       // mtime gate would never offer those files again, so claim our own now
       // that we can tell which they are.
@@ -711,8 +858,16 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
     const meta = await readJsonSafe<Sidecar>(file);
     if (!meta) return;
     if (meta.taskKind !== 'in_process_teammate') {
-      // Proven NOT a teammate — discard anything buffered for its transcript.
-      forget(transcriptOfSidecar(file));
+      const transcript = transcriptOfSidecar(file);
+      // Adopt BEFORE forgetting: `forget` empties the pending buffer, and those
+      // lines are this subagent's own first records. A sidecar is written once,
+      // so one held for want of a lead session has to be kept — the sweep's
+      // mtime gate would never offer the file again.
+      if (!chainKnown(chain)) unresolvedSidecars.set(file, meta);
+      else adoptSubagent(transcript, meta);
+      // Proven NOT a teammate: no roster row, no records under a teammate's
+      // name, no share of the team's spend.
+      forget(transcript);
       return;
     }
     // Fail CLOSED while the team is unresolved: `teamName` unset must reject
@@ -815,18 +970,27 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
     else if (root === paths.sessions) await handleSessionJson(file);
   };
 
-  const transcripts = watchAppendOnly(paths.projects, (file, lines, fromStart) => {
+  const transcripts = watchAppendOnly(paths.projects, (file, lines, fromStart, mtimeMs) => {
     if (isWorkflowPath(file)) {
       void handleWorkflowFile(file).catch((err: unknown) => logError(`ingest ${file}`, err));
       return;
     }
     try {
-      handleLines(file, lines, fromStart);
+      // Before the team-side handlers, and it can never reach `deferred`: a
+      // workflow agent's transcript is not placeable as a teammate and never
+      // becomes one, so it is taken here or not at all. Its own scope check
+      // happens at the publish step — see createWorkflowUsageIngest.
+      if (workflowUsage.handle(file, lines, fromStart)) return;
+      handleLines(file, lines, fromStart, mtimeMs);
     } catch (err) {
       logError(`ingest ${file}`, err);
     }
     // Keep the sweep's mtime gate in step so it does not re-dispatch a file the
-    // watcher just consumed.
+    // watcher just consumed. A file it could not PLACE was not consumed — it
+    // was discarded — so that one stays off the gate: the sweep resolves the
+    // session chain before it drains, and it is the only pass that can recover
+    // the file. Closing the gate here is what used to strand it for good.
+    if (deferred.has(file)) return;
     void fs.stat(file).then(
       (st) => marks.set(file, st.mtimeMs),
       () => undefined,
@@ -838,9 +1002,18 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
       await handleWorkflowFile(file);
       return;
     }
+    if (subagentOf.has(file) || workflowAgentClaimOf(file)) {
+      await transcripts.pump(file);
+      return;
+    }
     const claim = claimOfTranscript(file, chain, leadName);
     if (!claim || disowned.has(file)) return;
     notePath(sidecars.get(file)?.name ?? claim.agent, file);
+    // The claim resolves now but did not when a watcher event got here first,
+    // and those lines were dropped after their bytes were counted. This is the
+    // first pass that can place the file, so put the whole thing back. Once
+    // only: `delete` clears the note, and a re-read costs one file.
+    if (deferred.delete(file)) await transcripts.forget(file);
     await transcripts.pump(file);
   };
 

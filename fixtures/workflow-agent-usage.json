@@ -1,0 +1,210 @@
+{
+  "note": "Workflow agent transcripts under subagents/workflows/wf_<runId>/agent-<agentId>.jsonl, in the record shape verified on the capture machine: every record isSidechain, a per-line timestamp and a per-line message.model alongside message.usage. agentId and phaseIndex join fixtures/workflow-run.json (run wf_d36b25c0-f96). Class totals are round on purpose so a test can assert them by hand. Agent a2a07e2a8ef27d692 carries a STREAMED message written twice with a growing output_tokens, so the dedupe rule is exercised; it also has no snapshot counterpart turn on a second model, so the last-turn model rule is visible.",
+  "runId": "wf_d36b25c0-f96",
+  "agents": {
+    "a06eeee08bb883b02": [
+      {
+        "type": "assistant",
+        "uuid": "a06eeee08bb883b02-u1",
+        "timestamp": "2026-08-28T12:59:42.000Z",
+        "isSidechain": true,
+        "agentId": "a06eeee08bb883b02",
+        "message": {
+          "id": "msg_a06eeee08bb883b02_1",
+          "model": "claude-opus-5[1m]",
+          "role": "assistant",
+          "usage": {
+            "input_tokens": 100,
+            "output_tokens": 200,
+            "cache_creation_input_tokens": 1000,
+            "cache_read_input_tokens": 10000,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 600,
+              "ephemeral_1h_input_tokens": 400
+            }
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "turn 1"
+            }
+          ]
+        }
+      },
+      {
+        "type": "assistant",
+        "uuid": "a06eeee08bb883b02-u2",
+        "timestamp": "2026-08-28T13:00:42.000Z",
+        "isSidechain": true,
+        "agentId": "a06eeee08bb883b02",
+        "message": {
+          "id": "msg_a06eeee08bb883b02_2",
+          "model": "claude-opus-5[1m]",
+          "role": "assistant",
+          "usage": {
+            "input_tokens": 100,
+            "output_tokens": 300,
+            "cache_creation_input_tokens": 2000,
+            "cache_read_input_tokens": 20000,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 2000,
+              "ephemeral_1h_input_tokens": 0
+            }
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "turn 2"
+            }
+          ]
+        }
+      }
+    ],
+    "ad5320caf6d71b0e3": [
+      {
+        "type": "assistant",
+        "uuid": "ad5320caf6d71b0e3-u1",
+        "timestamp": "2026-08-28T13:00:12.000Z",
+        "isSidechain": true,
+        "agentId": "ad5320caf6d71b0e3",
+        "message": {
+          "id": "msg_ad5320caf6d71b0e3_1",
+          "model": "claude-opus-5[1m]",
+          "role": "assistant",
+          "usage": {
+            "input_tokens": 50,
+            "output_tokens": 150,
+            "cache_creation_input_tokens": 500,
+            "cache_read_input_tokens": 5000,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 500,
+              "ephemeral_1h_input_tokens": 0
+            }
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "turn 1"
+            }
+          ]
+        }
+      }
+    ],
+    "a6db0927d6cf282b1": [
+      {
+        "type": "assistant",
+        "uuid": "a6db0927d6cf282b1-u1",
+        "timestamp": "2026-08-28T13:01:42.000Z",
+        "isSidechain": true,
+        "agentId": "a6db0927d6cf282b1",
+        "message": {
+          "id": "msg_a6db0927d6cf282b1_1",
+          "model": "claude-opus-5[1m]",
+          "role": "assistant",
+          "usage": {
+            "input_tokens": 10,
+            "output_tokens": 90,
+            "cache_creation_input_tokens": 400,
+            "cache_read_input_tokens": 8000,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 400,
+              "ephemeral_1h_input_tokens": 0
+            }
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "turn 1"
+            }
+          ]
+        }
+      }
+    ],
+    "a2a07e2a8ef27d692": [
+      {
+        "type": "assistant",
+        "uuid": "a2a07e2a8ef27d692-u1",
+        "timestamp": "2026-08-28T13:02:42.000Z",
+        "isSidechain": true,
+        "agentId": "a2a07e2a8ef27d692",
+        "message": {
+          "id": "msg_a2a07e2a8ef27d692_1",
+          "model": "claude-opus-5[1m]",
+          "role": "assistant",
+          "usage": {
+            "input_tokens": 20,
+            "output_tokens": 100,
+            "cache_creation_input_tokens": 600,
+            "cache_read_input_tokens": 9000,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 600,
+              "ephemeral_1h_input_tokens": 0
+            }
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "turn 1"
+            }
+          ]
+        }
+      },
+      {
+        "type": "assistant",
+        "uuid": "a2a07e2a8ef27d692-u1",
+        "timestamp": "2026-08-28T13:02:42.000Z",
+        "isSidechain": true,
+        "agentId": "a2a07e2a8ef27d692",
+        "message": {
+          "id": "msg_a2a07e2a8ef27d692_1",
+          "model": "claude-opus-5[1m]",
+          "role": "assistant",
+          "usage": {
+            "input_tokens": 20,
+            "output_tokens": 500,
+            "cache_creation_input_tokens": 600,
+            "cache_read_input_tokens": 9000,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 600,
+              "ephemeral_1h_input_tokens": 0
+            }
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "turn 1"
+            }
+          ]
+        }
+      },
+      {
+        "type": "assistant",
+        "uuid": "a2a07e2a8ef27d692-u2",
+        "timestamp": "2026-08-28T13:03:42.000Z",
+        "isSidechain": true,
+        "agentId": "a2a07e2a8ef27d692",
+        "message": {
+          "id": "msg_a2a07e2a8ef27d692_2",
+          "model": "claude-sonnet-5",
+          "role": "assistant",
+          "usage": {
+            "input_tokens": 30,
+            "output_tokens": 200,
+            "cache_creation_input_tokens": 700,
+            "cache_read_input_tokens": 11000,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 700,
+              "ephemeral_1h_input_tokens": 0
+            }
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "turn 2"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

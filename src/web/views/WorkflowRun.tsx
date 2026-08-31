@@ -202,7 +202,8 @@ export function WorkflowRun({ run }: { run: Run }) {
               this run is still going, so there is no grid to draw — the phases
               and labels reach disk only in the snapshot, which is written once,
               at termination. Until the run ends the journal knows which agents
-              started and which came back, and nothing else.
+              started and which came back, and nothing else. Drawn below instead:
+              every agent that has started, in dispatch order.
             </div>
             <WorkflowAgents agents={run.agents} />
           </>
@@ -363,7 +364,7 @@ export function WorkflowRun({ run }: { run: Run }) {
           <div data-testid="wf-totals" style={SIDE_BODY}>
             {run.live
               ? `${live.started} started · ${live.returned} returned`
-              : `${formatTokens(run.totalTokens ?? 0)} · ${run.totalToolCalls ?? 0} tool calls · ${run.agentCount ?? run.agents.length} agents`}
+              : `${formatTokens(run.totalTokens ?? 0)} final context · ${run.totalToolCalls ?? 0} tool calls · ${run.agentCount ?? run.agents.length} agents`}
             {/* Budget is deliberately absent: it exists nowhere on disk, and
                 totalTokens counts this run's agents while budget.spent() is a
                 session-level counter — showing one as the other under-reports. */}

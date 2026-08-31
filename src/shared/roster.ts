@@ -13,6 +13,13 @@ export interface Sidecar {
   agentType: string; description: string; name: string; spawnDepth: number;
   model: string; taskKind: string; teamName: string; color?: string;
   planModeRequired?: boolean; permissionMode?: string;
+  /**
+   * The parent `Task`/`Agent` tool_use this file was spawned by. Written only
+   * for an ordinary subagent — a teammate carries `taskKind`/`teamName` instead
+   * and no toolUseId at all, so its presence is what separates the two kinds of
+   * sidecar that share one directory.
+   */
+  toolUseId?: string;
 }
 export interface AgentIdentity {
   name: string; agentId: string; isLead: boolean; agentType: string;

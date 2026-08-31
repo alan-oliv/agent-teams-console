@@ -106,6 +106,19 @@ function focusTargetOf(thread: Thread, agents: Agent[]): string {
   return agentFor(thread.a, agents).isLead ? thread.b : thread.a;
 }
 
+/**
+ * The pair's other half, as a wall-scroll hint — only when scrolling to it
+ * actually needs help. The lead column sits position:sticky left and is
+ * always on screen, so a lead+teammate pair is already satisfied by
+ * `focusTargetOf` revealing the teammate alone.
+ */
+function alsoRevealOf(thread: Thread, agents: Agent[]): string | undefined {
+  if (thread.kind !== 'pair') return undefined;
+  if (agentFor(thread.a, agents).isLead || agentFor(thread.b, agents).isLead) return undefined;
+  const target = focusTargetOf(thread, agents);
+  return target === thread.a ? thread.b : thread.a;
+}
+
 function Pair({ thread, agents }: { thread: Thread; agents: Agent[] }) {
   return (
     <div
@@ -328,7 +341,8 @@ export function Comms({
   /** An agent whose messages comms was asked to open — see the `picked` state. */
   openThread: string | null;
   onFocus: (name: string) => void;
-  onShowInWall: (name: string) => void;
+  /** `alsoReveal` is the pair's other half, a hint to scroll it into view too. */
+  onShowInWall: (name: string, alsoReveal?: string) => void;
   now: number;
   readOnly?: boolean;
 }) {
@@ -447,6 +461,7 @@ export function Comms({
             <span
               data-testid="pairs-label"
               style={{
+                borderTop: '1px solid var(--color-neutral-900)',
                 padding: '8px 9px 2px',
                 color: 'var(--color-neutral-600)',
                 fontSize: '10px',
@@ -550,7 +565,7 @@ export function Comms({
           tasks={tasks}
           now={now}
           readOnly={readOnly}
-          onShowInWall={() => onShowInWall(focusTargetOf(open, agents))}
+          onShowInWall={() => onShowInWall(focusTargetOf(open, agents), alsoRevealOf(open, agents))}
         />
       )}
     </div>

@@ -123,7 +123,7 @@ it('falls back to the directory id when the session was never named', () => {
 
 it('heads the list with the team count', async () => {
   renderSelect();
-  expect(await screen.findByText('TEAMS ON THIS MACHINE · 2')).toBeTruthy();
+  expect(await screen.findByText('SESSIONS ON THIS MACHINE · 2')).toBeTruthy();
   // ⌘K is the one shortcut the design calls out, and it worked with nothing on
   // screen naming it — so it sits in the legend with the other three.
   expect(screen.getByText('↑↓ select · ⏎ switch · ⌘K search · esc close')).toBeTruthy();
@@ -336,7 +336,7 @@ it('hides a team whose session has ended — it is history, not a session on thi
   const rows = await screen.findAllByRole('option');
   expect(rows).toHaveLength(1);
   expect(within(rows[0]).getByText('session-98b0b4a7')).toBeTruthy();
-  expect(screen.getByText('TEAMS ON THIS MACHINE · 1')).toBeTruthy();
+  expect(screen.getByText('SESSIONS ON THIS MACHINE · 1')).toBeTruthy();
 });
 
 it('opens the sessions menu on ⌘K when it is closed', () => {
@@ -453,7 +453,7 @@ it('drops hidden sessions from the list and from the header count', async () => 
   renderSelect({}, { hidden: new Set(['session-b5129c7b']) });
   const rows = await screen.findAllByRole('option');
   expect(rows.map((r) => r.id)).not.toContain('team-option-session-b5129c7b');
-  expect(screen.getByText(/TEAMS ON THIS MACHINE/).textContent).toContain(
+  expect(screen.getByText(/SESSIONS ON THIS MACHINE/).textContent).toContain(
     String(rows.length),
   );
 });
@@ -578,7 +578,7 @@ it('counts teams in the header, not revealed lead-only rows', async () => {
   renderSelect();
   fireEvent.click(await screen.findByTestId('show-hidden-rows'));
   await screen.findAllByRole('option');
-  expect(screen.getByText('TEAMS ON THIS MACHINE · 0')).toBeTruthy();
+  expect(screen.getByText('SESSIONS ON THIS MACHINE · 0')).toBeTruthy();
 });
 
 function listOf(teams: TeamSummary[]) {
@@ -623,6 +623,26 @@ it('offers a lead-only session running a workflow as an ordinary row', async () 
   expect(selectPosts()).toEqual(['/api/teams/session-b5129c7b/select']);
 });
 
+// The second exception on the same argument (decision 23): a Task subagent
+// never enters members[] either, so a solo session with a tree is an ordinary
+// listed, selectable row whose activity cell says what is in it.
+it('offers a solo session with a subagent tree as an ordinary row', async () => {
+  listOf(
+    sampleTeams().map((t, i) => ({
+      ...t,
+      members: 1,
+      state: 'live' as const,
+      ...(i === 0 ? { subagents: 13 } : {}),
+    })),
+  );
+  renderSelect();
+
+  const rows = await screen.findAllByRole('option');
+  expect(rows).toHaveLength(1);
+  expect(rows[0].getAttribute('aria-disabled')).toBeNull();
+  expect(within(rows[0]).getByTestId('team-meta').textContent).toContain('solo · 13 subagents');
+});
+
 it('names the run and calls it ended once its snapshot has landed', async () => {
   listOf(
     sampleTeams().map((t) => ({
@@ -650,7 +670,7 @@ it('keeps a lead-only session with no run inert while the one with a run is not'
   renderSelect();
 
   expect(await screen.findAllByRole('option')).toHaveLength(1);
-  expect(screen.getByText('TEAMS ON THIS MACHINE · 1')).toBeTruthy();
+  expect(screen.getByText('SESSIONS ON THIS MACHINE · 1')).toBeTruthy();
   fireEvent.click(screen.getByTestId('show-hidden-rows'));
 
   const rows = await screen.findAllByRole('option');

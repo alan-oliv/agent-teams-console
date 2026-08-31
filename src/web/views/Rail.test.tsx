@@ -136,6 +136,23 @@ describe('Rail — left list', () => {
     fireEvent.click(screen.getAllByRole('option')[2]);
     expect(onFocus).toHaveBeenCalledWith('probe-bravo');
   });
+
+  // wallOrder pins the lead first, then non-idle/non-departed, then idle, then
+  // departed — the rail must walk the same order as Wall, Grid and Overview
+  // rather than raw join order.
+  it('orders the roster through wallOrder: lead, then working, then idle, then departed', () => {
+    const roster = agents
+      .filter((a) => a.name !== 'probe-charlie')
+      .map((a) => {
+        if (a.name === 'team-lead') return { ...a, status: 'idle' as const };
+        if (a.name === 'probe-alpha') return { ...a, status: 'departed' as const };
+        if (a.name === 'probe-bravo') return { ...a, status: 'working' as const };
+        return a;
+      });
+    render(<Rail agents={roster} focused="team-lead" onFocus={vi.fn()} now={FIXTURE_NOW} />);
+    const names = screen.getAllByTestId('rail-name').map((el) => el.textContent);
+    expect(names).toEqual(['team-lead', 'probe-bravo', 'probe-alpha']);
+  });
 });
 
 describe('Rail — attached pane', () => {

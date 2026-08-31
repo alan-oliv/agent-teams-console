@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
-import { MOVIE_THEMES } from '../../shared/cast';
+import { MOVIE_THEMES, themeFor, type FilmPalette } from '../../shared/cast';
 import {
   ACCENT_KEYS,
   DENSITY,
@@ -25,6 +25,15 @@ export interface Settings {
   numbers: boolean;
   /** The film the team is cast from; null is off, and off is the real names. */
   movieTheme: string | null;
+  /**
+   * Whether the picked film's grade drives the console's colours too. Off, the
+   * film reaches names and portrait tints only and the ground stays on `theme`
+   * — which is why `theme` is the fallback and no second field records one: it
+   * can only ever hold a system id, so it IS the last system theme picked.
+   */
+  filmPalette: boolean;
+  /** The $/M rate card in the team usage view. Read there, written here. */
+  showRateCard: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -36,6 +45,8 @@ export const DEFAULT_SETTINGS: Settings = {
   motion: true,
   numbers: true,
   movieTheme: null,
+  filmPalette: true,
+  showRateCard: true,
 };
 
 // Appearance is a property of this machine, not of the team being watched — a
@@ -64,7 +75,7 @@ export function parseSettings(raw: string | null): Settings {
   }
   if (!stored || typeof stored !== 'object') return DEFAULT_SETTINGS;
   const s = stored as Record<string, unknown>;
-  const bool = (key: 'fade' | 'avatars' | 'motion' | 'numbers'): boolean =>
+  const bool = (key: 'fade' | 'avatars' | 'motion' | 'numbers' | 'filmPalette' | 'showRateCard'): boolean =>
     typeof s[key] === 'boolean' ? (s[key] as boolean) : DEFAULT_SETTINGS[key];
   return {
     theme: inList(THEME_IDS, s.theme) ? s.theme : DEFAULT_SETTINGS.theme,
@@ -75,6 +86,8 @@ export function parseSettings(raw: string | null): Settings {
     motion: bool('motion'),
     numbers: bool('numbers'),
     movieTheme: inList(CAST_KEYS, s.movieTheme) ? s.movieTheme : DEFAULT_SETTINGS.movieTheme,
+    filmPalette: bool('filmPalette'),
+    showRateCard: bool('showRateCard'),
   };
 }
 
@@ -95,6 +108,16 @@ export interface SettingsStore {
   vars: Record<string, string>;
   /** Transcript line gap for the chosen density, in px. */
   gap: number;
+}
+
+/**
+ * The film grade currently driving, if one is. `themeFor(null)` is the off
+ * entry and carries no palette, so "no film" and "switch off" collapse to the
+ * same absent value. Shared rather than inlined because the portraits lift
+ * against this same ground — two copies of the rule could disagree.
+ */
+export function activePalette(settings: Settings): FilmPalette | undefined {
+  return settings.filmPalette ? themeFor(settings.movieTheme).palette : undefined;
 }
 
 export function useSettings(): SettingsStore {
@@ -126,8 +149,8 @@ export function useSettings(): SettingsStore {
   const reset = useCallback(() => persist(DEFAULT_SETTINGS), [persist]);
 
   const vars = useMemo(
-    () => cssVarsFor(settings.theme, settings.scheme),
-    [settings.theme, settings.scheme],
+    () => cssVarsFor(settings.theme, settings.scheme, activePalette(settings)),
+    [settings.theme, settings.scheme, settings.movieTheme, settings.filmPalette],
   );
 
   return { settings, set, reset, vars, gap: DENSITY[settings.density] };

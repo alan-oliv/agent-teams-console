@@ -1,0 +1,349 @@
+{
+  "note": "Hand-built from the shapes verified on a real machine: a Task/Agent tool_use in the parent, an async tool_result carrying toolUseResult.agentId, the <task-notification> that closes a background launch, and the subagent's own all-sidechain transcript with its .meta.json sidecar. The lead dispatches THREE agents in one assistant turn (a 3-wide fan-out, one siblingGroup); the first of them dispatches one of its own (depth 2); the third has no sidecar and no transcript, so it can only be read from the lead's journal.",
+  "parent": {
+    "agent": "team-lead",
+    "records": [
+      {
+        "type": "assistant",
+        "uuid": "fan-0000-0000-0000-000000000001",
+        "timestamp": "2026-08-30T03:28:50.000Z",
+        "message": {
+          "id": "msg_fanout",
+          "model": "claude-opus-5",
+          "role": "assistant",
+          "usage": { "input_tokens": 4, "output_tokens": 120, "cache_read_input_tokens": 60000 },
+          "content": [
+            { "type": "text", "text": "Dispatching three probes." },
+            {
+              "type": "tool_use",
+              "id": "toolu_scout",
+              "name": "Agent",
+              "input": {
+                "description": "Scout the ingest",
+                "name": "scout",
+                "subagent_type": "general-purpose",
+                "model": "sonnet",
+                "prompt": "Read src/server/ingest and report."
+              }
+            },
+            {
+              "type": "tool_use",
+              "id": "toolu_auditor",
+              "name": "Agent",
+              "input": {
+                "description": "Audit the store bounds",
+                "name": "auditor",
+                "subagent_type": "general-purpose",
+                "model": "haiku",
+                "prompt": "Check store.ts retention."
+              }
+            },
+            {
+              "type": "tool_use",
+              "id": "toolu_stray",
+              "name": "Agent",
+              "input": {
+                "description": "Chase the flaky watcher",
+                "subagent_type": "Explore",
+                "prompt": "Find the flake."
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "uuid": "fan-0000-0000-0000-000000000002",
+        "timestamp": "2026-08-30T03:28:50.400Z",
+        "toolUseResult": {
+          "isAsync": true,
+          "status": "async_launched",
+          "agentId": "ascout-0011223344556677",
+          "description": "Scout the ingest",
+          "resolvedModel": "claude-sonnet-5"
+        },
+        "message": {
+          "role": "user",
+          "content": [
+            {
+              "type": "tool_result",
+              "tool_use_id": "toolu_scout",
+              "content": "Async agent launched successfully."
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "uuid": "fan-0000-0000-0000-000000000003",
+        "timestamp": "2026-08-30T03:28:50.500Z",
+        "toolUseResult": {
+          "isAsync": true,
+          "status": "async_launched",
+          "agentId": "aauditor-8899aabbccddeeff",
+          "description": "Audit the store bounds",
+          "resolvedModel": "claude-haiku-4-5"
+        },
+        "message": {
+          "role": "user",
+          "content": [
+            {
+              "type": "tool_result",
+              "tool_use_id": "toolu_auditor",
+              "content": "Async agent launched successfully."
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "uuid": "fan-0000-0000-0000-000000000004",
+        "timestamp": "2026-08-30T03:28:50.600Z",
+        "toolUseResult": {
+          "isAsync": true,
+          "status": "async_launched",
+          "agentId": "a00112233445566778",
+          "description": "Chase the flaky watcher"
+        },
+        "message": {
+          "role": "user",
+          "content": [
+            {
+              "type": "tool_result",
+              "tool_use_id": "toolu_stray",
+              "content": "Async agent launched successfully."
+            }
+          ]
+        }
+      },
+      {
+        "type": "user",
+        "uuid": "fan-0000-0000-0000-000000000005",
+        "timestamp": "2026-08-30T03:31:02.000Z",
+        "message": {
+          "role": "user",
+          "content": "<task-notification>\n<task-id>aauditor-8899aabbccddeeff</task-id>\n<tool-use-id>toolu_auditor</tool-use-id>\n<status>completed</status>\n<summary>Agent \"Audit the store bounds\" finished</summary>\n</task-notification>"
+        }
+      },
+      {
+        "type": "attachment",
+        "uuid": "fan-0000-0000-0000-000000000006",
+        "timestamp": "2026-08-30T03:33:20.000Z",
+        "attachment": {
+          "type": "queued_command",
+          "prompt": "<task-notification>\n<task-id>ascout-0011223344556677</task-id>\n<tool-use-id>toolu_scout</tool-use-id>\n<status>completed</status>\n<summary>Agent \"Scout the ingest\" finished</summary>\n</task-notification>"
+        }
+      }
+    ]
+  },
+  "subagents": [
+    {
+      "agentId": "ascout-0011223344556677",
+      "meta": {
+        "agentType": "general-purpose",
+        "description": "Scout the ingest",
+        "name": "scout",
+        "toolUseId": "toolu_scout",
+        "spawnDepth": 1,
+        "model": "sonnet"
+      },
+      "records": [
+        {
+          "type": "user",
+          "uuid": "scout-000-0000-0000-000000000001",
+          "timestamp": "2026-08-30T03:28:52.000Z",
+          "isSidechain": true,
+          "agentId": "ascout-0011223344556677",
+          "message": { "role": "user", "content": "Read src/server/ingest and report." }
+        },
+        {
+          "type": "assistant",
+          "uuid": "scout-000-0000-0000-000000000002",
+          "timestamp": "2026-08-30T03:29:04.000Z",
+          "isSidechain": true,
+          "agentId": "ascout-0011223344556677",
+          "message": {
+            "id": "msg_scout_1",
+            "model": "claude-sonnet-5",
+            "role": "assistant",
+            "usage": {
+              "input_tokens": 5,
+              "output_tokens": 300,
+              "cache_creation_input_tokens": 1200,
+              "cache_read_input_tokens": 40000
+            },
+            "content": [
+              { "type": "tool_use", "id": "toolu_scout_read", "name": "Read", "input": { "file_path": "/repo/src/server/ingest/files.ts" } }
+            ]
+          }
+        },
+        {
+          "type": "user",
+          "uuid": "scout-000-0000-0000-000000000003",
+          "timestamp": "2026-08-30T03:29:05.000Z",
+          "isSidechain": true,
+          "agentId": "ascout-0011223344556677",
+          "toolUseResult": { "type": "text" },
+          "message": {
+            "role": "user",
+            "content": [{ "type": "tool_result", "tool_use_id": "toolu_scout_read", "content": "…file…" }]
+          }
+        },
+        {
+          "type": "assistant",
+          "uuid": "scout-000-0000-0000-000000000004",
+          "timestamp": "2026-08-30T03:29:40.000Z",
+          "isSidechain": true,
+          "agentId": "ascout-0011223344556677",
+          "message": {
+            "id": "msg_scout_2",
+            "model": "claude-sonnet-5",
+            "role": "assistant",
+            "usage": {
+              "input_tokens": 7,
+              "output_tokens": 90,
+              "cache_creation_input_tokens": 800,
+              "cache_read_input_tokens": 41200
+            },
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "toolu_scout_child",
+                "name": "Task",
+                "input": {
+                  "description": "Grep the watcher",
+                  "name": "grepper",
+                  "subagent_type": "Explore",
+                  "model": "haiku",
+                  "prompt": "Grep watch/ for fs.watch."
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "user",
+          "uuid": "scout-000-0000-0000-000000000005",
+          "timestamp": "2026-08-30T03:30:10.000Z",
+          "isSidechain": true,
+          "agentId": "ascout-0011223344556677",
+          "toolUseResult": { "type": "text" },
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "type": "tool_result",
+                "tool_use_id": "toolu_scout_child",
+                "content": "watch/root.ts wraps fs.watch and debounces it."
+              }
+            ]
+          }
+        },
+        {
+          "type": "assistant",
+          "uuid": "scout-000-0000-0000-000000000006",
+          "timestamp": "2026-08-30T03:30:55.000Z",
+          "isSidechain": true,
+          "agentId": "ascout-0011223344556677",
+          "message": {
+            "id": "msg_scout_3",
+            "model": "claude-sonnet-5",
+            "role": "assistant",
+            "usage": {
+              "input_tokens": 9,
+              "output_tokens": 210,
+              "cache_creation_input_tokens": 400,
+              "cache_read_input_tokens": 42000
+            },
+            "content": [{ "type": "text", "text": "The ingest attributes by sidecar, never by name." }]
+          }
+        }
+      ]
+    },
+    {
+      "agentId": "agrepper-1122334455667788",
+      "meta": {
+        "agentType": "Explore",
+        "description": "Grep the watcher",
+        "name": "grepper",
+        "toolUseId": "toolu_scout_child",
+        "spawnDepth": 2,
+        "model": "haiku"
+      },
+      "records": [
+        {
+          "type": "assistant",
+          "uuid": "grep-0000-0000-0000-000000000001",
+          "timestamp": "2026-08-30T03:29:50.000Z",
+          "isSidechain": true,
+          "agentId": "agrepper-1122334455667788",
+          "message": {
+            "id": "msg_grep_1",
+            "model": "claude-haiku-4-5",
+            "role": "assistant",
+            "usage": {
+              "input_tokens": 3,
+              "output_tokens": 40,
+              "cache_creation_input_tokens": 200,
+              "cache_read_input_tokens": 9000
+            },
+            "content": [
+              { "type": "tool_use", "id": "toolu_grep_1", "name": "Grep", "input": { "pattern": "fs.watch" } }
+            ]
+          }
+        },
+        {
+          "type": "assistant",
+          "uuid": "grep-0000-0000-0000-000000000002",
+          "timestamp": "2026-08-30T03:30:05.000Z",
+          "isSidechain": true,
+          "agentId": "agrepper-1122334455667788",
+          "message": {
+            "id": "msg_grep_2",
+            "model": "claude-haiku-4-5",
+            "role": "assistant",
+            "usage": {
+              "input_tokens": 4,
+              "output_tokens": 60,
+              "cache_creation_input_tokens": 100,
+              "cache_read_input_tokens": 9300
+            },
+            "content": [{ "type": "text", "text": "watch/root.ts wraps fs.watch and debounces it." }]
+          }
+        }
+      ]
+    },
+    {
+      "agentId": "aauditor-8899aabbccddeeff",
+      "meta": {
+        "agentType": "general-purpose",
+        "description": "Audit the store bounds",
+        "name": "auditor",
+        "toolUseId": "toolu_auditor",
+        "spawnDepth": 1,
+        "model": "haiku"
+      },
+      "records": [
+        {
+          "type": "assistant",
+          "uuid": "audit-000-0000-0000-000000000001",
+          "timestamp": "2026-08-30T03:29:00.000Z",
+          "isSidechain": true,
+          "agentId": "aauditor-8899aabbccddeeff",
+          "message": {
+            "id": "msg_audit_1",
+            "model": "claude-haiku-4-5",
+            "role": "assistant",
+            "usage": {
+              "input_tokens": 2,
+              "output_tokens": 75,
+              "cache_creation_input_tokens": 500,
+              "cache_read_input_tokens": 12000
+            },
+            "content": [{ "type": "text", "text": "KIND_RETENTION caps every kind but transcript." }]
+          }
+        }
+      ]
+    }
+  ]
+}

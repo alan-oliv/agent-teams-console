@@ -8,6 +8,8 @@
  * `var(--color-neutral-700)` still means "a quiet label" either way and the
  * same markup reads correctly on paper and on carbon.
  */
+import type { FilmPalette } from '../shared/cast';
+
 export type ThemeId = 'nocturne' | 'organic' | 'ember' | 'frost' | 'slate' | 'phosphor';
 export type AccentKey = 'a' | 'b' | 'c' | 'd';
 
@@ -162,30 +164,54 @@ const ACCENT_STEPS = [300, 400, 500, 600, 700, 900] as const;
  * Every colour the console body can resolve, as custom properties for the root.
  * Nothing may be painted from a literal below this line: a hex in a component
  * survives the theme switch and the light themes break silently around it.
+ *
+ * `palette` is a film's grade, and it is applied HERE rather than anywhere
+ * nearer a component for exactly that reason — this function writes the whole
+ * set onto the one console root, so a film reaches every consumer without a
+ * single per-component override.
  */
-export function cssVarsFor(id: ThemeId, scheme: AccentKey): Record<string, string> {
-  const theme = THEMES[id] ?? THEMES.nocturne;
-  const accent = theme.accents[scheme] ?? theme.accents.a;
+export function cssVarsFor(
+  id: ThemeId,
+  scheme: AccentKey,
+  palette?: FilmPalette,
+): Record<string, string> {
+  const system = THEMES[id] ?? THEMES.nocturne;
+  // A film borrows its neutral ramp from the base theme it names, never from
+  // whichever system theme happens to be picked: Organic's paper neutrals under
+  // Inception's steel ground would be hairlines nobody can see. The tokens that
+  // ride on that ramp follow it for the same reason.
+  const base = palette ? THEMES[palette.neutralsFrom] : system;
+  const accent = palette
+    ? [
+        palette.accent.base,
+        palette.accent[300], palette.accent[400], palette.accent[500],
+        palette.accent[600], palette.accent[700], palette.accent[900],
+      ]
+    : (system.accents[scheme] ?? system.accents.a).steps;
   const vars: Record<string, string> = {
-    '--term': theme.term,
-    '--color-bg': theme.bg,
-    '--color-text': theme.text,
-    '--on-accent': theme.onAccent,
-    '--warn': theme.warn,
-    '--warn-edge': theme.warnEdge,
-    '--warn-tint': theme.warnTint,
-    '--fail': theme.fail,
-    '--json-string': theme.jsonString,
-    '--json-number': theme.jsonNumber,
-    '--json-boolean': theme.jsonBoolean,
-    '--json-null': theme.jsonNull,
-    '--color-accent': accent.steps[0],
+    '--term': palette?.term ?? system.term,
+    '--color-bg': palette?.bg ?? system.bg,
+    '--color-text': palette?.text ?? system.text,
+    // A film declares no on-accent, and its own darkest ground is the value
+    // that reads against its accent on all ten.
+    '--on-accent': palette?.term ?? system.onAccent,
+    // Declared by the palette, never derived from the accent: a film whose
+    // accent is gold cannot also draw attention in gold.
+    '--warn': palette?.warn ?? system.warn,
+    '--warn-edge': palette?.warnEdge ?? system.warnEdge,
+    '--warn-tint': palette?.warnTint ?? system.warnTint,
+    '--fail': palette?.fail ?? system.fail,
+    '--json-string': base.jsonString,
+    '--json-number': base.jsonNumber,
+    '--json-boolean': base.jsonBoolean,
+    '--json-null': base.jsonNull,
+    '--color-accent': accent[0],
   };
   NEUTRAL_STEPS.forEach((step, i) => {
-    vars[`--color-neutral-${step}`] = theme.n[i];
+    vars[`--color-neutral-${step}`] = base.n[i];
   });
   ACCENT_STEPS.forEach((step, i) => {
-    vars[`--color-accent-${step}`] = accent.steps[i + 1];
+    vars[`--color-accent-${step}`] = accent[i + 1];
   });
   return vars;
 }

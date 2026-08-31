@@ -8,7 +8,7 @@ import {
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from 'react';
-import type { Agent } from '../../shared/domain';
+import type { Agent, Subagent, SubagentTree } from '../../shared/domain';
 import { wallOrder } from '../../shared/roster';
 import { AGENT_STATUS, DORMANT_OPACITY, isDormant } from '../../shared/status';
 import { Composer, RosterContext } from '../components/Composer';
@@ -85,7 +85,7 @@ function InFlight({ agent, onOpen }: { agent: Agent; onOpen?: (name: string) => 
 
 const Column = memo(function Column({
   agent, isFocused, isTinted, isDragging, width, readOnly, teamLive, routed,
-  onFocus, onHoverEnter, onHoverLeave, onGrip, onGripReset, onOpenMail,
+  onFocus, onHoverEnter, onHoverLeave, onGrip, onGripReset, onOpenMail, subagents,
 }: {
   agent: Agent;
   isFocused: boolean;
@@ -121,6 +121,8 @@ const Column = memo(function Column({
   onGripReset: (name: string) => void;
   /** Opens this agent's queued messages in comms. Absent leaves the badge inert. */
   onOpenMail?: (name: string) => void;
+  /** This agent's own Task/Agent dispatches, in spawn order. */
+  subagents?: Subagent[];
 }) {
   const status = AGENT_STATUS[agent.status];
   const isLeadColumn = agent.isLead;
@@ -320,6 +322,7 @@ const Column = memo(function Column({
         size="wall"
         agent={agent.name}
         working={agent.status === 'working'}
+        subagents={subagents}
       />
 
       <div
@@ -398,10 +401,13 @@ const Column = memo(function Column({
 });
 
 export function Wall({
-  agents, focused, onFocus, now, readOnly = false, widths = {}, onWidthChange, onOpenMail,
+  agents, focused, revealAlso = null, onFocus, now, readOnly = false, widths = {}, onWidthChange,
+  onOpenMail, subagents,
 }: {
   agents: Agent[];
   focused: string | null;
+  /** A second column (e.g. a comms pair's other half) to bring into view alongside `focused`. */
+  revealAlso?: string | null;
   onFocus: (name: string) => void;
   /** Jumps to this agent's queued messages. The badge is a readout otherwise. */
   onOpenMail?: (name: string) => void;
@@ -409,6 +415,8 @@ export function Wall({
   readOnly?: boolean;
   widths?: Readonly<Record<string, number>>;
   onWidthChange?: (name: string, px: number | null) => void;
+  /** Every roster agent's Task/Agent dispatches, keyed by dispatcher name. */
+  subagents?: SubagentTree;
 }) {
   const [hovered, setHovered] = useState<string | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
@@ -475,13 +483,18 @@ export function Wall({
     if (!focused) return;
     // Matched by dataset rather than a selector: an agent name is an arbitrary
     // string, so building one would need escaping to stay correct.
-    const column = [...(scroller.current?.children ?? [])].find(
-      (el) => (el as HTMLElement).dataset.agent === focused,
-    );
+    const children = [...(scroller.current?.children ?? [])] as HTMLElement[];
+    const column = children.find((el) => el.dataset.agent === focused);
+    const alsoColumn = revealAlso ? children.find((el) => el.dataset.agent === revealAlso) : undefined;
+    // The other pair member first, `nearest`: if both columns already fit the
+    // viewport, `focused`'s own nearest-scroll below then finds it already
+    // visible and does nothing, leaving both on screen. If they don't fit,
+    // `focused` wins — the deliberate fallback.
+    alsoColumn?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
     // `?agent=` and ↑↓ both set focus on a column the viewport may be thousands
     // of pixels away from; without this the deep link looks like it did nothing.
     column?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
-  }, [focused]);
+  }, [focused, revealAlso]);
 
   return (
     <div
@@ -515,6 +528,7 @@ export function Wall({
             onHoverLeave={onHoverLeave}
             onGrip={onGrip}
             onGripReset={onGripReset}
+            subagents={subagents?.[agent.name]}
           />
         ))}
       </NowContext>

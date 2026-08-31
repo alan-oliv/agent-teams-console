@@ -10,6 +10,10 @@
     "haiku": "claude-haiku-4-5"
   },
   "models": {
+    "claude-fable-5": {
+      "window": 1000000,
+      "pricing": { "input": 10, "output": 50, "cacheWrite5m": 12.5, "cacheWrite1h": 20, "cacheRead": 1, "webSearch": 0.01 }
+    },
     "claude-opus-5": {
       "window": 1000000,
       "pricing": { "input": 5, "output": 25, "cacheWrite5m": 6.25, "cacheWrite1h": 10, "cacheRead": 0.5, "webSearch": 0.01 }

@@ -9,9 +9,10 @@ import {
   type MouseEvent,
   type UIEvent,
 } from 'react';
-import type { TranscriptLine } from '../../shared/domain';
+import type { Subagent, TranscriptLine } from '../../shared/domain';
 import { TRANSCRIPT_TEXT_CAP } from '../../shared/transcript';
-import { diffStat } from '../format';
+import { resolveModel } from '../../shared/catalog';
+import { contextBar, diffStat, formatElapsed, formatTokens } from '../format';
 import { DiffContext } from '../state/useTeamState';
 import { useAppearance } from '../state/useSettings';
 import { useCast } from '../state/useCast';
@@ -103,6 +104,370 @@ const NEUTRAL_ACTION: CSSProperties = {
   border: '1px solid var(--color-neutral-800)',
   color: 'var(--color-neutral-500)',
 };
+
+// Nothing on a real machine nests past depth 1 (CONSOLE-NOTES.md §25), so this
+// is a floor against a pathological case rather than a tuned number.
+const MAX_CHAIN_ROWS = 6;
+
+// Matches the "json" pill on the payload drawer head — the console's one
+// small-pill treatment, reused rather than invented again for subagent badges.
+const TYPE_BADGE: CSSProperties = {
+  border: '1px solid var(--color-neutral-800)',
+  color: 'var(--color-neutral-600)',
+  borderRadius: 'var(--radius-sm)',
+  padding: '0 5px',
+  fontSize: '9.5px',
+  flex: 'none',
+};
+
+/** A Task/Agent dispatch line, as `describeTool` renders it — never any other tool call. */
+function isSubagentCall(text: string): boolean {
+  return text === 'Task' || text === 'Agent' || text.startsWith('Task(') || text.startsWith('Agent(');
+}
+
+/** The label a nested subagent's own row carries — it has no transcript line of its own. */
+function taskLabelOf(subagent: Subagent): string {
+  const inner = subagent.name ?? subagent.description;
+  return inner ? `Task(${inner})` : 'Task';
+}
+
+/**
+ * The collapsed row's right-aligned figure. Em-dashes rather than zeros: a
+ * queued or running call has genuinely nothing measured yet, and a zero would
+ * claim it spent no tokens instead of saying it hasn't returned.
+ */
+function subagentSummary(subagent: Subagent): string {
+  const tokens = subagent.tokens !== undefined ? formatTokens(subagent.tokens) : '—';
+  const duration = subagent.durationMs !== undefined ? formatElapsed(subagent.durationMs) : '—';
+  return `${tokens} · ${duration}`;
+}
+
+/**
+ * One Task call, collapsed to a line or expanded into the same inset drawer
+ * container every other expandable row uses. Recursive: a subagent's own
+ * dispatches nest inside its drawer as further `SubagentRow`s, dimmed and
+ * ruled off — "reads as nested chain, not another agent's pane" — and expand
+ * identically at any depth.
+ */
+function SubagentRow({
+  subagent, label, depth, s, opacity, open, toggle,
+}: {
+  subagent: Subagent;
+  label: string;
+  depth: number;
+  s: FeedStyle;
+  opacity: number;
+  open: ReadonlySet<string>;
+  toggle: (e: MouseEvent, id: string) => void;
+}) {
+  const isOpen = open.has(subagent.toolUseId);
+  const badge = depth > 1 ? `${subagent.agentType ?? 'agent'} · depth ${depth}` : subagent.agentType;
+
+  if (!isOpen) {
+    return (
+      <div
+        data-testid="transcript-row"
+        aria-expanded={false}
+        onClick={(e: MouseEvent) => toggle(e, subagent.toolUseId)}
+        style={{
+          display: 'flex',
+          gap: `${s.gap}px`,
+          alignItems: 'baseline',
+          whiteSpace: 'nowrap',
+          opacity,
+          cursor: 'pointer',
+        }}
+      >
+        <span
+          data-testid="transcript-marker"
+          style={{ color: MARKER_COLOR, width: s.markerWidth, flex: 'none', fontSize: s.markerSize }}
+        >
+          ⏺
+        </span>
+        <span
+          data-testid="transcript-text"
+          style={{
+            color: s.textColor,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            ...(s.textSize ? { fontSize: s.textSize } : {}),
+          }}
+        >
+          {label}
+        </span>
+        {badge && (
+          <span data-testid={depth > 1 ? 'subagent-depth' : 'subagent-type'} style={TYPE_BADGE}>
+            {badge}
+          </span>
+        )}
+        <span style={{ flex: 1 }} />
+        <span
+          data-testid="subagent-summary"
+          style={{ color: 'var(--color-neutral-600)', fontSize: '10px', flex: 'none' }}
+        >
+          {subagentSummary(subagent)}
+        </span>
+        <span
+          data-testid="transcript-more"
+          aria-hidden
+          style={{ color: 'var(--color-neutral-600)', flex: 'none', fontSize: '10px' }}
+        >
+          ▸
+        </span>
+      </div>
+    );
+  }
+
+  const resolved = resolveModel(subagent.model);
+
+  return (
+    <div
+      data-testid="transcript-row"
+      aria-expanded
+      onClick={(e: MouseEvent) => e.stopPropagation()}
+      style={{
+        background: 'var(--color-bg)',
+        border: '1px solid var(--color-neutral-900)',
+        borderRadius: 'var(--radius-md)',
+        boxShadow: 'var(--shadow-sm)',
+        padding: '10px 12px 11px',
+        margin: '4px 0',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '10px',
+      }}
+    >
+      <div
+        data-testid="transcript-drawer-head"
+        onClick={(e: MouseEvent) => toggle(e, subagent.toolUseId)}
+        style={{ display: 'flex', gap: `${s.gap}px`, alignItems: 'baseline', cursor: 'pointer' }}
+      >
+        <span
+          data-testid="transcript-marker"
+          style={{ color: 'var(--color-accent-400)', width: s.markerWidth, flex: 'none', fontSize: s.markerSize }}
+        >
+          ⏺
+        </span>
+        <span
+          data-testid="transcript-text"
+          style={{ color: 'var(--color-text)', textWrap: 'pretty', ...(s.textSize ? { fontSize: s.textSize } : {}) }}
+        >
+          {label}
+        </span>
+        <span style={{ flex: 1 }} />
+        <span
+          data-testid="transcript-more"
+          aria-hidden
+          style={{ color: 'var(--color-accent-400)', flex: 'none', fontSize: '10px' }}
+        >
+          ▾
+        </span>
+      </div>
+
+      <div style={{ height: '1px', background: 'var(--color-neutral-900)' }} />
+
+      <div
+        data-testid="subagent-header"
+        style={{
+          display: 'flex',
+          gap: '9px',
+          alignItems: 'baseline',
+          paddingLeft: '16px',
+          color: 'var(--color-neutral-500)',
+          fontSize: '10.5px',
+        }}
+      >
+        <span>{subagent.model ?? '—'}</span>
+        <span style={{ color: 'var(--color-accent-500)', letterSpacing: '-.5px' }}>
+          {contextBar(subagent.contextTokens ?? 0, resolved.window)}
+        </span>
+        <span>{subagent.tokens !== undefined ? formatTokens(subagent.tokens) : '—'}</span>
+        <span>{subagent.toolCalls !== undefined ? `${subagent.toolCalls} tool calls` : '— tool calls'}</span>
+        <span>{subagent.durationMs !== undefined ? formatElapsed(subagent.durationMs) : '—'}</span>
+      </div>
+
+      {subagent.children.length > 0 && (
+        <div
+          data-testid="subagent-children"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '6px',
+            marginLeft: '16px',
+            paddingLeft: '10px',
+            borderLeft: '1px solid var(--color-neutral-900)',
+            opacity: 0.62,
+          }}
+        >
+          {subagent.children.slice(0, MAX_CHAIN_ROWS).map((child) => (
+            <SubagentRow
+              key={child.toolUseId}
+              subagent={child}
+              label={taskLabelOf(child)}
+              depth={depth + 1}
+              s={s}
+              opacity={1}
+              open={open}
+              toggle={toggle}
+            />
+          ))}
+          {subagent.children.length > MAX_CHAIN_ROWS && (
+            <span data-testid="subagent-truncated" style={{ color: 'var(--color-neutral-600)', fontSize: '10px' }}>
+              {`⋯ ${subagent.children.length - MAX_CHAIN_ROWS} more calls`}
+            </span>
+          )}
+        </div>
+      )}
+
+      <div
+        data-testid="subagent-result"
+        style={{ display: 'flex', gap: `${s.gap}px`, alignItems: 'baseline', paddingLeft: '16px' }}
+      >
+        <span style={{ color: MARKER_COLOR, width: s.markerWidth, flex: 'none', fontSize: s.markerSize }}>
+          ⎿
+        </span>
+        <span style={{ color: s.textColor, ...(s.textSize ? { fontSize: s.textSize } : {}) }}>
+          {subagent.returnedSummary ?? subagent.state}
+        </span>
+      </div>
+
+      <div
+        data-testid="subagent-footer"
+        style={{ display: 'flex', gap: '10px', alignItems: 'center', paddingLeft: '16px' }}
+      >
+        <span style={{ color: 'var(--color-neutral-600)', fontSize: '10px' }}>
+          no reply channel — a subagent returns once and is gone
+        </span>
+        <span style={{ flex: 1 }} />
+        <button type="button" className="btn-neutral" data-testid="subagent-trace" style={NEUTRAL_ACTION}>
+          trace
+        </button>
+        <button
+          type="button"
+          className="btn-approve"
+          data-testid="subagent-collapse"
+          onClick={(e: MouseEvent) => toggle(e, subagent.toolUseId)}
+          style={{ ...ACTION, border: '1px solid var(--color-accent-700)', color: 'var(--color-accent-300)' }}
+        >
+          collapse
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * N Task calls dispatched in one turn, drawn as one line and a chip strip —
+ * NEVER as columns, which would read as N agents rather than one agent's fan-out.
+ * No per-chip stop: esc still ends the whole parent turn.
+ */
+function FanOutRow({ group, s, opacity }: { group: Subagent[]; s: FeedStyle; opacity: number }) {
+  const stillRunning = group.filter((g) => g.state === 'queued' || g.state === 'running').length;
+  const results = group.filter((g) => g.returnedSummary !== undefined);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', opacity }}>
+      <div style={{ display: 'flex', gap: `${s.gap}px`, alignItems: 'baseline' }}>
+        <span
+          data-testid="transcript-marker"
+          style={{ color: MARKER_COLOR, width: s.markerWidth, flex: 'none', fontSize: s.markerSize }}
+        >
+          ⏺
+        </span>
+        <span
+          data-testid="fanout-header"
+          style={{ color: s.textColor, ...(s.textSize ? { fontSize: s.textSize } : {}) }}
+        >
+          {`Task ×${group.length} dispatched in parallel`}
+        </span>
+      </div>
+
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '6px',
+          marginLeft: '4px',
+          paddingLeft: '12px',
+          borderLeft: '1px solid var(--color-neutral-900)',
+        }}
+      >
+        {group.map((sub) => (
+          <div
+            key={sub.toolUseId}
+            data-testid="fanout-chip"
+            style={{
+              display: 'flex',
+              gap: '5px',
+              alignItems: 'center',
+              border: '1px solid var(--color-neutral-800)',
+              borderRadius: 'var(--radius-sm)',
+              padding: '2px 6px',
+              fontSize: '10px',
+            }}
+          >
+            <span
+              aria-hidden
+              style={{
+                color:
+                  sub.state === 'running'
+                    ? 'var(--color-accent-400)'
+                    : sub.state === 'returned'
+                      ? 'var(--color-accent-600)'
+                      : 'var(--color-neutral-600)',
+              }}
+            >
+              ●
+            </span>
+            <span style={{ color: 'var(--color-neutral-300)' }}>
+              {sub.name ?? sub.description ?? sub.toolUseId}
+            </span>
+            {sub.agentType && <span style={{ color: 'var(--color-neutral-600)' }}>{sub.agentType}</span>}
+            <span style={{ color: 'var(--color-neutral-600)' }}>
+              {sub.tokens !== undefined ? formatTokens(sub.tokens) : '—'}
+            </span>
+            <span style={{ color: 'var(--color-neutral-600)' }}>
+              {sub.state === 'returned'
+                ? 'returned'
+                : sub.durationMs !== undefined
+                  ? formatElapsed(sub.durationMs)
+                  : '—'}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {results.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', paddingLeft: '12px' }}>
+          {results.map((sub) => (
+            <div
+              key={sub.toolUseId}
+              data-testid="fanout-result"
+              style={{ display: 'flex', gap: '7px', alignItems: 'baseline' }}
+            >
+              <span style={{ color: MARKER_COLOR, fontSize: s.markerSize }}>⎿</span>
+              <span style={{ color: 'var(--color-neutral-500)', fontSize: '10px' }}>
+                {sub.name ?? sub.description}
+              </span>
+              <span style={{ color: s.textColor, ...(s.textSize ? { fontSize: s.textSize } : {}) }}>
+                {sub.returnedSummary}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {stillRunning > 0 && (
+        <div
+          data-testid="fanout-pending"
+          style={{ color: 'var(--color-neutral-600)', fontSize: '10px', paddingLeft: '12px' }}
+        >
+          {`${stillRunning} of ${group.length} still running — the turn cannot continue until all return`}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /**
  * Who sent a delivered message. Stripping the envelope off a teammate frame was
@@ -358,6 +723,7 @@ export function TranscriptFeed({
   size,
   agent,
   working = true,
+  subagents,
 }: {
   lines: TranscriptLine[];
   size: FeedSize;
@@ -365,11 +731,25 @@ export function TranscriptFeed({
   agent?: string;
   /** Dims the whole ladder when this agent is not the one working. */
   working?: boolean;
+  /** This agent's own Task/Agent dispatches, in spawn order. */
+  subagents?: Subagent[];
 }) {
   const s = FEED[size];
   const appearance = useAppearance();
   const openDiff = useContext(DiffContext);
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
+  // One turn's fan-out shares the record that dispatched it — see
+  // Subagent.siblingGroup — so this is also how a lone dispatch is told apart
+  // from a parallel one: a group of one, or of more than one.
+  const groupedBySiblingGroup = useMemo(() => {
+    const groups = new Map<string, Subagent[]>();
+    for (const sub of subagents ?? []) {
+      const list = groups.get(sub.siblingGroup);
+      if (list) list.push(sub);
+      else groups.set(sub.siblingGroup, [sub]);
+    }
+    return groups;
+  }, [subagents]);
   // Which open payloads are showing the wire text instead of the formatted one.
   const [raw, setRaw] = useState<ReadonlySet<string>>(() => new Set());
   const toggleRaw = useCallback((e: MouseEvent, id: string) => {
@@ -522,6 +902,11 @@ export function TranscriptFeed({
     [loadOlder],
   );
 
+  // A fan-out's several tool_use lines share one record (siblingGroup), so
+  // only the first of them renders the group — this tracks which groups this
+  // render pass already spent, ahead of the plain diff/drawer/text branches.
+  const consumedGroups = new Set<string>();
+
   return (
     <div
       ref={pane}
@@ -547,6 +932,32 @@ export function TranscriptFeed({
         const opacity = appearance.fade
           ? (working ? 1 : RESTING) * fade(shown.length - 1 - i)
           : 1;
+
+        // A Task/Agent dispatch line is matched to its subagent(s) by the
+        // record that carries it — TranscriptLine.id is `${record uuid}#${i}`,
+        // and Subagent.siblingGroup IS that record uuid. A record with more than
+        // one dispatch draws its whole fan-out on the first matching line and
+        // the rest render nothing, since they are the same turn's other calls.
+        const recordUuid = line.id.slice(0, line.id.lastIndexOf('#'));
+        const subagentGroup = groupedBySiblingGroup.get(recordUuid);
+        if (subagentGroup && isSubagentCall(text)) {
+          if (consumedGroups.has(recordUuid)) return null;
+          consumedGroups.add(recordUuid);
+          return subagentGroup.length > 1 ? (
+            <FanOutRow key={line.id} group={subagentGroup} s={s} opacity={opacity} />
+          ) : (
+            <SubagentRow
+              key={line.id}
+              subagent={subagentGroup[0]}
+              label={text}
+              depth={1}
+              s={s}
+              opacity={opacity}
+              open={open}
+              toggle={toggle}
+            />
+          );
+        }
 
         // A diff-bearing row opens the patch in the shared modal rather than
         // expanding in place — a hunk is too tall for a column, so it never

@@ -325,6 +325,32 @@ async function lastActivityOf(teamDir: string, configMtimeMs: number): Promise<n
  * One stat per run directory, and for the winner alone one stat and one small
  * read — the snapshot is the only place the run's name exists.
  */
+/**
+ * How many Task-subagent transcripts sit under a session — the picker's second
+ * member-count exception (decision 23). One readdir, no reads: the count is a
+ * row's activity cell, not an ingest. `workflows` is a directory and the match
+ * wants a `.jsonl` file, so a session that only ever ran workflows counts zero.
+ */
+async function subagentCountOf(
+  projectsRoot: string,
+  cwd: string,
+  sessionId: string,
+): Promise<number> {
+  if (!cwd || !sessionId) return 0;
+  const dir = path.join(
+    projectsRoot,
+    cwd.replace(/[^a-zA-Z0-9]/g, '-'),
+    sessionId,
+    'subagents',
+  );
+  try {
+    const entries = await fs.readdir(dir);
+    return entries.filter((e) => /^agent-.*\.jsonl$/.test(e)).length;
+  } catch {
+    return 0;
+  }
+}
+
 async function workflowOf(
   projectsRoot: string,
   cwd: string,
@@ -491,6 +517,9 @@ export async function listTeamSummaries(
     const workflow = projectsRoot
       ? await workflowOf(projectsRoot, sessions.cwds.get(leadSession) ?? lead?.cwd ?? '', leadSession, now)
       : undefined;
+    const subagents = projectsRoot
+      ? await subagentCountOf(projectsRoot, sessions.cwds.get(leadSession) ?? lead?.cwd ?? '', leadSession)
+      : 0;
     const leadCwd = lead?.cwd ?? '';
     if (!diffstats.has(leadCwd)) diffstats.set(leadCwd, await diffstatOf(leadCwd));
     teams.push({
@@ -514,6 +543,7 @@ export async function listTeamSummaries(
       // recently — it can still be paged back into; `done` is finished.
       state: leadAlive ? 'live' : recent ? 'idle' : 'done',
       ...(workflow ? { workflow } : {}),
+      ...(subagents > 0 ? { subagents } : {}),
       ...(diffstats.get(leadCwd) ? { diffstat: diffstats.get(leadCwd) } : {}),
     });
   }

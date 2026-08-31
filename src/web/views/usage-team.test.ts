@@ -1,16 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import type { Agent } from '../../shared/domain';
 import type { TokenSplit } from '../../shared/cost';
+import { usdCost } from '../../shared/cost';
 import {
   billedTokens,
   cacheHitRatio,
   costPerHour,
   costPerTask,
   dollarsAvoided,
+  idleMsOf,
   ledgerRowOf,
+  messageBuckets,
+  moneyLadder,
+  serialEstimate,
+  seriesColors,
   spendBuckets,
   spendByModel,
   splitOf,
+  stackedSpend,
   sumSplit,
 } from './usage-team';
 
@@ -177,7 +184,7 @@ describe('spendByModel', () => {
   });
 
   it('carries the live rate and its approximate flag for each model', () => {
-    const rows = spendByModel([agent({ model: 'claude-fable-5', costUsd: 1 })]);
+    const rows = spendByModel([agent({ model: 'claude-not-in-the-catalog-9', costUsd: 1 })]);
     expect(rows[0].rate.approximate).toBe(true);
   });
 
@@ -212,5 +219,200 @@ describe('spendBuckets', () => {
     const T0 = 0;
     const buckets = spendBuckets([{ at: T0, cost: 5 }, { at: T0 + 10_000, cost: 4 }], T0 + 10_000);
     expect(buckets[0].cost).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('moneyLadder', () => {
+  // The design's own bug: a quarter-of-max ladder on $4.55 rounded to
+  // 0, 1, 2, 4, 5 — visibly uneven. The step is picked from a fixed set so
+  // every tick lands on a multiple of it.
+  it('picks a step that divides every tick evenly', () => {
+    for (const max of [0.4, 1.1, 2.6, 4.55, 9, 23, 140]) {
+      const ticks = moneyLadder(max);
+      const step = ticks[1] - ticks[0];
+      for (const tick of ticks) {
+        expect(Math.abs(tick / step - Math.round(tick / step))).toBeLessThan(1e-9);
+      }
+    }
+  });
+
+  it('starts at zero and covers the value it was given', () => {
+    const ticks = moneyLadder(4.55);
+    expect(ticks[0]).toBe(0);
+    expect(ticks[ticks.length - 1]).toBeGreaterThanOrEqual(4.55);
+  });
+
+  it('never returns a zero-width ladder for an empty team', () => {
+    const ticks = moneyLadder(0);
+    expect(ticks[ticks.length - 1]).toBeGreaterThan(0);
+  });
+});
+
+describe('stackedSpend', () => {
+  const T0 = 1_000_000;
+  const lead = agent({ name: 'lead', isLead: true, startedAt: T0 });
+  const late = agent({ name: 'late', startedAt: T0 + 120_000 });
+
+  it('is undefined when no sample carries a per-agent breakdown', () => {
+    expect(stackedSpend([{ at: T0, cost: 1 }], [lead, late])).toBeUndefined();
+  });
+
+  // The whole point of the chart. A teammate that did not exist yet must read
+  // as zero, not as a share of the team's spend backdated to the session start.
+  it('holds a teammate flat at zero for every sample before it spawned', () => {
+    const series = stackedSpend(
+      [
+        { at: T0, cost: 1, byAgent: { lead: 1 } },
+        { at: T0 + 180_000, cost: 3, byAgent: { lead: 2, late: 1 } },
+      ],
+      [lead, late],
+    )!;
+    const lateBand = series.bands.find((b) => b.name === 'late')!;
+    expect(lateBand.values[0]).toBe(0);
+    expect(lateBand.values[1]).toBe(1);
+  });
+
+  it('stacks the lead last so its area reads on top', () => {
+    const series = stackedSpend(
+      [{ at: T0, cost: 3, byAgent: { lead: 2, late: 1 } }],
+      [lead, late],
+    )!;
+    expect(series.bands[series.bands.length - 1].name).toBe('lead');
+  });
+
+  it('tops out at the summed cost of every band, which is the team total', () => {
+    const series = stackedSpend(
+      [{ at: T0, cost: 3, byAgent: { lead: 2, late: 1 } }],
+      [lead, late],
+    )!;
+    expect(series.max).toBeCloseTo(3, 10);
+  });
+
+  // A sample taken before an agent joined has no key for it at all, which is
+  // absence, not a measured zero — but on THIS chart absence and zero are the
+  // same statement, because the agent genuinely had not spent anything.
+  it('reads a missing agent key as zero rather than dropping the sample', () => {
+    const series = stackedSpend(
+      [{ at: T0, cost: 1, byAgent: { lead: 1 } }],
+      [lead, late],
+    )!;
+    expect(series.bands.find((b) => b.name === 'late')!.values).toEqual([0]);
+  });
+});
+
+describe('messageBuckets', () => {
+  const T0 = 5_000_000;
+  const mail = (ts: number) => ({
+    msgId: String(ts), from: 'a', to: 'b', text: '', ts, tsIsDelivery: false, read: true,
+  });
+
+  it('counts messages into 2-minute buckets ending at now', () => {
+    const buckets = messageBuckets([mail(T0 - 30_000), mail(T0 - 10_000)], T0);
+    expect(buckets[buckets.length - 1]).toBe(2);
+  });
+
+  it('always returns the design\'s 17 bars, so the strip has a fixed width', () => {
+    expect(messageBuckets([], T0)).toHaveLength(17);
+  });
+
+  it('drops a message older than the window rather than piling it into bar one', () => {
+    const buckets = messageBuckets([mail(T0 - 17 * 120_000 - 1)], T0);
+    expect(buckets.reduce((s, n) => s + n, 0)).toBe(0);
+  });
+});
+
+describe('idleMsOf', () => {
+  const T0 = 9_000_000;
+
+  it('measures from the agent\'s last transcript line', () => {
+    const a = agent({ transcript: [{ id: '1', marker: '⏺', text: 'x', ts: T0 - 60_000 }] });
+    expect(idleMsOf(a, T0)).toBe(60_000);
+  });
+
+  // A frame carries only the last PROJECTED_TRANSCRIPT_LINES per agent, and an
+  // agent that has produced none has no last activity to measure from. Zero
+  // would read as "active right now", which is the opposite of the truth.
+  it('is undefined, never zero, for an agent with no lines on the frame', () => {
+    expect(idleMsOf(agent({ transcript: [] }), T0)).toBeUndefined();
+  });
+});
+
+describe('serialEstimate', () => {
+  it('is undefined when any agent\'s split is unrecorded', () => {
+    expect(serialEstimate([agent({ tokenSplit: undefined })], 'claude-opus-5')).toBeUndefined();
+  });
+
+  // The estimate's stated assumption: one agent doing the same work keeps one
+  // cached context instead of N, so the cache traffic collapses to the largest
+  // single agent's rather than summing across the team.
+  it('collapses cache traffic to the heaviest single agent, keeping in and out summed', () => {
+    const estimate = serialEstimate(
+      [
+        agent({ name: 'a', tokenSplit: split({ in: 100, out: 10, cacheRead: 900 }) }),
+        agent({ name: 'b', tokenSplit: split({ in: 200, out: 20, cacheRead: 300 }) }),
+      ],
+      'claude-opus-5',
+    )!;
+    const expected = usdCost('claude-opus-5', split({ in: 300, out: 30, cacheRead: 900 }));
+    expect(estimate).toBeCloseTo(expected, 12);
+  });
+});
+
+describe('ledgerRowOf — the rev 3c columns', () => {
+  const mail = (from: string, to: string) => ({
+    msgId: `${from}->${to}`, from, to, text: '', ts: 0, tsIsDelivery: false, read: true,
+  });
+  const task = (owner: string, state: 'completed' | 'in_progress') => ({
+    id: `${owner}-${state}`, subject: '', description: '', owner, state, blocks: [], blockedBy: [],
+  });
+
+  // Counting both directions would put one exchange on two rows, so the column
+  // could not be totalled against the mailbox it came from.
+  it('counts messages the agent sent, not messages it appeared in', () => {
+    const row = ledgerRowOf(
+      agent({ name: 'alpha' }),
+      [mail('alpha', 'bravo'), mail('bravo', 'alpha'), mail('alpha', 'lead')],
+    );
+    expect(row.msgs).toBe(2);
+  });
+
+  it('counts only the tasks this agent actually closed', () => {
+    const row = ledgerRowOf(
+      agent({ name: 'alpha' }),
+      [],
+      [task('alpha', 'completed'), task('alpha', 'in_progress'), task('bravo', 'completed')],
+    );
+    expect(row.tasksClosed).toBe(1);
+  });
+
+  it('reports zero rather than guessing when the team carries no mail or tasks', () => {
+    const row = ledgerRowOf(agent({ name: 'alpha' }));
+    expect(row.msgs).toBe(0);
+    expect(row.tasksClosed).toBe(0);
+  });
+
+  it('carries the identity columns straight off the agent', () => {
+    const row = ledgerRowOf(agent({ agentType: 'reviewer', status: 'idle', contextTokens: 50 }));
+    expect(row.agentType).toBe('reviewer');
+    expect(row.status).toBe('idle');
+    expect(row.contextTokens).toBe(50);
+  });
+});
+
+describe('seriesColors', () => {
+  it('gives the lead the same ramp step the stacked chart puts on top', () => {
+    const lead = agent({ name: 'lead', isLead: true });
+    const mate = agent({ name: 'mate' });
+    const colors = seriesColors([lead, mate]);
+    const series = stackedSpend([{ at: 1, cost: 2, byAgent: { lead: 1, mate: 1 } }], [lead, mate])!;
+    const top = series.bands[series.bands.length - 1];
+    expect(colors.get('lead')).toBe(top.color);
+  });
+
+  it('wraps rather than running out of colours on a team larger than the ramp', () => {
+    const many = Array.from({ length: 7 }, (_, i) => agent({ name: `a${i}` }));
+    const colors = seriesColors(many);
+    expect(colors.size).toBe(7);
+    for (const c of colors.values()) expect(c).toMatch(/var\(--color-accent-\d00\)/);
   });
 });

@@ -1,11 +1,11 @@
 {
   "$schema": "movie-themes",
-  "version": 1,
+  "version": 3,
   "about": [
-    "Movie themes for the agent-teams console. A theme renames agents and nothing else.",
+    "Movie themes for the agent-teams console. A theme renames agents, tints their portraits, and — with film palette on — sets the console's ground and accent.",
     "It never renames a state, a verb, a metric, a task id or a file path — those are readouts.",
-    "There is no UI for this file; it is the data the console reads. The picker lives in the",
-    "config panel (gear) as 'movie theme'."
+    "There is no UI for this file; it is the data the console reads.",
+    "There is also no separate 'movie theme' picker: films are entries in the one 'theme' dropdown in the config panel (gear), under a FILM group after SYSTEM."
   ],
   "rules": {
     "castingIsByRoleSlot": "Map characters to role slots, never hashed from agent ids. The same role in the same film must always be the same character, so a theme is learnable.",
@@ -14,17 +14,44 @@
     "overflowKeepsRealNames": "A team with more agents than the theme has role slots leaves the extras under their real names. Draw from 'spare' only if you need more named agents; never invent characters.",
     "oneMapping": "Feed every view from a single asChar(slot) mapping — wall, overview, rail, grid, panel chips, task owners, mailbox runs, comms thread pairs and bubbles, mention picker.",
     "teamNameIsDecoration": "The in-world team name is a chip on the session-picker trigger only. The real session id is untouched everywhere else. Measure the status bar in the LONGEST team-name state, not the default.",
-    "noColours": "A theme sets names only, so any theme runs on any colour scheme. Per-film palettes are a separate feature."
+    "paletteIsTheGrade": "A film palette is read from the light the story is shot in, never from artwork, a logo or a title card. Ground, text and one accent ramp; the neutral ramp is inherited from the base theme named in palette.neutralsFrom so contrast is never left to chance.",
+    "paletteIsASwitch": "The film palette is a toggle, defaulting on. Off, a theme sets names and portrait colours only — that is the escape hatch for anyone who wants their own scheme, and the reason the old names-only rule can be retired without argument.",
+    "noSemanticRecolour": "warn and fail are declared per palette, never derived, because a semantic colour has to survive next to THIS accent. A film whose accent is red cannot also draw failure in red (Reservoir Dogs, Pulp Fiction shift fail to a rose); a film whose accent is gold cannot draw attention in amber (Inception, LOTR, The Godfather shift warn to a lighter rose-orange, a different hue from their accent and a different lightness from their fail). Check both pairs, not just fail.",
+    "looksAreNotLikenesses": "A character look is five colours over the unchanged role silhouette: skin, skin shade, garment, garment shade, hair (s|S|a|b|h). It is what a 12x12 grid can honestly say about who is wearing it — a coat colour, a hat colour, hair. Do not add facial features, and do not treat these as portraits.",
+    "lookFollowsRoleSlot": "Looks are keyed by role slot, exactly like names, so the same role in the same film always looks the same. An agent beyond the theme’s slots keeps the default role portrait.",
+    "onePicker": "Films live in the same dropdown as the system colour themes, not in a picker of their own — two lists that both change the console's appearance is one list. A 'film palette' toggle appears only while a film is selected: off, the film renames agents and tints portraits while the ground stays on the system theme.",
+    "accentsFollowTheTheme": "A system theme offers its four accent schemes. A film carries ONE accent ramp — its own — so the four-swatch row is replaced by that single swatch. Never invent four variants of somebody else’s grade.",
+    "silhouetteMustRead": "A character dressed in black on a black ground is a floating face. The look data keeps the film’s real colours; the console lifts garment, hair, outline, skin and lens pixels against the palette’s ground at render time (hue preserved, lightness moved) so the silhouette survives. Garment is lifted hardest — it carries the shape.",
+    "accessoriesCarryTheCharacter": "Colour alone does not make a character recognisable. Each role slot may also list accessories drawn over the role silhouette on the same 12x12 grid: bald, shades, specs, visor, fedora, pointyhat, wildhair, goatee, beard, longhair. They are applied in list order (bald before fedora puts the hat on the scalp) and painted in the character’s own look colours, so an accessory never carries a colour of its own. Still not likenesses: a hat, a beard and a pair of lenses, no facial features.",
+    "oneAccentRamp": "A film carries one accent ramp, so the four-swatch accent row is replaced by that film's own — never four invented variants of somebody's grade."
   },
   "roleSlots": [
-    { "slot": "lead", "agentType": "team-lead" },
-    { "slot": "security", "agentType": "security-reviewer" },
-    { "slot": "perf", "agentType": "general-purpose" },
-    { "slot": "tests", "agentType": "test-runner" },
-    { "slot": "architect", "agentType": "architect" },
-    { "slot": "repro", "agentType": "general-purpose" }
+    {
+      "slot": "lead",
+      "agentType": "team-lead"
+    },
+    {
+      "slot": "security",
+      "agentType": "security-reviewer"
+    },
+    {
+      "slot": "perf",
+      "agentType": "general-purpose"
+    },
+    {
+      "slot": "tests",
+      "agentType": "test-runner"
+    },
+    {
+      "slot": "architect",
+      "agentType": "architect"
+    },
+    {
+      "slot": "repro",
+      "agentType": "general-purpose"
+    }
   ],
-  "legal": "Character names are protected IP. Fine for a personal or internal tool; not for anything shipped publicly.",
+  "legal": "Character names are protected IP, and so is a film’s visual identity. Palettes here are hand-picked colours in the spirit of each film’s grade, and looks are five-colour recolours of a generic sprite — not artwork, not likenesses. Fine for a personal or internal tool; not for anything shipped publicly.",
   "themes": [
     {
       "key": "off",
@@ -47,7 +74,50 @@
         "architect": "Ariadne",
         "repro": "Fischer"
       },
-      "spare": ["Saito", "Mal", "Miles", "Browning"]
+      "spare": [
+        "Saito",
+        "Mal",
+        "Miles",
+        "Browning"
+      ],
+      "palette": {
+        "label": "steel & kick",
+        "why": "the film grades cold steel against the warm of the kick; the accent is that warmth",
+        "neutralsFrom": "nocturne",
+        "term": "#101419",
+        "bg": "#161c25",
+        "text": "#e6e9ee",
+        "accent": {
+          "300": "#f0d3a4",
+          "400": "#e0b478",
+          "500": "#c9924f",
+          "600": "#a1713a",
+          "700": "#6d4a24",
+          "900": "#2a2016",
+          "base": "#c9924f",
+          "name": "kick amber"
+        },
+        "warn": "#f0a08c",
+        "warnEdge": "#7a4636",
+        "warnTint": "#2c1d18",
+        "fail": "#b86a6a"
+      },
+      "looks": {
+        "lead": "e0c3a8|b99a80|6b7f9e|3d4a63|31241b",
+        "security": "dbb99b|b2907a|8a9ab5|4a5670|241a14",
+        "perf": "a87c5e|86603f|7d8f7a|46523e|1d1712",
+        "tests": "e6cdb4|c2a68c|b9975f|6d5834|3a2b1f",
+        "architect": "d9b89c|b2937a|c05e5e|6e3535|2a1a12",
+        "repro": "e2c6ab|bb9d82|4f5a6e|2f3745|6b5238"
+      },
+      "feats": {
+        "perf": [
+          "specs"
+        ],
+        "architect": [
+          "longhair"
+        ]
+      }
     },
     {
       "key": "stranger",
@@ -62,7 +132,53 @@
         "architect": "Dustin",
         "repro": "Will"
       },
-      "spare": ["Max", "Nancy", "Jonathan", "Robin", "Hopper", "Joyce", "Erica"]
+      "spare": [
+        "Max",
+        "Nancy",
+        "Jonathan",
+        "Robin",
+        "Hopper",
+        "Joyce",
+        "Erica"
+      ],
+      "palette": {
+        "label": "Hawkins red",
+        "why": "dark teal small town, the Upside Down bleeding red through it",
+        "neutralsFrom": "slate",
+        "term": "#0d1214",
+        "bg": "#131c1f",
+        "text": "#e9e6e2",
+        "accent": {
+          "300": "#f7c0b9",
+          "400": "#ec857a",
+          "500": "#d1443c",
+          "600": "#a5322c",
+          "700": "#6d211d",
+          "900": "#2c1614",
+          "base": "#d1443c",
+          "name": "upside-down"
+        },
+        "warn": "#d9b45c",
+        "warnEdge": "#6b5a2f",
+        "warnTint": "#2a2418",
+        "fail": "#e0a3a3"
+      },
+      "looks": {
+        "lead": "e8cbb0|c0a288|3f6fa5|264566|3b2a1c",
+        "security": "e6c8ac|bfa084|c9b07a|7b6a45|4a3320",
+        "perf": "ecd2ba|c4ab92|d1443c|7d2a25|c9c3bd",
+        "tests": "8d6a52|6f5240|3f7a4e|24492e|1a1410",
+        "architect": "d9b89c|b2937a|1f7a6d|11453d|3a2a1c",
+        "repro": "e2c6ab|bb9d82|8a5ea8|4e3462|2b1f16"
+      },
+      "feats": {
+        "security": [
+          "longhair"
+        ],
+        "perf": [
+          "bald"
+        ]
+      }
     },
     {
       "key": "lotr",
@@ -77,7 +193,60 @@
         "architect": "Gimli",
         "repro": "Frodo"
       },
-      "spare": ["Merry", "Pippin", "Boromir", "Éowyn", "Faramir", "Elrond", "Galadriel"]
+      "spare": [
+        "Merry",
+        "Pippin",
+        "Boromir",
+        "Éowyn",
+        "Faramir",
+        "Elrond",
+        "Galadriel"
+      ],
+      "palette": {
+        "label": "gold & pine",
+        "why": "deep pine and earth, with the one gold thing everybody wants",
+        "neutralsFrom": "slate",
+        "term": "#0f1210",
+        "bg": "#161b16",
+        "text": "#eae5d8",
+        "accent": {
+          "300": "#f0e2bb",
+          "400": "#dcc489",
+          "500": "#c2a058",
+          "600": "#977a3f",
+          "700": "#63512a",
+          "900": "#241f13",
+          "base": "#c2a058",
+          "name": "ring gold"
+        },
+        "warn": "#f0a08c",
+        "warnEdge": "#7a4636",
+        "warnTint": "#2c1d18",
+        "fail": "#b86a6a"
+      },
+      "looks": {
+        "lead": "e0c3a8|b99a80|d8d5cc|8e8b83|dedbd2",
+        "security": "c9a88f|a3846e|4d5a4a|2b3329|2a1e15",
+        "perf": "ecd6bc|c4b096|6f8f5e|3f5334|d9c58a",
+        "tests": "e6cdb4|c2a68c|a8763f|5f4222|8a5a2a",
+        "architect": "c08f6a|9a7050|8a4a2a|4e2917|8a3f1f",
+        "repro": "ead0b6|c2aa92|4b6b7a|2a3d46|3a2a1a"
+      },
+      "feats": {
+        "lead": [
+          "pointyhat",
+          "beard"
+        ],
+        "security": [
+          "longhair"
+        ],
+        "perf": [
+          "longhair"
+        ],
+        "architect": [
+          "beard"
+        ]
+      }
     },
     {
       "key": "starwars",
@@ -92,7 +261,59 @@
         "architect": "R2-D2",
         "repro": "Luke"
       },
-      "spare": ["Lando", "Obi-Wan", "Yoda", "Wedge", "Ackbar", "Rey", "Poe"]
+      "spare": [
+        "Lando",
+        "Obi-Wan",
+        "Yoda",
+        "Wedge",
+        "Ackbar",
+        "Rey",
+        "Poe"
+      ],
+      "palette": {
+        "label": "saber blue",
+        "why": "black space, and the only light source that matters is a blade",
+        "neutralsFrom": "nocturne",
+        "term": "#0b0d10",
+        "bg": "#12161c",
+        "text": "#e8ecf2",
+        "accent": {
+          "300": "#c2e4f6",
+          "400": "#8ac8ea",
+          "500": "#4ea3d9",
+          "600": "#3a7ca6",
+          "700": "#26536e",
+          "900": "#132430",
+          "base": "#4ea3d9",
+          "name": "saber"
+        },
+        "warn": "#d9a95c",
+        "warnEdge": "#63512c",
+        "warnTint": "#25201a",
+        "fail": "#d98a8a"
+      },
+      "looks": {
+        "lead": "e8cbb0|c0a288|e6e4de|97958f|3a2418",
+        "security": "8a5f3a|6b482b|7a5230|4a3120|6b4726",
+        "perf": "dbb99b|b2907a|4d5563|2c313a|3a2a1c",
+        "tests": "d4ab4a|a8853a|d4ab4a|8a6a26|c9a13f",
+        "architect": "cdd3da|9aa1a8|4ea3d9|26536e|cdd3da",
+        "repro": "ead0b6|c2aa92|e2ded2|918e84|c9a45e"
+      },
+      "feats": {
+        "lead": [
+          "longhair"
+        ],
+        "security": [
+          "beard"
+        ],
+        "tests": [
+          "specs"
+        ],
+        "architect": [
+          "visor"
+        ]
+      }
     },
     {
       "key": "bttf",
@@ -107,7 +328,58 @@
         "architect": "Jules",
         "repro": "Biff"
       },
-      "spare": ["Lorraine", "George", "Clara", "Verne", "Needles"]
+      "spare": [
+        "Lorraine",
+        "George",
+        "Clara",
+        "Verne",
+        "Needles"
+      ],
+      "palette": {
+        "label": "flux cyan",
+        "why": "night-blue Hill Valley lit by electrical discharge",
+        "neutralsFrom": "nocturne",
+        "term": "#0d0f16",
+        "bg": "#141827",
+        "text": "#ecebf3",
+        "accent": {
+          "300": "#bceff5",
+          "400": "#83dde8",
+          "500": "#46c8d8",
+          "600": "#2f95a3",
+          "700": "#1f5b64",
+          "900": "#122a2e",
+          "base": "#46c8d8",
+          "name": "88 mph"
+        },
+        "warn": "#e0994c",
+        "warnEdge": "#6b4a26",
+        "warnTint": "#2b2018",
+        "fail": "#d98a9a"
+      },
+      "looks": {
+        "lead": "e0c3a8|b99a80|dcdad2|8f8d86|e6e4dd",
+        "security": "c9a88f|a3846e|4a4f5a|2a2d34|2a241d",
+        "perf": "e8cbb0|c0a288|c0392b|6d2019|3a2a1c",
+        "tests": "c9a88f|a3846e|a8763f|5f4222|8a6a3a",
+        "architect": "ead0b6|c2aa92|46c8d8|1f5b64|3a2a1a",
+        "repro": "d9b89c|b2937a|8a7a3f|4e4522|3a2f18"
+      },
+      "feats": {
+        "lead": [
+          "wildhair",
+          "specs"
+        ],
+        "security": [
+          "bald"
+        ],
+        "tests": [
+          "beard"
+        ],
+        "architect": [
+          "specs"
+        ]
+      }
     },
     {
       "key": "pulp",
@@ -122,7 +394,60 @@
         "architect": "Lance",
         "repro": "Pumpkin"
       },
-      "spare": ["Mia", "Butch", "Jimmie", "Fabienne", "Honey Bunny"]
+      "spare": [
+        "Mia",
+        "Butch",
+        "Jimmie",
+        "Fabienne",
+        "Honey Bunny"
+      ],
+      "palette": {
+        "label": "diner red",
+        "why": "vinyl-booth red on warm black — the film lives indoors at night",
+        "neutralsFrom": "slate",
+        "term": "#0f0d0d",
+        "bg": "#181414",
+        "text": "#eee6e2",
+        "accent": {
+          "300": "#f3bdb6",
+          "400": "#e08a7f",
+          "500": "#c0392b",
+          "600": "#932a20",
+          "700": "#5f1c15",
+          "900": "#28120f",
+          "base": "#c0392b",
+          "name": "royale"
+        },
+        "warn": "#d9b45c",
+        "warnEdge": "#6b5a2f",
+        "warnTint": "#2a2418",
+        "fail": "#e0a3a3"
+      },
+      "looks": {
+        "lead": "6f4a30|513524|1b1b1b|0e0e0e|141414",
+        "security": "e0c3a8|b99a80|22262b|12141a|2a2a2a",
+        "perf": "7a5638|5c3f28|1f1f22|101012|141414",
+        "tests": "dbb99b|b2907a|26262a|141416|1a1a1a",
+        "architect": "e6cdb4|c2a68c|4a5a3a|28321f|c9b06a",
+        "repro": "d9b89c|b2937a|8a6a3a|4e3a1e|3a2a1a"
+      },
+      "feats": {
+        "lead": [
+          "bald"
+        ],
+        "security": [
+          "fedora"
+        ],
+        "perf": [
+          "goatee"
+        ],
+        "tests": [
+          "longhair"
+        ],
+        "architect": [
+          "beard"
+        ]
+      }
     },
     {
       "key": "godfather",
@@ -137,7 +462,57 @@
         "architect": "Michael",
         "repro": "Fredo"
       },
-      "spare": ["Clemenza", "Tessio", "Connie", "Kay", "Carlo"]
+      "spare": [
+        "Clemenza",
+        "Tessio",
+        "Connie",
+        "Kay",
+        "Carlo"
+      ],
+      "palette": {
+        "label": "sodium dark",
+        "why": "business conducted after dark, lit by a desk lamp",
+        "neutralsFrom": "slate",
+        "term": "#0e0c0a",
+        "bg": "#171310",
+        "text": "#ece2d2",
+        "accent": {
+          "300": "#eedcb6",
+          "400": "#daba84",
+          "500": "#c08a3e",
+          "600": "#946a2f",
+          "700": "#5f441e",
+          "900": "#241a10",
+          "base": "#c08a3e",
+          "name": "consigliere"
+        },
+        "warn": "#f0a08c",
+        "warnEdge": "#7a4636",
+        "warnTint": "#2c1d18",
+        "fail": "#b86a6a"
+      },
+      "looks": {
+        "lead": "d9b89c|b2937a|2a2622|151310|8d8a84",
+        "security": "c9a88f|a3846e|3a352e|1f1c18|2a241d",
+        "perf": "dbb99b|b2907a|5a4a34|32291d|241a12",
+        "tests": "e6cdb4|c2a68c|4a4436|282318|3a2f1f",
+        "architect": "d4b295|ab8d74|1f2028|101116|1a1510",
+        "repro": "e0c3a8|b99a80|6b5a3a|3a3020|2a2016"
+      },
+      "feats": {
+        "lead": [
+          "fedora"
+        ],
+        "security": [
+          "fedora"
+        ],
+        "tests": [
+          "specs"
+        ],
+        "repro": [
+          "specs"
+        ]
+      }
     },
     {
       "key": "dogs",
@@ -152,7 +527,56 @@
         "architect": "Nice Guy Eddie",
         "repro": "Mr. Blonde"
       },
-      "spare": ["Mr. Blue", "Mr. Brown", "Marvin"]
+      "spare": [
+        "Mr. Blue",
+        "Mr. Brown",
+        "Marvin"
+      ],
+      "palette": {
+        "label": "black, white, red",
+        "why": "black suits, white shirts, one colour that is not either",
+        "neutralsFrom": "slate",
+        "term": "#0d0d0d",
+        "bg": "#161616",
+        "text": "#ededed",
+        "accent": {
+          "300": "#f4bcb8",
+          "400": "#e28a83",
+          "500": "#cc3b32",
+          "600": "#9c2b24",
+          "700": "#661a16",
+          "900": "#26100e",
+          "base": "#cc3b32",
+          "name": "the job"
+        },
+        "warn": "#d9c05c",
+        "warnEdge": "#6b5f2f",
+        "warnTint": "#282416",
+        "fail": "#e0a0a0"
+      },
+      "looks": {
+        "lead": "d9b89c|b2937a|1a1a1a|0d0d0d|8a8a8a",
+        "security": "e0c3a8|b99a80|e8e8e8|9a9a9a|6a6a6a",
+        "perf": "dbb99b|b2907a|d98aa0|7a4a58|2a2a2a",
+        "tests": "e6cdb4|c2a68c|d97b3a|7a4420|3a2a1c",
+        "architect": "c9a88f|a3846e|3a3a3a|1f1f1f|2a2a2a",
+        "repro": "ead0b6|c2aa92|1f1f1f|0f0f0f|d6c48a"
+      },
+      "feats": {
+        "lead": [
+          "shades"
+        ],
+        "security": [
+          "shades"
+        ],
+        "perf": [
+          "shades"
+        ],
+        "repro": [
+          "shades",
+          "longhair"
+        ]
+      }
     },
     {
       "key": "matrix",
@@ -167,7 +591,63 @@
         "architect": "the Architect",
         "repro": "Cypher"
       },
-      "spare": ["Tank", "Dozer", "Switch", "Apoc", "Mouse", "Niobe"]
+      "spare": [
+        "Tank",
+        "Dozer",
+        "Switch",
+        "Apoc",
+        "Mouse",
+        "Niobe"
+      ],
+      "palette": {
+        "label": "phosphor",
+        "why": "you are inside the screen, so the screen colour is the world colour",
+        "neutralsFrom": "slate",
+        "term": "#080b09",
+        "bg": "#0f1511",
+        "text": "#dff0e4",
+        "accent": {
+          "300": "#c4f5d3",
+          "400": "#8bebab",
+          "500": "#4ee07a",
+          "600": "#33a557",
+          "700": "#1f6b39",
+          "900": "#0f2a1a",
+          "base": "#4ee07a",
+          "name": "construct"
+        },
+        "warn": "#cfc25c",
+        "warnEdge": "#5f5a2c",
+        "warnTint": "#202214",
+        "fail": "#d98a8a"
+      },
+      "looks": {
+        "lead": "7a5638|5c3f28|1b1b1b|0e0e0e|141414",
+        "security": "dcc0a6|b39a80|17171a|0c0c0d|141414",
+        "perf": "d9b89c|b2937a|15150f|0a0a08|1a1a1a",
+        "tests": "8d6a52|6f5240|9db98c|4f6647|4a4a4a",
+        "architect": "e6cdb4|c2a68c|d8d8d0|8f8f88|d0d0c8",
+        "repro": "c9a88f|a3846e|6d1f1f|3a1111|2a1a12"
+      },
+      "feats": {
+        "lead": [
+          "bald",
+          "shades"
+        ],
+        "security": [
+          "longhair",
+          "shades"
+        ],
+        "perf": [
+          "shades"
+        ],
+        "architect": [
+          "specs"
+        ],
+        "repro": [
+          "goatee"
+        ]
+      }
     },
     {
       "key": "breakingbad",
@@ -182,7 +662,64 @@
         "architect": "Gus",
         "repro": "Hank"
       },
-      "spare": ["Saul", "Skyler", "Lydia", "Todd", "Huell", "Tuco"]
+      "spare": [
+        "Saul",
+        "Skyler",
+        "Lydia",
+        "Todd",
+        "Huell",
+        "Tuco"
+      ],
+      "palette": {
+        "label": "desert lab",
+        "why": "the show colour-codes on purpose; this is its desert yellow-green",
+        "neutralsFrom": "slate",
+        "term": "#0f0f0b",
+        "bg": "#171712",
+        "text": "#eae7d9",
+        "accent": {
+          "300": "#e8ecbd",
+          "400": "#d0d783",
+          "500": "#b8c14a",
+          "600": "#8d9439",
+          "700": "#5c6125",
+          "900": "#22240f",
+          "base": "#b8c14a",
+          "name": "blue sky"
+        },
+        "warn": "#d9a95c",
+        "warnEdge": "#6b5330",
+        "warnTint": "#282116",
+        "fail": "#d98a8a"
+      },
+      "looks": {
+        "lead": "e0c3a8|b99a80|1f2a24|0f1512|d8d5cc",
+        "security": "d9b89c|b2937a|4a4a44|262622|9a9a92",
+        "perf": "e8cbb0|c0a288|b8c14a|5e6424|3a2f1c",
+        "tests": "dbb99b|b2907a|8a6a3a|4e3a1e|3a2a1a",
+        "architect": "7a5638|5c3f28|3a4a3f|1f2a22|141414",
+        "repro": "e6cdb4|c2a68c|8a7a3f|4e4522|c9a45e"
+      },
+      "feats": {
+        "lead": [
+          "bald",
+          "fedora",
+          "goatee",
+          "specs"
+        ],
+        "security": [
+          "bald"
+        ],
+        "tests": [
+          "specs"
+        ],
+        "architect": [
+          "specs"
+        ],
+        "repro": [
+          "bald"
+        ]
+      }
     }
   ]
 }

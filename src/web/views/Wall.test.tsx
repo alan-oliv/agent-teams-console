@@ -450,6 +450,26 @@ describe('Wall column memoisation', () => {
       render(<Wall agents={agents} focused={null} onFocus={vi.fn()} now={FIXTURE_NOW} />);
       expect(scrolled).toEqual([]);
     });
+
+    // The other pair member scrolls into view first, so if both columns fit
+    // the viewport, `focused`'s own nearest-scroll finds it already visible and
+    // is a no-op — both stay in view. `revealAlso` is the comms show-in-wall hint.
+    it('scrolls the reveal-hint column into view alongside the focused one', () => {
+      const scrolled: string[] = [];
+      Element.prototype.scrollIntoView = function scrollIntoView(this: Element) {
+        scrolled.push(this.getAttribute('data-agent') ?? '');
+      };
+      render(
+        <Wall
+          agents={agents}
+          focused="probe-charlie"
+          revealAlso="probe-alpha"
+          onFocus={vi.fn()}
+          now={FIXTURE_NOW}
+        />,
+      );
+      expect(scrolled).toEqual(['probe-alpha', 'probe-charlie']);
+    });
   });
 });
 
@@ -833,4 +853,41 @@ describe('the mention picker under a theme', () => {
     expect(screen.getByTestId('route-chip').textContent).toBe('@Mal');
     expect((input as HTMLTextAreaElement).value).toBe('hello');
   });
+});
+
+// The join TranscriptFeed does internally (record-uuid prefix -> siblingGroup)
+// only works end to end if the tree actually reaches the column it draws in —
+// this is the one test proving the wiring, so it cannot silently unmount again.
+it('renders a Task row when TeamState carries a subagent matching the transcript', () => {
+  const withDispatch = agents.map((a) =>
+    a.name === 'team-lead'
+      ? { ...a, transcript: [{ id: 'rec-1#0', marker: '⏺' as const, text: 'Task(scout)', ts: FIXTURE_NOW }] }
+      : a,
+  );
+  render(
+    <Wall
+      agents={withDispatch}
+      focused={null}
+      onFocus={vi.fn()}
+      now={FIXTURE_NOW}
+      subagents={{
+        'team-lead': [
+          {
+            toolUseId: 'toolu_1',
+            name: 'scout',
+            agent: 'team-lead',
+            parent: 'team-lead',
+            depth: 1,
+            spawnIndex: 0,
+            siblingGroup: 'rec-1',
+            state: 'returned',
+            queuedAt: FIXTURE_NOW,
+            tokens: 500,
+            children: [],
+          },
+        ],
+      }}
+    />,
+  );
+  expect(screen.getByTestId('subagent-summary')).toBeTruthy();
 });

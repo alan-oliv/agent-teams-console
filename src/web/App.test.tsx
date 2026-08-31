@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { Diff } from '../shared/domain';
 import { App } from './App';
 import { MockEventSource, installMockEventSource } from './test/mockEventSource';
-import { sampleTeamState, sampleTeams } from './test/state-fixture';
+import { FIXTURE_NOW, sampleTeamState, sampleTeams } from './test/state-fixture';
 
 beforeEach(() => {
   installMockEventSource();
@@ -323,7 +323,29 @@ it('hands the wall the agent whose thread was open — one store, not six screen
   expect(window.location.search).toBe('?view=wall&agent=probe-bravo&team=session-98b0b4a7');
 });
 
-it('clicking a usage ledger row focuses that agent in the same shared store the wall reads', () => {
+// Focus stays single-valued (the URL only carries one `agent=`), but the wall
+// scroll itself brings both halves of a non-lead pair into view — the design's
+// "jumps to both agents' columns".
+it('scrolls both columns into view for a non-lead comms pair shown in the wall', () => {
+  window.history.replaceState(null, '', '/?view=comms');
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+
+  // The newest thread is the probe-alpha ⇄ probe-bravo exchange — neither is the lead.
+  fireEvent.click(screen.getAllByTestId('thread-row')[0]);
+
+  const scrolled: string[] = [];
+  Element.prototype.scrollIntoView = function scrollIntoView(this: Element) {
+    scrolled.push(this.getAttribute('data-agent') ?? '');
+  };
+  fireEvent.click(screen.getByTestId('show-in-wall'));
+
+  expect(screen.getByTestId('wall')).toBeTruthy();
+  expect(scrolled).toContain('probe-alpha');
+  expect(scrolled).toContain('probe-bravo');
+});
+
+it('clicking a usage ledger row opens that agent in the wall, the way the comms jump does', () => {
   window.history.replaceState(null, '', '/?view=usage');
   render(<App />);
   act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
@@ -333,6 +355,9 @@ it('clicking a usage ledger row focuses that agent in the same shared store the 
 
   // One store, not six screens: the agent chosen in the ledger lands in the
   // same URL-backed selection the wall, rail and overview already read.
+  expect(screen.getByTestId('wall')).toBeTruthy();
+  expect(screen.queryByTestId('usage')).toBeNull();
+  expect(window.location.search).toContain('view=wall');
   expect(window.location.search).toContain('agent=probe-bravo');
 });
 
@@ -845,4 +870,67 @@ it('keeps a finished session in the list you can page back into', async () => {
   expect(rows.map((r) => r.textContent ?? '').some((t) => t.includes('session-done0004'))).toBe(
     true,
   );
+});
+
+// ————— the solo-session mode (decisions 23/24, old-batch #28) —————
+
+function soloState() {
+  const state = sampleTeamState();
+  const lead = state.agents[0];
+  return {
+    ...state,
+    agents: [lead],
+    subagents: {
+      [lead.name]: [
+        {
+          toolUseId: 'toolu_solo1',
+          name: 'probe',
+          agent: lead.name,
+          parent: lead.name,
+          depth: 1,
+          spawnIndex: 0,
+          siblingGroup: 'rec-1',
+          state: 'returned' as const,
+          queuedAt: FIXTURE_NOW - 60_000,
+          startedAt: FIXTURE_NOW - 59_000,
+          returnedAt: FIXTURE_NOW - 10_000,
+          durationMs: 49_000,
+          tokens: 28_700,
+          returnedSummary: 'probe finished',
+          children: [],
+        },
+      ],
+    },
+  };
+}
+
+it('offers a solo session the four-pill switcher, with the wall labelled stream', async () => {
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', soloState()));
+
+  const tabs = await screen.findAllByRole('tab');
+  expect(tabs.map((t) => t.textContent)).toEqual(['stream', 'trace', 'tasks', 'usage']);
+});
+
+it('mounts the trace view over the session’s own tree when its pill is picked', async () => {
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', soloState()));
+
+  fireEvent.click((await screen.findAllByRole('tab')).find((t) => t.textContent === 'trace')!);
+  expect(await screen.findByTestId('trace-view')).toBeTruthy();
+  expect(screen.getAllByTestId('trace-lane-name').some((n) => n.textContent?.includes('probe'))).toBe(
+    true,
+  );
+});
+
+// A team session keeps its seven pills, and a URL-forced 'trace' on one falls
+// back to the wall rather than mounting a view its switcher never offered.
+it('keeps the team switcher at seven views on a real team', async () => {
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+
+  const tabs = await screen.findAllByRole('tab');
+  expect(tabs.map((t) => t.textContent)).toEqual([
+    'wall', 'overview', 'comms', 'tasks', 'rail', 'grid', 'usage',
+  ]);
 });

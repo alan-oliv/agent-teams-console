@@ -2,7 +2,9 @@ import type { TokenSplit } from './cost';
 
 export type AgentStatus = 'working' | 'idle' | 'plan_pending' | 'failed' | 'blocked' | 'departed';
 export type TaskState = 'pending' | 'in_progress' | 'completed' | 'plan_pending' | 'failed' | 'blocked';
-export type ViewId = 'wall' | 'overview' | 'comms' | 'tasks' | 'rail' | 'grid' | 'usage';
+// `trace` is offered only on a solo session (decision 24); the id exists for
+// every mode so a URL carrying it survives a reload on any session.
+export type ViewId = 'wall' | 'overview' | 'comms' | 'tasks' | 'rail' | 'grid' | 'usage' | 'trace';
 // `✉` is beyond the design README's own list — sanctioned by the CHANGELOG
 // entry "Received messages carry attribution", which gives a delivered
 // teammate message a marker of its own.
@@ -140,6 +142,76 @@ export interface Task {
   metadata?: TaskMetadata;
 }
 
+/**
+ * A subagent is DISPATCHED, not hired: the parent's `Task`/`Agent` tool call is
+ * the only record that always exists for one, so `queued` is a real state and
+ * every other field below can be absent while it is in it.
+ *
+ * `returned` and `failed` are only reachable when the parent's transcript closed
+ * the call — a synchronous tool_result, or the `<task-notification>` that lands
+ * when a background agent finishes. A background agent whose notification has
+ * not arrived reads as `running`, which is what the two files honestly say.
+ */
+export type SubagentState = 'queued' | 'running' | 'returned' | 'failed';
+
+/**
+ * One `Task`/`Agent` call, joined to whatever the subagent's own transcript and
+ * `.meta.json` sidecar added to it. NOT a team member — a subagent never enters
+ * `config.json` `members[]`, and `Agent` is deliberately its own contract rather
+ * than a second kind of {@link Agent}.
+ *
+ * `toolUseId` is the primary key: it exists from the instant the call is made,
+ * it is what the sidecar links back with, and it is how a transcript row finds
+ * the subagent it dispatched. `agentId` is richer but arrives later and only for
+ * a background launch.
+ *
+ * Every field below `state` is optional in the same sense `WorkflowAgent`'s are:
+ * absent means the source that carries it has not landed, never zero. A subagent
+ * whose sidecar never arrived keeps only what its parent's journal knows.
+ */
+export interface Subagent {
+  toolUseId: string;
+  name: string;              // sidecar name, else the call's `name`/`description`
+  /** The roster agent whose transcript this subtree hangs off — the tree's key. */
+  agent: string;
+  /**
+   * Immediate parent: `agent` at depth 1, the parent subagent's `toolUseId`
+   * deeper. Read it with `depth` — the two are different vocabularies, and
+   * nothing here promises they cannot collide.
+   */
+  parent: string;
+  depth: number;             // 1 for a subagent of a roster agent, +1 per nesting level
+  /** Dispatch order within the parent, 0-based. Siblings keep their call order. */
+  spawnIndex: number;
+  /**
+   * The parent record that dispatched it. N calls in ONE assistant turn are a
+   * fan-out and share this; sequential calls each get their own.
+   */
+  siblingGroup: string;
+  state: SubagentState;
+  agentId?: string;          // `a` + name? + 16 hex — names its own transcript file
+  agentType?: string;        // the call's subagent_type, e.g. 'general-purpose'
+  model?: string;
+  description?: string;      // the call's one-line description
+  queuedAt: number;          // epoch ms — the parent's tool_use record
+  startedAt?: number;        // first record of its own transcript; absent while queued
+  returnedAt?: number;
+  durationMs?: number;       // absent until it returns
+  tokens?: number;
+  toolCalls?: number;
+  contextTokens?: number;
+  returnedSummary?: string;
+  /** Its own `Task`/`Agent` calls, same ordering and grouping rules. */
+  children: Subagent[];
+}
+
+/**
+ * Roster agent name -> the subagents it dispatched, in spawn order. Keyed by
+ * parent so a transcript row can reach its own agent's calls without walking
+ * the whole tree, and so a trace view can walk one agent at a time.
+ */
+export type SubagentTree = Record<string, Subagent[]>;
+
 export type ProtocolFrameType =
   | 'task_assignment' | 'task_completed' | 'idle_notification'
   | 'plan_approval_request' | 'plan_approval_response'
@@ -210,6 +282,15 @@ export interface TeamState {
   mode?: ConsoleMode;
   /** Newest first. Present in both modes: a team can have run workflows too. */
   workflows?: WorkflowRun[];
+  /**
+   * Every subagent the roster dispatched, keyed by the agent that dispatched it.
+   * Absent when nobody called `Task`/`Agent` — an empty map and "no subagents"
+   * are the same fact, so only one of them travels.
+   *
+   * Bounded by the store's per-agent record budget, like `transcript`: a call
+   * whose record has aged out of the log is no longer in the tree.
+   */
+  subagents?: SubagentTree;
 }
 
 /**
@@ -244,6 +325,14 @@ export interface TeamSummary {
    * genuinely has no name yet, and one must not be invented for it.
    */
   workflow?: { runId: string; name?: string; live: boolean };
+  /**
+   * How many Task-subagent transcripts sit under this session — the second
+   * exception to the member-count bar (decision 23): a subagent never enters
+   * `members[]`, exactly like a workflow's agents, so a solo session with a
+   * tree is somewhere to go all the same. Absent, never zero, when there are
+   * none, so a bare window keeps its refused treatment.
+   */
+  subagents?: number;
   /**
    * Work sitting uncommitted in the lead's tree, against HEAD.
    *
@@ -323,6 +412,69 @@ export interface WorkflowAgent {
   error?: string;            // the runtime's message, incl. 'skipped by user'
   isolation?: string;        // only ever 'worktree' in this build
   agentType?: string;        // set only when the script passed opts.agentType
+  /**
+   * What this agent actually put through the model, from its OWN transcript
+   * rather than from the snapshot.
+   *
+   * `tokens` above is final context occupancy and is 8-60x smaller — measured
+   * across the 19 runs on the capture machine, cache reads alone are 62-98% of
+   * real traffic and the snapshot carries none of them. The two are different
+   * quantities and must never be added or drawn as one.
+   *
+   * Absent until this agent's transcript has been read, which on a live run is
+   * the ordinary state for an agent that has not had a turn yet.
+   */
+  tokenSplit?: TokenSplit;
+}
+
+/**
+ * The run's token burn over time, evenly spaced so a chart can draw it without
+ * re-binning and so a frame never pays per turn.
+ *
+ * Evenly spaced and CUMULATIVE because that is what a burn line is. The sample
+ * count is capped ({@link WORKFLOW_BURN_SAMPLES}) and `stepMs` widens as a run
+ * outgrows it: the largest run measured carries 716 billed turns, and 19 runs
+ * of those on one frame would be ~456 KB of points to draw a line a few hundred
+ * pixels wide — the same argument that strips `script` off a run.
+ */
+export interface WorkflowBurn {
+  startedAt: number;         // epoch ms of the first bucket's start
+  stepMs: number;            // bucket width
+  cumulative: number[];      // running total of all four classes at each bucket's end
+}
+
+/** How many points a {@link WorkflowBurn} carries, however long the run ran. */
+export const WORKFLOW_BURN_SAMPLES = 60;
+
+/**
+ * A run's real token traffic, read from its agents' own transcripts under
+ * `subagents/workflows/wf_<runId>/agent-*.jsonl`.
+ *
+ * This exists because `WorkflowRun.totalTokens` is not spend: it is final
+ * context occupancy, and it understates real traffic by 8-60x per run. Both
+ * travel, and they answer different questions — see CONSOLE-NOTES.md §24.
+ *
+ * NOT dollars. The four classes and the model are what a price is computed
+ * from; the cost model lives in one place (`src/shared/cost.ts`) and is applied
+ * where it is drawn, exactly as the team ledger does it.
+ */
+export interface WorkflowUsage {
+  /** Summed over every agent of the run whose transcript has been read. */
+  split: TokenSplit;
+  /**
+   * Per declared phase, by `WorkflowPhase.index`. EMPTY on a live run rather
+   * than zeroed: an agent's `phaseIndex` reaches the console only with the
+   * snapshot, so before that there is nothing to group by — not a run whose
+   * phases each spent nothing.
+   */
+  byPhase: Array<{ phaseIndex: number; split: TokenSplit }>;
+  burn: WorkflowBurn;
+  /**
+   * How many agents' transcripts this covers. Less than `WorkflowRun.agents`
+   * while a run is starting, so a view can say what the figure is still missing
+   * rather than presenting a partial total as the whole.
+   */
+  agentsMeasured: number;
 }
 
 /**
@@ -359,9 +511,20 @@ export interface WorkflowRun {
   script?: string;           // the source AS EXECUTED — prefer this to the path
   durationMs?: number;       // absent while running
   agentCount?: number;
+  /**
+   * Final context occupancy, NOT spend — the runtime's own figure, kept because
+   * it is what the snapshot says. `usage.split` below is what the run actually
+   * cost. See WorkflowUsage.
+   */
   totalTokens?: number;
   totalToolCalls?: number;
   defaultModel?: string;
   result?: string;
   error?: string;
+  /**
+   * Read from the run's agent transcripts, which are appended LIVE — so unlike
+   * everything the snapshot carries, this is present while the run is going.
+   * Absent when no agent of the run has had a billed turn yet.
+   */
+  usage?: WorkflowUsage;
 }

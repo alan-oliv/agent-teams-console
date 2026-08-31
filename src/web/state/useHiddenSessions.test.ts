@@ -56,6 +56,20 @@ describe('the one rule for what a screen may offer', () => {
     );
   });
 
+  // The second exception, on the same argument (decision 23): a Task subagent
+  // never enters members[] either, and a session with a 13-transcript tree has
+  // more agent activity in it than some teams the picker does show.
+  it('does not call a solo session with a subagent tree empty', () => {
+    expect(isEmptySession(summary({ members: 1, subagents: 13 }))).toBe(false);
+  });
+
+  // Emitted absent-never-zero by the server; a zero that slipped through must
+  // not admit a bare window.
+  it('still calls a bare window empty when the count is zero or absent', () => {
+    expect(isEmptySession(summary({ members: 1, subagents: 0 }))).toBe(true);
+    expect(isEmptySession(summary({ members: 1 }))).toBe(true);
+  });
+
   it('counts a hidden session as not shown however many members it has', () => {
     expect(isNotShown(summary({}), new Set(['session-a']), true)).toBe(true);
   });

@@ -31,6 +31,10 @@ const record = (model: string, usage: UsageRecord['usage'], id = 'msg_1'): Usage
 
 const empty: TokenSplit = { in: 0, out: 0, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0 };
 
+// A model id no release can ever claim. Naming a real-but-missing model couples
+// these tests to which rows the catalog happens to carry today.
+const UNCATALOGUED = 'claude-not-in-the-catalog-9';
+
 const priced = (model: string) =>
   (catalog.models as Record<string, { pricing: { input: number; output: number } }>)[model].pricing;
 
@@ -85,18 +89,22 @@ describe('rateOf', () => {
     expect(rateOf('claude-opus-5[1m]')).toEqual(rateOf('claude-opus-5'));
   });
 
-  // Observed live: the lead ran on claude-fable-5, which the catalog has never
-  // heard of, and it was the majority of that session's bill. It is priced from
+  // Observed live: the lead ran on a model the catalog had never heard of, and
+  // it was the majority of that session's bill. An unknown model is priced from
   // the fallback tier — the flag is what stops the rate card presenting a guess
   // as a published price.
+  //
+  // The id here is deliberately one no release can claim. Written against a
+  // real-but-missing id (`claude-fable-5`), this test went green-to-red the day
+  // that row was added to the catalog, which is the opposite of what it checks.
   it('marks a model the catalog does not know as approximate', () => {
-    const rate = rateOf('claude-fable-5');
+    const rate = rateOf(UNCATALOGUED);
     expect(rate.approximate).toBe(true);
     expect(rate.input).toBe(priced(catalog.fallbackModel).input);
   });
 
   it('keeps the unknown model under its own name so the card can name it', () => {
-    expect(rateOf('claude-fable-5').model).toBe('claude-fable-5');
+    expect(rateOf(UNCATALOGUED).model).toBe(UNCATALOGUED);
   });
 });
 
@@ -186,7 +194,7 @@ describe('usdCost', () => {
 
   it('prices an unknown model from the fallback tier rather than as free', () => {
     const split: TokenSplit = { ...empty, out: 1_000_000 };
-    expect(usdCost('claude-fable-5', split)).toBe(usdCost(catalog.fallbackModel, split));
+    expect(usdCost(UNCATALOGUED, split)).toBe(usdCost(catalog.fallbackModel, split));
   });
 });
 
