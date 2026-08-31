@@ -112,7 +112,9 @@ export function elapsedLabel(startedAt: number, now: number): string {
   return formatElapsed(now - startedAt);
 }
 
-// UTC so the rendered clock is identical on every machine that reads a captured log.
+// Local time, so the clock reads as the time the operator experienced.
 export function clockLabel(ts: number): string {
-  return new Date(ts).toISOString().slice(11, 19);
+  const d = new Date(ts);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }

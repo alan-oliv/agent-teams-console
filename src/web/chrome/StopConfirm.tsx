@@ -104,8 +104,8 @@ export function StopConfirm({
 
 /**
  * The other verb, never merged with the one above: dismissing a session
- * claims nothing about it, so it gets the accent treatment `StopConfirm`
- * reserves for the destructive lead case, not the warn one.
+ * claims nothing about it, so it gets the accent treatment — not the warn
+ * one `StopConfirm` reserves for the destructive lead case.
  */
 export function WatchConfirm({
   show,

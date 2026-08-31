@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { CONSOLE_SENDER, type Agent, type MailMessage, type Task, type TranscriptLine } from '../../shared/domain';
 import { buildCast } from '../../shared/cast';
+import { clockLabel } from '../format';
 import { CastContext } from '../state/useCast';
 import { Comms } from './Comms';
 
@@ -242,7 +243,7 @@ describe('Comms — thread pane', () => {
     renderPair();
     const first = screen.getAllByTestId('bubble')[0];
     expect(within(first).getByTestId('bubble-from').textContent).toBe('perf');
-    expect(within(first).getByTestId('bubble-ts').textContent).toBe('15:10:00');
+    expect(within(first).getByTestId('bubble-ts').textContent).toBe(clockLabel(T0));
     expect(within(first).getByTestId('bubble-body').textContent).toBe(
       'Does per-request rotation depend on the lookup being per-session?',
     );
@@ -467,9 +468,9 @@ describe('Comms — sender runs', () => {
 
   it('still clocks every message in a run, since a run can span minutes', () => {
     renderComms({ ...RUN_PROPS, openThread: 'perf' });
-    expect(screen.getAllByTestId('bubble-ts').map((n) => n.textContent)).toEqual([
-      '15:10:00', '15:10:05', '15:10:09', '15:10:20',
-    ]);
+    expect(screen.getAllByTestId('bubble-ts').map((n) => n.textContent)).toEqual(
+      [T0, T0 + 5_000, T0 + 9_000, T0 + 20_000].map(clockLabel),
+    );
   });
 
   it('sets a room body on the same line-height as a pair bubble', () => {

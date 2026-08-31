@@ -461,6 +461,7 @@ export function Comms({
             <span
               data-testid="pairs-label"
               style={{
+                borderTop: '1px solid var(--color-neutral-900)',
                 padding: '8px 9px 2px',
                 color: 'var(--color-neutral-600)',
                 fontSize: '10px',

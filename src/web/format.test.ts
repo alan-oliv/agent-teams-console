@@ -185,13 +185,24 @@ describe('elapsedLabel', () => {
   });
 });
 
+// Local time, not UTC: the clock reads as the operator's own wall clock, so
+// the expected string is built the same way, off whatever zone the test runs
+// in, rather than assumed to match the UTC instant.
+const pad = (n: number) => String(n).padStart(2, '0');
+const localHms = (ts: number) => {
+  const d = new Date(ts);
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+};
+
 describe('clockLabel', () => {
   it('renders the SENT time of the real probe-alpha inbox entry', () => {
-    expect(clockLabel(Date.parse('2026-08-27T15:10:17.891Z'))).toBe('15:10:17');
+    const ts = Date.parse('2026-08-27T15:10:17.891Z');
+    expect(clockLabel(ts)).toBe(localHms(ts));
   });
 
   it('renders the batched delivery time of the lead-transcript frames', () => {
-    expect(clockLabel(Date.parse('2026-08-27T15:12:17.951Z'))).toBe('15:12:17');
+    const ts = Date.parse('2026-08-27T15:12:17.951Z');
+    expect(clockLabel(ts)).toBe(localHms(ts));
   });
 });
 
