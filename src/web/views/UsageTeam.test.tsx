@@ -56,7 +56,8 @@ describe('UsageTeam — tiles', () => {
   it('notes dollars avoided on the cache-hit tile, derived through the shared cost model', () => {
     const { state } = renderUsage();
     const avoided = dollarsAvoided(state.agents);
-    expect(screen.getByTestId('usage-cache-note').textContent).toContain(formatCost(avoided));
+    expect(avoided).not.toBeUndefined();
+    expect(screen.getByTestId('usage-cache-note').textContent).toContain(formatCost(avoided!));
   });
 
   it('names the count of tasks the cost-per-task figure divided by', () => {
@@ -84,6 +85,33 @@ describe('UsageTeam — em dashes for unknowns', () => {
     };
     render(<UsageTeam state={fresh} now={FIXTURE_NOW} focused={null} onFocus={vi.fn()} spendSamples={[]} />);
     const row = screen.getAllByTestId('usage-ledger-row')[0];
+    expect(within(row).getByTestId('usage-row-cache').textContent).toBe('—');
+    expect(within(row).getByTestId('usage-row-permtok').textContent).toBe('—');
+  });
+
+  // A row on disk from before this widening shipped carries `totals` (cost,
+  // tokens) but no `split` — totalsOf's cast in store.ts hands it out as
+  // undefined at runtime regardless of the wire type. "Not recorded" must
+  // never collapse into "measured zero": a team that plainly spent money with
+  // a blank token split reads as a contradiction, not an absence.
+  it('draws an em dash for tokens and dollars avoided when an agent carries cost but no split at all — never $2.56 spent / 0 tokens on the same screen', () => {
+    const state = sampleTeamState();
+    const noSplit = {
+      ...state,
+      agents: state.agents.map((a, i) => (i === 0 ? { ...a, tokenSplit: undefined } : a)),
+    };
+    render(<UsageTeam state={noSplit} now={FIXTURE_NOW} focused={null} onFocus={vi.fn()} spendSamples={[]} />);
+
+    // Cost is unaffected — it never depended on the split.
+    expect(screen.getByTestId('usage-cost-value').textContent).toBe(formatCost(noSplit.totalCostUsd));
+    // Tokens and dollars-avoided are aggregates over every agent, and one
+    // agent's unknown split makes the aggregate itself unknown, not smaller.
+    expect(screen.getByTestId('usage-tokens-value').textContent).toBe('—');
+    expect(screen.getByTestId('usage-tokens-note').textContent).toBe('—');
+    expect(screen.getByTestId('usage-cache-note').textContent).toContain('—');
+    // The row with no split draws nothing rather than a zero-width bar.
+    const row = screen.getAllByTestId('usage-ledger-row')[0];
+    expect(within(row).queryAllByTestId('usage-row-segment')).toHaveLength(0);
     expect(within(row).getByTestId('usage-row-cache').textContent).toBe('—');
     expect(within(row).getByTestId('usage-row-permtok').textContent).toBe('—');
   });

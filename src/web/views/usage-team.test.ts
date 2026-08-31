@@ -39,8 +39,13 @@ function agent(over: Partial<Agent> = {}): Agent {
 }
 
 describe('splitOf / sumSplit', () => {
-  it('treats an agent with no tokenSplit as all-zero, not a crash', () => {
-    expect(splitOf(agent({ tokenSplit: undefined }))).toEqual(split());
+  // A row on disk from before the split existed carries `costUsd` but no
+  // split — totalsOf's cast in store.ts hands one out as undefined at
+  // runtime regardless of the wire type. "Not recorded" must stay
+  // distinguishable from "measured zero", or a team that plainly spent money
+  // renders a token split of zero next to it.
+  it('is undefined for an agent with no tokenSplit, never EMPTY_SPLIT', () => {
+    expect(splitOf(agent({ tokenSplit: undefined }))).toBeUndefined();
   });
 
   it('sums every class across every agent', () => {
@@ -51,6 +56,15 @@ describe('splitOf / sumSplit', () => {
 
   it('sums to zero over an empty roster', () => {
     expect(sumSplit([])).toEqual(split());
+  });
+
+  // The aggregate must not read as complete when it isn't: a partial sum
+  // missing one agent's real (unknown) contribution is the same lie a bare
+  // zero would tell.
+  it('is undefined when any one agent in the roster has no split, even if the rest do', () => {
+    const a = agent({ tokenSplit: split({ in: 10, out: 20, cacheWrite: 30, cacheRead: 40 }) });
+    const b = agent({ tokenSplit: undefined });
+    expect(sumSplit([a, b])).toBeUndefined();
   });
 });
 
@@ -84,6 +98,12 @@ describe('dollarsAvoided', () => {
     // 1M tokens at input rate minus 1M tokens at cache-read rate.
     expect(avoided).toBeGreaterThan(0);
     expect(avoided).toBeCloseTo(4.5, 5);
+  });
+
+  it('is undefined, not partial, when any agent in the roster has no split', () => {
+    const a = agent({ model: 'claude-opus-5', tokenSplit: split({ cacheRead: 1_000_000 }) });
+    const b = agent({ tokenSplit: undefined });
+    expect(dollarsAvoided([a, b])).toBeUndefined();
   });
 });
 
@@ -126,6 +146,17 @@ describe('ledgerRowOf', () => {
     expect(row.segments.every((s) => s.pct === 0)).toBe(true);
     expect(row.perMtok).toBeUndefined();
     expect(row.cacheHit).toBeUndefined();
+  });
+
+  // A genuine zero split (above) still draws four segments at 0%. No split
+  // at all draws none — the row has nothing to say, not a measured nothing.
+  it('draws zero segments, not four at 0%, for an agent with no split at all', () => {
+    const row = ledgerRowOf(agent({ tokenSplit: undefined, costUsd: 1.2 }));
+    expect(row.segments).toHaveLength(0);
+    expect(row.tokens).toBeUndefined();
+    expect(row.cacheHit).toBeUndefined();
+    expect(row.perMtok).toBeUndefined();
+    expect(row.cost).toBe(1.2); // cost never depended on the split
   });
 });
 

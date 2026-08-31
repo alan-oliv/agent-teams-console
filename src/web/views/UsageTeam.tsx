@@ -123,9 +123,12 @@ export interface UsageTeamProps {
  */
 export function UsageTeam({ state, now, focused, onFocus, spendSamples }: UsageTeamProps) {
   const { agents, tasks } = state;
+  // Undefined, not zero, when any agent's split is unrecorded — a pre-existing
+  // log the split widening hasn't reached yet, or an agent mid-way through its
+  // first drain. Partial data reads as "unknown", never as a smaller measurement.
   const split = sumSplit(agents);
-  const tokens = billedTokens(split);
-  const hit = cacheHitRatio(split);
+  const tokens = split ? billedTokens(split) : undefined;
+  const hit = split ? cacheHitRatio(split) : undefined;
   const avoided = dollarsAvoided(agents);
   const tasksDone = tasks.filter((t) => t.state === 'completed').length;
   const perTask = costPerTask(state.totalCostUsd, tasksDone);
@@ -153,15 +156,19 @@ export function UsageTeam({ state, now, focused, onFocus, spendSamples }: UsageT
         <Tile
           testId="usage-tokens"
           label="tokens"
-          value={formatTokens(tokens)}
-          note={`${formatTokens(split.in + split.cacheWrite)} in · ${formatTokens(split.out)} out · ${formatTokens(split.cacheRead)} cache read`}
+          value={tokens === undefined ? EM_DASH : formatTokens(tokens)}
+          note={
+            split === undefined
+              ? EM_DASH
+              : `${formatTokens(split.in + split.cacheWrite)} in · ${formatTokens(split.out)} out · ${formatTokens(split.cacheRead)} cache read`
+          }
         />
         <Tile
           testId="usage-cache"
           label="cache hit rate"
           value={hit === undefined ? EM_DASH : formatPct(hit)}
           valueColor="var(--color-accent-400)"
-          note={`reads bill at 0.1× — ${formatCost(avoided)} avoided`}
+          note={`reads bill at 0.1× — ${avoided === undefined ? EM_DASH : formatCost(avoided)} avoided`}
         />
         <Tile
           testId="usage-context"
@@ -230,7 +237,11 @@ export function UsageTeam({ state, now, focused, onFocus, spendSamples }: UsageT
                   <span data-testid="usage-row-cache" style={{ width: '52px', flex: 'none', textAlign: 'right', color: 'var(--color-accent-500)' }}>
                     {row.cacheHit === undefined ? EM_DASH : formatPct(row.cacheHit)}
                   </span>
-                  <span data-testid="usage-row-permtok" style={{ width: '64px', flex: 'none', textAlign: 'right', color: 'var(--color-neutral-500)' }}>
+                  <span
+                    data-testid="usage-row-permtok"
+                    style={{ width: '64px', flex: 'none', textAlign: 'right', color: 'var(--color-neutral-500)' }}
+                    title="blended: cost over this agent's billed tokens, not a listed rate"
+                  >
                     {row.perMtok === undefined ? EM_DASH : formatCost(row.perMtok)}
                   </span>
                   <span style={{ width: '64px', flex: 'none', textAlign: 'right', fontWeight: 500, color: 'var(--color-text)' }}>
@@ -251,8 +262,11 @@ export function UsageTeam({ state, now, focused, onFocus, spendSamples }: UsageT
             <span style={{ width: '52px', flex: 'none', textAlign: 'right', color: 'var(--color-accent-500)' }}>
               {hit === undefined ? EM_DASH : formatPct(hit)}
             </span>
-            <span style={{ width: '64px', flex: 'none', textAlign: 'right', color: 'var(--color-neutral-500)' }}>
-              {tokens > 0 ? formatCost(totalCost / (tokens / 1e6)) : EM_DASH}
+            <span
+              style={{ width: '64px', flex: 'none', textAlign: 'right', color: 'var(--color-neutral-500)' }}
+              title="blended: cost over total billed tokens, not a listed rate"
+            >
+              {tokens !== undefined && tokens > 0 ? formatCost(totalCost / (tokens / 1e6)) : EM_DASH}
             </span>
             <span data-testid="usage-foot-cost" style={{ width: '64px', flex: 'none', textAlign: 'right', fontWeight: 500, color: 'var(--color-text)' }}>
               {formatCost(totalCost)}

@@ -3,20 +3,35 @@ import { rateOf, usdCost, type ModelRate, type TokenSplit } from '../../shared/c
 
 export const EMPTY_SPLIT: TokenSplit = { in: 0, out: 0, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0 };
 
-/** Never undefined at the call site: a fixture or a brand-new agent may not have one yet. */
-export function splitOf(agent: Agent): TokenSplit {
-  return agent.tokenSplit ?? EMPTY_SPLIT;
+/**
+ * Undefined, not EMPTY_SPLIT, when the agent has none — a row on disk from
+ * before the split existed carries `costUsd` but no split, and collapsing
+ * "not recorded" into "measured zero" is how a team that plainly spent money
+ * ends up rendering a token split of zero next to it.
+ */
+export function splitOf(agent: Agent): TokenSplit | undefined {
+  return agent.tokenSplit;
 }
 
-export function sumSplit(agents: readonly Agent[]): TokenSplit {
-  return agents.reduce((sum, a) => {
-    const s = splitOf(a);
+/**
+ * Undefined when ANY agent's split is unrecorded, not just when all of them
+ * are: a sum missing one agent's real (unknown) contribution reads as
+ * complete when it isn't, which is the same lie a bare zero would tell. An
+ * agent self-heals its split on its next drain, so this is transient except
+ * for a departed agent in a pre-existing log — see USAGE-STATE.md and the
+ * store.ts eviction-carrying tests this pairs with.
+ */
+export function sumSplit(agents: readonly Agent[]): TokenSplit | undefined {
+  const splits = agents.map(splitOf);
+  if (splits.some((s) => s === undefined)) return undefined;
+  return splits.reduce<TokenSplit>((sum, s) => {
+    const split = s!;
     return {
-      in: sum.in + s.in,
-      out: sum.out + s.out,
-      cacheWrite: sum.cacheWrite + s.cacheWrite,
-      cacheWrite1h: sum.cacheWrite1h + s.cacheWrite1h,
-      cacheRead: sum.cacheRead + s.cacheRead,
+      in: sum.in + split.in,
+      out: sum.out + split.out,
+      cacheWrite: sum.cacheWrite + split.cacheWrite,
+      cacheWrite1h: sum.cacheWrite1h + split.cacheWrite1h,
+      cacheRead: sum.cacheRead + split.cacheRead,
     };
   }, EMPTY_SPLIT);
 }
@@ -40,16 +55,25 @@ export function cacheHitRatio(split: TokenSplit): number | undefined {
 /**
  * What the team's cache reads saved against paying full input price for the
  * same tokens, priced per agent through usdCost so a multi-model team is
- * never blended into one rate.
+ * never blended into one rate. Undefined, not partial, when any agent's split
+ * is unrecorded — same reasoning as sumSplit.
+ *
+ * Prices every one of an agent's cache reads at its CURRENT agent.model, the
+ * last resolved model — exact today (0 of the live team's agents span two
+ * models) but not guaranteed: a `/model` switch on the lead would price its
+ * earlier cache reads at the wrong rate, silently, with no test to catch it.
  */
-export function dollarsAvoided(agents: readonly Agent[]): number {
-  return agents.reduce((sum, a) => {
-    const cacheRead = splitOf(a).cacheRead;
-    if (cacheRead <= 0) return sum;
-    const asInput = usdCost(a.model, { ...EMPTY_SPLIT, in: cacheRead });
-    const asCacheRead = usdCost(a.model, { ...EMPTY_SPLIT, cacheRead });
-    return sum + Math.max(0, asInput - asCacheRead);
-  }, 0);
+export function dollarsAvoided(agents: readonly Agent[]): number | undefined {
+  let sum = 0;
+  for (const a of agents) {
+    const split = splitOf(a);
+    if (split === undefined) return undefined;
+    if (split.cacheRead <= 0) continue;
+    const asInput = usdCost(a.model, { ...EMPTY_SPLIT, in: split.cacheRead });
+    const asCacheRead = usdCost(a.model, { ...EMPTY_SPLIT, cacheRead: split.cacheRead });
+    sum += Math.max(0, asInput - asCacheRead);
+  }
+  return sum;
 }
 
 /** Undefined rather than Infinity in the instant a team is created. */
@@ -71,8 +95,9 @@ export const SEGMENT_ORDER: readonly SegmentKey[] = ['cacheRead', 'cacheWrite', 
 export interface LedgerRow {
   name: string;
   color?: string;
+  /** Empty, not a zero-width bar, when the agent has no split to draw. */
   segments: Array<{ key: SegmentKey; pct: number }>;
-  tokens: number;
+  tokens: number | undefined;
   cacheHit: number | undefined;
   perMtok: number | undefined;
   cost: number;
@@ -80,14 +105,16 @@ export interface LedgerRow {
 
 export function ledgerRowOf(agent: Agent): LedgerRow {
   const split = splitOf(agent);
-  const tokens = billedTokens(split);
+  const tokens = split ? billedTokens(split) : undefined;
   return {
     name: agent.name,
     color: agent.color,
-    segments: SEGMENT_ORDER.map((key) => ({ key, pct: tokens > 0 ? (split[key] / tokens) * 100 : 0 })),
+    segments: split
+      ? SEGMENT_ORDER.map((key) => ({ key, pct: tokens && tokens > 0 ? (split[key] / tokens) * 100 : 0 }))
+      : [],
     tokens,
-    cacheHit: cacheHitRatio(split),
-    perMtok: tokens > 0 ? agent.costUsd / (tokens / 1e6) : undefined,
+    cacheHit: split ? cacheHitRatio(split) : undefined,
+    perMtok: tokens !== undefined && tokens > 0 ? agent.costUsd / (tokens / 1e6) : undefined,
     cost: agent.costUsd,
   };
 }
@@ -100,7 +127,15 @@ export interface ModelSpend {
   rate: ModelRate;
 }
 
-/** Grouped by each agent's own resolved model — the same grouping the design's fixture uses. */
+/**
+ * Grouped by each agent's own resolved model — the same grouping the design's
+ * fixture uses. Attributes an agent's WHOLE cost to its current agent.model,
+ * the last resolved model — exact today (0 of the live team's agents span two
+ * models) but not guaranteed: a `/model` switch on the lead would land its
+ * earlier spend under the new model too, silently, with no test to catch it.
+ * Cost and share stay correct regardless (both sum agent.costUsd directly);
+ * only the per-model attribution can drift.
+ */
 export function spendByModel(agents: readonly Agent[]): ModelSpend[] {
   const total = agents.reduce((s, a) => s + a.costUsd, 0);
   const grouped = new Map<string, { cost: number; count: number }>();
