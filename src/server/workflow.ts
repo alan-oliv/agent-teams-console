@@ -6,6 +6,7 @@ import type {
   WorkflowRun,
 } from '../shared/domain';
 import type { StoredEvent } from './store';
+import { attachWorkflowUsage, type WorkflowUsagePayload } from '../shared/workflow-usage';
 
 type Bag = Record<string, unknown>;
 
@@ -205,8 +206,17 @@ export function parseWorkflowRun(raw: unknown): WorkflowRun | null {
  */
 export function foldWorkflows(events: readonly StoredEvent[]): WorkflowRun[] {
   const byRun = new Map<string, WorkflowRun>();
+  // Measured usage arrives on its own rows, from the run's agent transcripts
+  // rather than from either file the run model is built out of. Cumulative and
+  // last-wins per runId, like the run itself.
+  const usage = new Map<string, WorkflowUsagePayload>();
 
   for (const event of events) {
+    if (event.kind === 'workflow-usage') {
+      const payload = event.payload as WorkflowUsagePayload | undefined;
+      if (payload?.runId) usage.set(payload.runId, payload);
+      continue;
+    }
     if (event.kind !== 'workflow') continue;
     const run = event.payload as WorkflowRun | undefined;
     const runId = run?.runId;
@@ -215,7 +225,18 @@ export function foldWorkflows(events: readonly StoredEvent[]): WorkflowRun[] {
     byRun.set(runId, run);
   }
 
-  return [...byRun.values()].sort((a, b) => (b.startedAt ?? -1) - (a.startedAt ?? -1));
+  // Joined after the fold, not during it: the usage row and the run row arrive
+  // in either order, and a run re-read AFTER its usage landed would otherwise
+  // drop what had already been measured. The phase rollup needs the run model's
+  // own `phaseIndex`, which is why this cannot happen in the ingest.
+  const runs = [...byRun.values()].map((run) => {
+    const measured = usage.get(run.runId);
+    if (!measured || measured.agents.length === 0) return run;
+    const { usage: rollup, agents } = attachWorkflowUsage(run.agents, measured);
+    return { ...run, agents, usage: rollup };
+  });
+
+  return runs.sort((a, b) => (b.startedAt ?? -1) - (a.startedAt ?? -1));
 }
 
 /**

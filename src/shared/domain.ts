@@ -402,6 +402,69 @@ export interface WorkflowAgent {
   error?: string;            // the runtime's message, incl. 'skipped by user'
   isolation?: string;        // only ever 'worktree' in this build
   agentType?: string;        // set only when the script passed opts.agentType
+  /**
+   * What this agent actually put through the model, from its OWN transcript
+   * rather than from the snapshot.
+   *
+   * `tokens` above is final context occupancy and is 8-60x smaller — measured
+   * across the 19 runs on the capture machine, cache reads alone are 62-98% of
+   * real traffic and the snapshot carries none of them. The two are different
+   * quantities and must never be added or drawn as one.
+   *
+   * Absent until this agent's transcript has been read, which on a live run is
+   * the ordinary state for an agent that has not had a turn yet.
+   */
+  tokenSplit?: TokenSplit;
+}
+
+/**
+ * The run's token burn over time, evenly spaced so a chart can draw it without
+ * re-binning and so a frame never pays per turn.
+ *
+ * Evenly spaced and CUMULATIVE because that is what a burn line is. The sample
+ * count is capped ({@link WORKFLOW_BURN_SAMPLES}) and `stepMs` widens as a run
+ * outgrows it: the largest run measured carries 716 billed turns, and 19 runs
+ * of those on one frame would be ~456 KB of points to draw a line a few hundred
+ * pixels wide — the same argument that strips `script` off a run.
+ */
+export interface WorkflowBurn {
+  startedAt: number;         // epoch ms of the first bucket's start
+  stepMs: number;            // bucket width
+  cumulative: number[];      // running total of all four classes at each bucket's end
+}
+
+/** How many points a {@link WorkflowBurn} carries, however long the run ran. */
+export const WORKFLOW_BURN_SAMPLES = 60;
+
+/**
+ * A run's real token traffic, read from its agents' own transcripts under
+ * `subagents/workflows/wf_<runId>/agent-*.jsonl`.
+ *
+ * This exists because `WorkflowRun.totalTokens` is not spend: it is final
+ * context occupancy, and it understates real traffic by 8-60x per run. Both
+ * travel, and they answer different questions — see CONSOLE-NOTES.md §24.
+ *
+ * NOT dollars. The four classes and the model are what a price is computed
+ * from; the cost model lives in one place (`src/shared/cost.ts`) and is applied
+ * where it is drawn, exactly as the team ledger does it.
+ */
+export interface WorkflowUsage {
+  /** Summed over every agent of the run whose transcript has been read. */
+  split: TokenSplit;
+  /**
+   * Per declared phase, by `WorkflowPhase.index`. EMPTY on a live run rather
+   * than zeroed: an agent's `phaseIndex` reaches the console only with the
+   * snapshot, so before that there is nothing to group by — not a run whose
+   * phases each spent nothing.
+   */
+  byPhase: Array<{ phaseIndex: number; split: TokenSplit }>;
+  burn: WorkflowBurn;
+  /**
+   * How many agents' transcripts this covers. Less than `WorkflowRun.agents`
+   * while a run is starting, so a view can say what the figure is still missing
+   * rather than presenting a partial total as the whole.
+   */
+  agentsMeasured: number;
 }
 
 /**
@@ -438,9 +501,20 @@ export interface WorkflowRun {
   script?: string;           // the source AS EXECUTED — prefer this to the path
   durationMs?: number;       // absent while running
   agentCount?: number;
+  /**
+   * Final context occupancy, NOT spend — the runtime's own figure, kept because
+   * it is what the snapshot says. `usage.split` below is what the run actually
+   * cost. See WorkflowUsage.
+   */
   totalTokens?: number;
   totalToolCalls?: number;
   defaultModel?: string;
   result?: string;
   error?: string;
+  /**
+   * Read from the run's agent transcripts, which are appended LIVE — so unlike
+   * everything the snapshot carries, this is present while the run is going.
+   * Absent when no agent of the run has had a billed turn yet.
+   */
+  usage?: WorkflowUsage;
 }
