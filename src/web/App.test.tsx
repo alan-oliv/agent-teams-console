@@ -323,6 +323,19 @@ it('hands the wall the agent whose thread was open — one store, not six screen
   expect(window.location.search).toBe('?view=wall&agent=probe-bravo&team=session-98b0b4a7');
 });
 
+it('clicking a usage ledger row focuses that agent in the same shared store the wall reads', () => {
+  window.history.replaceState(null, '', '/?view=usage');
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
+
+  const rows = screen.getAllByTestId('usage-ledger-row');
+  fireEvent.click(rows[2]);
+
+  // One store, not six screens: the agent chosen in the ledger lands in the
+  // same URL-backed selection the wall, rail and overview already read.
+  expect(window.location.search).toContain('agent=probe-bravo');
+});
+
 it('⌘3 switches to comms', () => {
   render(<App />);
   act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));

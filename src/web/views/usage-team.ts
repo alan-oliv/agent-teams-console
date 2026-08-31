@@ -1,4 +1,4 @@
-import type { Agent, Task } from '../../shared/domain';
+import type { Agent } from '../../shared/domain';
 import { rateOf, usdCost, type ModelRate, type TokenSplit } from '../../shared/cost';
 
 export const EMPTY_SPLIT: TokenSplit = { in: 0, out: 0, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0 };
@@ -56,10 +56,6 @@ export function dollarsAvoided(agents: readonly Agent[]): number {
 export function costPerHour(totalCostUsd: number, startedAt: number, now: number): number | undefined {
   const hours = (now - startedAt) / 3_600_000;
   return hours > 0 ? totalCostUsd / hours : undefined;
-}
-
-export function tasksClosedBy(tasks: readonly Task[], agentName: string): number {
-  return tasks.filter((t) => t.owner === agentName && t.state === 'completed').length;
 }
 
 /** Undefined rather than a divide-by-zero when the list has nothing closed. */

@@ -14,6 +14,7 @@ import { CastContext } from './state/useCast';
 import { isEmptySession, isNotShown, useHiddenSessions } from './state/useHiddenSessions';
 import { useKeyboard } from './state/useKeyboard';
 import { SettingsContext, useSettings } from './state/useSettings';
+import { useSpendSamples } from './state/useSpendSamples';
 import { DiffContext, useTeamState } from './state/useTeamState';
 import { WatchContext } from './state/useWatch';
 import { Comms } from './views/Comms';
@@ -45,6 +46,10 @@ export function App() {
   }, []);
 
   const state = store.state;
+  // Lives here, not in the view, so switching away from usage and back does
+  // not restart the sampler — the same reason widths and hidden sessions live
+  // above the views that read them.
+  const spendSamples = useSpendSamples(state?.totalCostUsd);
   const toggleTeams = useCallback(() => setTeamsOpen((open) => !open), []);
 
   // An open-this-thread intent, not a selection: comms opens the everyone room
@@ -383,7 +388,16 @@ export function App() {
         {store.view === 'grid' && (
           <Grid agents={state.agents} focused={store.agent} onFocus={store.setAgent} now={now} />
         )}
-        {store.view === 'usage' && <Usage mode="team" state={state} now={now} />}
+        {store.view === 'usage' && (
+          <Usage
+            mode="team"
+            state={state}
+            now={now}
+            focused={store.agent}
+            onFocus={store.setAgent}
+            spendSamples={spendSamples}
+          />
+        )}
         </>
         )}
       </main>

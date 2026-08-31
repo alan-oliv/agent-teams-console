@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import type { WorkflowRun } from '../../shared/domain';
 import { sampleTeamState } from '../test/state-fixture';
@@ -17,7 +17,16 @@ const RUN: WorkflowRun = {
 };
 
 it('renders the team-mode body for mode="team"', () => {
-  render(<Usage mode="team" state={sampleTeamState()} now={0} />);
+  render(
+    <Usage
+      mode="team"
+      state={sampleTeamState()}
+      now={0}
+      focused={null}
+      onFocus={vi.fn()}
+      spendSamples={[]}
+    />,
+  );
   expect(screen.getByTestId('usage')).toBeTruthy();
   expect(screen.queryByTestId('workflow-usage')).toBeNull();
 });

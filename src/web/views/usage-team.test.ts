@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Agent, Task } from '../../shared/domain';
+import type { Agent } from '../../shared/domain';
 import type { TokenSplit } from '../../shared/cost';
 import {
   billedTokens,
@@ -12,7 +12,6 @@ import {
   spendByModel,
   splitOf,
   sumSplit,
-  tasksClosedBy,
 } from './usage-team';
 
 function split(over: Partial<TokenSplit> = {}): TokenSplit {
@@ -98,17 +97,7 @@ describe('costPerHour', () => {
   });
 });
 
-describe('tasksClosedBy / costPerTask', () => {
-  const tasks: Task[] = [
-    { id: '1', subject: 'a', description: '', owner: 'probe', state: 'completed', blocks: [], blockedBy: [] },
-    { id: '2', subject: 'b', description: '', owner: 'probe', state: 'in_progress', blocks: [], blockedBy: [] },
-    { id: '3', subject: 'c', description: '', owner: 'other', state: 'completed', blocks: [], blockedBy: [] },
-  ];
-
-  it('counts only this agent\'s completed tasks', () => {
-    expect(tasksClosedBy(tasks, 'probe')).toBe(1);
-  });
-
+describe('costPerTask', () => {
   it('is undefined rather than dividing by zero when nothing has closed', () => {
     expect(costPerTask(5, 0)).toBeUndefined();
   });
