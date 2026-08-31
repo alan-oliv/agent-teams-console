@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, expect, it } from 'vitest';
+import { buildCast, type Cast } from '../../shared/cast';
+import { CastContext } from '../state/useCast';
 import { SettingsContext, DEFAULT_SETTINGS } from '../state/useSettings';
 import { Portrait, TerminalSprite } from './Portrait';
 
@@ -83,4 +85,58 @@ it('draws nothing for the terminal sprite when avatars are off, like the role po
     </SettingsContext.Provider>,
   );
   expect(screen.queryByTestId('terminal-sprite')).toBeNull();
+});
+
+// The look follows the cast's role slot, and the whole thing goes through the
+// contexts the views already provide, so none of the seven call sites change.
+const filmed = (settings: Partial<typeof DEFAULT_SETTINGS>, cast: Cast, agent = LEAD) =>
+  render(
+    <SettingsContext.Provider value={{ ...DEFAULT_SETTINGS, ...settings }}>
+      <CastContext.Provider value={cast}>
+        <Portrait agent={agent} />
+      </CastContext.Provider>
+    </SettingsContext.Provider>,
+  );
+
+const svgOf = () => screen.getByTestId('portrait').innerHTML;
+
+it('wears the film look when the cast gave the agent a role slot', () => {
+  const cast = buildCast([LEAD], 'inception');
+  expect(cast.slotOf('team-lead')).toBe('lead');
+  filmed({ movieTheme: 'inception' }, cast);
+  const filmSvg = svgOf();
+  cleanup();
+
+  render(<Portrait agent={LEAD} />);
+  expect(filmSvg).not.toBe(svgOf());
+});
+
+it('keeps the default portrait for an agent that took a spare', () => {
+  // lookFollowsRoleSlot: an agent whose role could not be read wears nothing.
+  const cast = buildCast([LEAD, ALPHA], 'inception');
+  expect(cast.slotOf('probe-alpha')).toBeNull();
+  filmed({ movieTheme: 'inception' }, cast, ALPHA);
+  const withFilm = svgOf();
+  cleanup();
+
+  render(<Portrait agent={ALPHA} />);
+  expect(withFilm).toBe(svgOf());
+});
+
+it('tints portraits even with the film palette switched off', () => {
+  // The switch reaches the GROUND, not the cast: names and portrait colours
+  // survive it, which is what "names and portrait colours only" means.
+  const cast = buildCast([LEAD], 'inception');
+  filmed({ movieTheme: 'inception', filmPalette: false }, cast);
+  const off = svgOf();
+  cleanup();
+
+  render(<Portrait agent={LEAD} />);
+  expect(off).not.toBe(svgOf());
+});
+
+it('still honours the avatars toggle while a film is casting', () => {
+  const cast = buildCast([LEAD], 'inception');
+  filmed({ movieTheme: 'inception', avatars: false }, cast);
+  expect(screen.queryByTestId('portrait')).toBeNull();
 });

@@ -201,3 +201,34 @@ describe('casting', () => {
     expect(cast.asChar('repro').display).toBe('Fischer');
   });
 });
+
+// The looks follow the ROLE SLOT the cast assigned, not the portrait the sprite
+// hashed: an agent that took a spare is one whose role the console could not
+// read, so it keeps the default role portrait rather than wearing a character's
+// clothes (lookFollowsRoleSlot, and decision 20's premise).
+describe('the slot behind a character', () => {
+  it('records the slot it cast each agent into', () => {
+    const cast = buildCast(crew, 'inception');
+    expect(cast.slotOf('ada')).toBe('lead');
+    expect(cast.slotOf('bo')).toBe('security');
+    expect(cast.slotOf('cy')).toBe('tests');
+    expect(cast.slotOf('di')).toBe('architect');
+  });
+
+  it('gives no slot to an agent that took a spare', () => {
+    const cast = buildCast([...crew, mate('ed', 'general-purpose')], 'inception');
+    expect(cast.asChar('ed').display).toBe('Saito');
+    expect(cast.slotOf('ed')).toBeNull();
+  });
+
+  it('gives no slot to a second agent whose slot was already taken', () => {
+    const cast = buildCast([...crew, mate('fi', 'test-runner')], 'inception');
+    expect(cast.slotOf('cy')).toBe('tests');
+    expect(cast.slotOf('fi')).toBeNull();
+  });
+
+  it('gives no slot to an agent it was never built with, or with no theme', () => {
+    expect(buildCast(crew, 'inception').slotOf('someone-else')).toBeNull();
+    expect(buildCast(crew, null).slotOf('ada')).toBeNull();
+  });
+});

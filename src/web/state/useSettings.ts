@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
-import { MOVIE_THEMES, themeFor } from '../../shared/cast';
+import { MOVIE_THEMES, themeFor, type FilmPalette } from '../../shared/cast';
 import {
   ACCENT_KEYS,
   DENSITY,
@@ -106,6 +106,16 @@ export interface SettingsStore {
   gap: number;
 }
 
+/**
+ * The film grade currently driving, if one is. `themeFor(null)` is the off
+ * entry and carries no palette, so "no film" and "switch off" collapse to the
+ * same absent value. Shared rather than inlined because the portraits lift
+ * against this same ground — two copies of the rule could disagree.
+ */
+export function activePalette(settings: Settings): FilmPalette | undefined {
+  return settings.filmPalette ? themeFor(settings.movieTheme).palette : undefined;
+}
+
 export function useSettings(): SettingsStore {
   const [settings, setSettings] = useState<Settings>(read);
 
@@ -134,15 +144,8 @@ export function useSettings(): SettingsStore {
 
   const reset = useCallback(() => persist(DEFAULT_SETTINGS), [persist]);
 
-  // `themeFor(null)` is the off entry, which carries no palette, so "no film"
-  // and "switch off" collapse to the same absent third argument.
   const vars = useMemo(
-    () =>
-      cssVarsFor(
-        settings.theme,
-        settings.scheme,
-        settings.filmPalette ? themeFor(settings.movieTheme).palette : undefined,
-      ),
+    () => cssVarsFor(settings.theme, settings.scheme, activePalette(settings)),
     [settings.theme, settings.scheme, settings.movieTheme, settings.filmPalette],
   );
 

@@ -90,6 +90,13 @@ export interface CastName {
 export interface Cast {
   theme: MovieTheme;
   asChar(name: string): CastName;
+  /**
+   * The role slot this agent was cast into, or null if it took a spare, kept its
+   * own name, or was never cast at all. The looks follow THIS rather than the
+   * portrait the sprite hashes, so an agent whose role the console could not
+   * read keeps the default portrait instead of wearing a character's clothes.
+   */
+  slotOf(name: string): RoleSlot | null;
 }
 
 /** The picker's list, off first, in the database's order. */
@@ -135,6 +142,7 @@ function slotFor(agent: CastAgent): RoleSlot | null {
 export function buildCast(agents: readonly CastAgent[], themeKey: string | null | undefined): Cast {
   const theme = themeFor(themeKey);
   const characters = new Map<string, string>();
+  const slots = new Map<string, RoleSlot>();
   const overflow: string[] = [];
   const taken = new Set<RoleSlot>();
 
@@ -144,6 +152,7 @@ export function buildCast(agents: readonly CastAgent[], themeKey: string | null 
     if (slot && character) {
       taken.add(slot);
       characters.set(agent.name, character);
+      slots.set(agent.name, slot);
     } else {
       overflow.push(agent.name);
     }
@@ -157,5 +166,6 @@ export function buildCast(agents: readonly CastAgent[], themeKey: string | null 
   return {
     theme,
     asChar: (name) => ({ display: characters.get(name) ?? name, real: name }),
+    slotOf: (name) => slots.get(name) ?? null,
   };
 }

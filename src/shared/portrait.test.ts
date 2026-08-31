@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { themeFor } from './cast';
 import type { PortraitId } from './domain';
 import {
+  applyFeats,
+  FEAT_SPRITES,
+  LIFT_TARGETS,
+  lift,
+  parseLook,
   PORTRAIT_IDS,
   portraitFor,
   portraitSvg,
@@ -10,6 +16,38 @@ import {
   TERMINAL_SPRITE,
   TERMINAL_SPRITE_SVG,
 } from './portrait';
+
+/** sRGB relative luminance, enough to order two colours by lightness. */
+function luminance(hex: string): number {
+  const n = parseInt(hex.slice(1), 16);
+  const channel = (c: number) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  return (
+    0.2126 * channel((n >> 16) & 255) +
+    0.7152 * channel((n >> 8) & 255) +
+    0.0722 * channel(n & 255)
+  );
+}
+const contrast = (a: string, b: string) => {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+};
+/** Hue in degrees, for asserting the lift moved lightness and nothing else. */
+function hue(hex: string): number {
+  const n = parseInt(hex.slice(1), 16);
+  const [r, g, b] = [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+  const max = Math.max(r, g, b);
+  const d = max - Math.min(r, g, b);
+  if (d === 0) return 0;
+  const h = max === r ? ((g - b) / d + (g < b ? 6 : 0)) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return h * 60;
+}
+const hueGap = (a: string, b: string) => {
+  const d = Math.abs(hue(a) - hue(b));
+  return Math.min(d, 360 - d);
+};
 
 const countPaths = (svg: string): number => (svg.match(/<path /g) ?? []).length;
 
@@ -190,5 +228,191 @@ describe('portraitSvg', () => {
   it('returns identical output for the same (portrait, skinIndex)', () => {
     expect(portraitSvg('architect', 4)).toBe(portraitSvg('architect', 4));
     expect(portraitSvg('architect', 4)).not.toBe(portraitSvg('architect', 3));
+  });
+});
+
+describe('parseLook', () => {
+  it('reads the five slots off a film look, adding the hash the data omits', () => {
+    expect(parseLook('e0c3a8|b99a80|6b7f9e|3d4a63|31241b')).toEqual({
+      skin: '#e0c3a8',
+      skinShade: '#b99a80',
+      garment: '#6b7f9e',
+      garmentShade: '#3d4a63',
+      hair: '#31241b',
+    });
+  });
+
+  it('reads every look the database actually ships', () => {
+    for (const theme of [...Array(10)].map((_, i) => themeFor(
+      ['inception', 'stranger', 'lotr', 'starwars', 'bttf', 'pulp', 'godfather', 'dogs', 'matrix', 'breakingbad'][i],
+    ))) {
+      for (const [slot, raw] of Object.entries(theme.looks ?? {})) {
+        const look = parseLook(raw);
+        expect(look, `${theme.key}.${slot}`).not.toBeNull();
+        for (const value of Object.values(look!)) {
+          expect(value, `${theme.key}.${slot}`).toMatch(/^#[0-9a-f]{6}$/);
+        }
+      }
+    }
+  });
+
+  it('refuses a look it cannot read rather than painting half a character', () => {
+    for (const bad of [undefined, '', 'nope', 'e0c3a8|b99a80', 'e0c3a8|b99a80|6b7f9e|3d4a63|31241b|extra', 'e0c3a8|b99a80|6b7f9e|3d4a63|zzzzzz']) {
+      expect(parseLook(bad), String(bad)).toBeNull();
+    }
+  });
+});
+
+describe('applyFeats', () => {
+  const lead = SPRITES.lead;
+
+  it('leaves the silhouette alone when a character wears nothing', () => {
+    expect(applyFeats(lead, [])).toEqual(lead);
+  });
+
+  it('keeps the grid 12x12 whatever it draws', () => {
+    for (const feat of Object.keys(FEAT_SPRITES) as Array<keyof typeof FEAT_SPRITES>) {
+      const grid = applyFeats(lead, [feat]);
+      expect(grid, feat).toHaveLength(12);
+      for (const row of grid) expect(row.length, `${feat}:${row}`).toBe(12);
+    }
+  });
+
+  it('paints accessories only in the character own look slots, never a colour of its own', () => {
+    // Every glyph an accessory can introduce has to be one the look supplies.
+    for (const rows of Object.values(FEAT_SPRITES)) {
+      for (const patch of Object.values(rows)) {
+        for (const ch of patch) expect('.sSabh', patch).toContain(ch);
+      }
+    }
+  });
+
+  it('clears the scalp for bald, so a hat lands on skin rather than on hair', () => {
+    const bald = applyFeats(lead, ['bald']);
+    expect(bald.join('')).not.toContain('h');
+    // The spec's own pairing: the chemist is bald UNDER the pork pie hat.
+    const hatted = applyFeats(lead, ['bald', 'fedora']);
+    expect(hatted[2]).toBe('.aaaaaaaaaa.'); // brim
+    expect(hatted[3]).not.toContain('h'); // no hair peeking out beneath it
+  });
+
+  it('applies in list order, so the later accessory wins the pixels they share', () => {
+    // bald+fedora cannot show this: a fedora is drawn in garment glyphs and bald
+    // only clears hair, so that pair commutes. A pair that shares rows can.
+    const hatOverHair = applyFeats(lead, ['wildhair', 'fedora']);
+    const hairOverHat = applyFeats(lead, ['fedora', 'wildhair']);
+    expect(hatOverHair).not.toEqual(hairOverHat);
+    // Column 5 of row 0 is the one cell both of them paint, so it is the cell
+    // that records which was drawn last. Everywhere else the base silhouette
+    // still shows through, which is why this asserts the pixel and not the row.
+    expect(hatOverHair[0][5]).toBe('a'); // the hat went on after the hair
+    expect(hairOverHat[0][5]).toBe('h'); // the hair went on after the hat
+  });
+
+  it('ignores an accessory it has no art for rather than throwing', () => {
+    expect(applyFeats(lead, ['nonesuch' as never])).toEqual(lead);
+  });
+});
+
+describe('the silhouette lift', () => {
+  // The recorded failure: Pulp Fiction's lead measured 1.06:1 garment against
+  // the pane and read as a floating face.
+  const pulp = parseLook(themeFor('pulp').looks!.lead)!;
+  const ground = themeFor('pulp').palette!.bg;
+
+  it('rescues the near-black garment that vanished on the near-black ground', () => {
+    expect(contrast(pulp.garment, ground)).toBeLessThan(1.3); // the bug, still in the data
+    const lifted = lift(pulp.garment, ground, LIFT_TARGETS.garment);
+    expect(contrast(lifted, ground)).toBeGreaterThanOrEqual(LIFT_TARGETS.garment - 0.01);
+  });
+
+  it('moves lightness and leaves hue alone', () => {
+    for (const hex of ['#16161a', '#123456', '#7f0000', '#1f2a24', '#4a2b2b']) {
+      const out = lift(hex, '#141414', LIFT_TARGETS.garment);
+      expect(hueGap(hex, out), hex).toBeLessThan(2);
+    }
+  });
+
+  it('never darkens against a dark ground', () => {
+    for (const hex of ['#000000', '#0a0a0a', '#16161a', '#222222', '#333333', '#123456']) {
+      const out = lift(hex, '#141414', LIFT_TARGETS.garment);
+      expect(luminance(out), hex).toBeGreaterThanOrEqual(luminance(hex) - 1e-9);
+    }
+  });
+
+  it('leaves a colour that already reads exactly as it was', () => {
+    for (const hex of ['#c9924f', '#e0c3a8', '#f0d3a4']) {
+      expect(lift(hex, '#141414', LIFT_TARGETS.garment), hex).toBe(hex);
+    }
+  });
+
+  it('pushes the other way on a light ground', () => {
+    const out = lift('#e8e2d4', '#ece5d7', LIFT_TARGETS.garment);
+    expect(luminance(out)).toBeLessThan(luminance('#e8e2d4'));
+    expect(contrast(out, '#ece5d7')).toBeGreaterThanOrEqual(LIFT_TARGETS.garment - 0.01);
+  });
+
+  it('lifts the garment hardest, because it carries the shape', () => {
+    expect(LIFT_TARGETS.garment).toBeGreaterThan(LIFT_TARGETS.garmentShade);
+    expect(LIFT_TARGETS.garment).toBeGreaterThan(LIFT_TARGETS.hair);
+    expect(LIFT_TARGETS.garment).toBeGreaterThan(LIFT_TARGETS.outline);
+    expect(LIFT_TARGETS.garment).toBeGreaterThan(LIFT_TARGETS.skin);
+  });
+
+  it('makes every shipped look read against its own film ground', () => {
+    // The whole point: no character may be a floating face on any of the ten.
+    for (const key of ['inception', 'stranger', 'lotr', 'starwars', 'bttf', 'pulp', 'godfather', 'dogs', 'matrix', 'breakingbad']) {
+      const theme = themeFor(key);
+      const bg = theme.palette!.bg;
+      for (const [slot, raw] of Object.entries(theme.looks ?? {})) {
+        const look = parseLook(raw)!;
+        const garment = lift(look.garment, bg, LIFT_TARGETS.garment);
+        expect(contrast(garment, bg), `${key}.${slot} garment`).toBeGreaterThanOrEqual(
+          LIFT_TARGETS.garment - 0.01,
+        );
+      }
+    }
+  });
+});
+
+describe('portraitSvg painted from a film', () => {
+  const look = parseLook(themeFor('inception').looks!.lead)!;
+  const ground = themeFor('inception').palette!.bg;
+
+  it('is the default portrait when the character has no look', () => {
+    expect(portraitSvg('lead', 0)).toBe(portraitSvg('lead', 0, undefined));
+  });
+
+  it('paints the silhouette in the film colours rather than the default skin', () => {
+    const svg = portraitSvg('lead', 0, { look, ground });
+    // The garment came off the accent ramp before; it is the film's now.
+    expect(svg).not.toContain('var(--color-accent-400)');
+    expect(svg).toContain('viewBox="0 0 12 12"');
+    expect(svg).not.toBe(portraitSvg('lead', 0));
+  });
+
+  it('lifts the film colours against the ground rather than painting them raw', () => {
+    // Pulp Fiction's lead is the recorded case: raw garment is invisible here.
+    const pulpLook = parseLook(themeFor('pulp').looks!.lead)!;
+    const pulpGround = themeFor('pulp').palette!.bg;
+    const svg = portraitSvg('lead', 0, { look: pulpLook, ground: pulpGround });
+    expect(svg).not.toContain(pulpLook.garment);
+    const fills = [...svg.matchAll(/fill="(#[0-9a-f]{6})"/g)].map((m) => m[1]);
+    for (const fill of fills) {
+      expect(contrast(fill, pulpGround), fill).toBeGreaterThan(1.3);
+    }
+  });
+
+  it('draws the character accessories over the silhouette', () => {
+    const plain = portraitSvg('lead', 0, { look, ground });
+    const shaded = portraitSvg('lead', 0, { look, ground, feats: ['shades'] });
+    expect(shaded).not.toBe(plain);
+  });
+
+  it('returns identical output for identical input, and different for different', () => {
+    expect(portraitSvg('lead', 0, { look, ground })).toBe(portraitSvg('lead', 0, { look, ground }));
+    expect(portraitSvg('lead', 0, { look, ground, feats: ['bald'] })).not.toBe(
+      portraitSvg('lead', 0, { look, ground }),
+    );
   });
 });

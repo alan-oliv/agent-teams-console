@@ -1,5 +1,15 @@
-import { portraitFor, portraitSvg, TERMINAL_SPRITE, TERMINAL_SPRITE_SVG } from '../../shared/portrait';
-import { useAppearance } from '../state/useSettings';
+import { themeFor } from '../../shared/cast';
+import {
+  parseLook,
+  portraitFor,
+  portraitSvg,
+  TERMINAL_SPRITE,
+  TERMINAL_SPRITE_SVG,
+  type FilmPaint,
+} from '../../shared/portrait';
+import { useCast } from '../state/useCast';
+import { activePalette, useAppearance } from '../state/useSettings';
+import { THEMES } from '../themes';
 
 export type PortraitSlot = 'wall' | 'rail-row' | 'default';
 
@@ -17,10 +27,30 @@ export interface PortraitProps {
 }
 
 export function Portrait({ agent, slot = 'default', size = 24 }: PortraitProps) {
-  const { avatars } = useAppearance();
+  const appearance = useAppearance();
+  const cast = useCast();
   const { portrait, skinIndex } = portraitFor(agent);
   // Nothing at all, not a blank box: the rows close up around the missing face.
-  if (!avatars) return null;
+  if (!appearance.avatars) return null;
+
+  // The look follows the slot the CAST assigned, not the portrait the sprite
+  // hashed: an agent that took a spare is one whose role could not be read, and
+  // it keeps the default portrait rather than wearing a character's clothes.
+  const role = cast.slotOf(agent.name);
+  const theme = themeFor(appearance.movieTheme);
+  const look = role ? parseLook(theme.looks?.[role]) : null;
+  // Lifted against whatever ground is actually painted — the film's while its
+  // palette drives, the system theme's when the switch is off. Portrait tints
+  // survive that switch; only the ground they are read against changes.
+  const film: FilmPaint | undefined =
+    look && role
+      ? {
+          look,
+          ground: activePalette(appearance)?.bg ?? (THEMES[appearance.theme] ?? THEMES.nocturne).bg,
+          feats: theme.feats?.[role],
+        }
+      : undefined;
+
   return (
     <div
       data-testid="portrait"
@@ -33,7 +63,7 @@ export function Portrait({ agent, slot = 'default', size = 24 }: PortraitProps) 
         flex: 'none',
         marginTop: SLOT_MARGIN[slot],
       }}
-      dangerouslySetInnerHTML={{ __html: portraitSvg(portrait, skinIndex) }}
+      dangerouslySetInnerHTML={{ __html: portraitSvg(portrait, skinIndex, film) }}
     />
   );
 }
