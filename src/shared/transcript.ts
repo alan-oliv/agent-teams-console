@@ -9,6 +9,13 @@ export interface TranscriptRecord {           // one parsed JSONL line, loosely 
   compactMetadata?: { postTokens?: number };
   message?: { id?: string; model?: string; role?: string; usage?: Usage; content?: unknown };
   toolUseResult?: unknown;
+  /**
+   * A turn the harness queued rather than delivered — `type: 'attachment'`, no
+   * `message` at all. A background subagent's completion arrives this way as
+   * often as it arrives as an ordinary user turn, so both forms have to be read
+   * to see one finish. See subagents.ts.
+   */
+  attachment?: { type?: string; prompt?: string };
 }
 
 /**

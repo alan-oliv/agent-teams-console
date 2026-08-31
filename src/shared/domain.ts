@@ -140,6 +140,76 @@ export interface Task {
   metadata?: TaskMetadata;
 }
 
+/**
+ * A subagent is DISPATCHED, not hired: the parent's `Task`/`Agent` tool call is
+ * the only record that always exists for one, so `queued` is a real state and
+ * every other field below can be absent while it is in it.
+ *
+ * `returned` and `failed` are only reachable when the parent's transcript closed
+ * the call — a synchronous tool_result, or the `<task-notification>` that lands
+ * when a background agent finishes. A background agent whose notification has
+ * not arrived reads as `running`, which is what the two files honestly say.
+ */
+export type SubagentState = 'queued' | 'running' | 'returned' | 'failed';
+
+/**
+ * One `Task`/`Agent` call, joined to whatever the subagent's own transcript and
+ * `.meta.json` sidecar added to it. NOT a team member — a subagent never enters
+ * `config.json` `members[]`, and `Agent` is deliberately its own contract rather
+ * than a second kind of {@link Agent}.
+ *
+ * `toolUseId` is the primary key: it exists from the instant the call is made,
+ * it is what the sidecar links back with, and it is how a transcript row finds
+ * the subagent it dispatched. `agentId` is richer but arrives later and only for
+ * a background launch.
+ *
+ * Every field below `state` is optional in the same sense `WorkflowAgent`'s are:
+ * absent means the source that carries it has not landed, never zero. A subagent
+ * whose sidecar never arrived keeps only what its parent's journal knows.
+ */
+export interface Subagent {
+  toolUseId: string;
+  name: string;              // sidecar name, else the call's `name`/`description`
+  /** The roster agent whose transcript this subtree hangs off — the tree's key. */
+  agent: string;
+  /**
+   * Immediate parent: `agent` at depth 1, the parent subagent's `toolUseId`
+   * deeper. Read it with `depth` — the two are different vocabularies, and
+   * nothing here promises they cannot collide.
+   */
+  parent: string;
+  depth: number;             // 1 for a subagent of a roster agent, +1 per nesting level
+  /** Dispatch order within the parent, 0-based. Siblings keep their call order. */
+  spawnIndex: number;
+  /**
+   * The parent record that dispatched it. N calls in ONE assistant turn are a
+   * fan-out and share this; sequential calls each get their own.
+   */
+  siblingGroup: string;
+  state: SubagentState;
+  agentId?: string;          // `a` + name? + 16 hex — names its own transcript file
+  agentType?: string;        // the call's subagent_type, e.g. 'general-purpose'
+  model?: string;
+  description?: string;      // the call's one-line description
+  queuedAt: number;          // epoch ms — the parent's tool_use record
+  startedAt?: number;        // first record of its own transcript; absent while queued
+  returnedAt?: number;
+  durationMs?: number;       // absent until it returns
+  tokens?: number;
+  toolCalls?: number;
+  contextTokens?: number;
+  returnedSummary?: string;
+  /** Its own `Task`/`Agent` calls, same ordering and grouping rules. */
+  children: Subagent[];
+}
+
+/**
+ * Roster agent name -> the subagents it dispatched, in spawn order. Keyed by
+ * parent so a transcript row can reach its own agent's calls without walking
+ * the whole tree, and so a trace view can walk one agent at a time.
+ */
+export type SubagentTree = Record<string, Subagent[]>;
+
 export type ProtocolFrameType =
   | 'task_assignment' | 'task_completed' | 'idle_notification'
   | 'plan_approval_request' | 'plan_approval_response'
@@ -210,6 +280,15 @@ export interface TeamState {
   mode?: ConsoleMode;
   /** Newest first. Present in both modes: a team can have run workflows too. */
   workflows?: WorkflowRun[];
+  /**
+   * Every subagent the roster dispatched, keyed by the agent that dispatched it.
+   * Absent when nobody called `Task`/`Agent` — an empty map and "no subagents"
+   * are the same fact, so only one of them travels.
+   *
+   * Bounded by the store's per-agent record budget, like `transcript`: a call
+   * whose record has aged out of the log is no longer in the tree.
+   */
+  subagents?: SubagentTree;
 }
 
 /**

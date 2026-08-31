@@ -10,6 +10,17 @@ import type {
   TeamState,
   TranscriptLine,
 } from '../shared/domain';
+import {
+  applySpawnEvents,
+  buildSubagentTree,
+  emptySubagentFold,
+  spawnEventsOf,
+  type SpawnEvent,
+  type SubagentDigest,
+  type SubagentFacts,
+  type SubagentFold,
+  type SubagentMeta,
+} from '../shared/subagents';
 import { buildRoster, type Sidecar, type TeamConfig } from '../shared/roster';
 import { resolveModel } from '../shared/catalog';
 import { splitTok, type TokenSplit } from '../shared/cost';
@@ -120,6 +131,21 @@ export interface SubstatusPayload {
 export interface NeedsYouResolvedPayload {
   id: string;
 }
+/**
+ * One subagent's own two files, folded. Cumulative and last-wins per
+ * `toolUseId`, for the same reason `AgentUsageTotals` is: the log cannot hold a
+ * subagent's records — a fan-out of twenty would put twenty whole transcripts
+ * through it — so a digest replaces the last one rather than adding to it.
+ *
+ * `toolUseId` is the key rather than `agentId` because it is what the PARENT's
+ * transcript names, and the parent is the only side that always exists.
+ */
+export interface SubagentPayload {
+  toolUseId: string;
+  agentId: string;
+  meta?: SubagentMeta;
+  digest: SubagentDigest;
+}
 
 function lastAssistantModel(records: TranscriptRecord[]): string | undefined {
   for (let i = records.length - 1; i >= 0; i--) {
@@ -189,6 +215,23 @@ function toolOf(rec: TranscriptRecord): string | undefined {
   const tool = currentToolOf(rec);
   toolMemo.set(rec, tool ?? NO_TOOL);
   return tool;
+}
+
+/**
+ * The same memo again, for the subagent dispatches a record reports. Empty for
+ * all but a handful of records, but the check that PROVES it is empty walks the
+ * record's content blocks — and this fold runs over every stored record of
+ * every agent, four times a second.
+ */
+const spawnMemo = new WeakMap<TranscriptRecord, SpawnEvent[]>();
+function spawnEventsFor(rec: TranscriptRecord): SpawnEvent[] {
+  if (!memoisable(rec)) return spawnEventsOf(rec);
+  let events = spawnMemo.get(rec);
+  if (events === undefined) {
+    events = spawnEventsOf(rec);
+    spawnMemo.set(rec, events);
+  }
+  return events;
 }
 
 /**
@@ -279,6 +322,11 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
   const lastActivity = new Map<string, number>();
   const needsYou = new Map<string, NeedsYouItem>();
   const usageTotals = new Map<string, AgentUsageTotals>();
+  // Per roster agent, the `Task`/`Agent` calls its transcript made — collected
+  // inside the record loop below rather than by a second walk, because that
+  // walk would be over every stored record on every publish.
+  const spawnFolds = new Map<string, SubagentFold>();
+  const subagentFacts = new Map<string, SubagentFacts>();
   let mail: MailMessage[] = [];
 
   const bump = (agent: string, ts: number) => {
@@ -305,9 +353,11 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
         if (p.fromStart) {
           records.set(p.agent, []);
           seenRecords.set(p.agent, new Set<string>());
+          spawnFolds.set(p.agent, emptySubagentFold());
         }
         const list = records.get(p.agent) ?? [];
         const seen = seenRecords.get(p.agent) ?? new Set<string>();
+        const spawns = spawnFolds.get(p.agent) ?? emptySubagentFold();
         for (const rec of p.records) {
           // The 5s reconciliation sweep deliberately re-reads files, so the same
           // record can arrive twice; the record uuid is the dedupe key.
@@ -328,11 +378,23 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
               errors.delete(p.agent);
             }
           }
+          applySpawnEvents(spawns, spawnEventsFor(rec));
           const ts = rec.timestamp ? Date.parse(rec.timestamp) : NaN;
           if (!Number.isNaN(ts)) bump(p.agent, ts);
         }
         records.set(p.agent, list);
         seenRecords.set(p.agent, seen);
+        spawnFolds.set(p.agent, spawns);
+        break;
+      }
+      case 'subagent': {
+        const p = ev.payload as SubagentPayload;
+        // Cumulative, so the newest digest REPLACES the last one, like `totals`.
+        subagentFacts.set(p.toolUseId, {
+          agentId: p.agentId,
+          meta: p.meta,
+          digest: p.digest,
+        });
         break;
       }
       case 'task': {
@@ -513,6 +575,13 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
     if (owned.some((t) => t.state === 'blocked')) agent.status = 'blocked';
   }
 
+  // Roster order, so the tree walks the same agents the wall does — and only
+  // roster agents, so a subagent can never be mistaken for a team member.
+  const subagents = buildSubagentTree(
+    agents.map((a) => ({ agent: a.name, spawns: spawnFolds.get(a.name)?.spawns ?? [] })),
+    subagentFacts,
+  );
+
   return {
     teamName: config?.name ?? '',
     sessionName,
@@ -527,5 +596,6 @@ export function project(events: StoredEvent[], readOnly: boolean): TeamState {
     mail,
     needsYou: cards,
     readOnly,
+    ...(Object.keys(subagents).length > 0 ? { subagents } : {}),
   };
 }
