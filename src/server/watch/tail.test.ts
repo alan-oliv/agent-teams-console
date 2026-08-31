@@ -243,6 +243,50 @@ describe('pump', () => {
     }
   });
 
+  // A reader that could not place a file yet — a subagent transcript whose
+  // session has not joined the lead's chain — must be able to put the bytes
+  // back, because dropping them advances the offset and loses them for good.
+  it('forget makes the next pump re-read the file from its first byte', async () => {
+    const file = path.join(dir, 'forget.jsonl');
+    writeFileSync(file, '{"i":1}\n{"i":2}\n');
+    const seen: Array<{ lines: string[]; fromStart: boolean }> = [];
+    const watcher = watchAppendOnly(dir, (_f, lines, fromStart) => seen.push({ lines, fromStart }));
+    try {
+      await watcher.pump(file);
+      expect(seen).toHaveLength(1);
+      expect(seen[0]).toEqual({ lines: ['{"i":1}', '{"i":2}'], fromStart: true });
+
+      // Without forget this is a no-op: the offset is already at EOF.
+      await watcher.pump(file);
+      expect(seen).toHaveLength(1);
+
+      await watcher.forget(file);
+      await watcher.pump(file);
+      expect(seen).toHaveLength(2);
+      expect(seen[1]).toEqual({ lines: ['{"i":1}', '{"i":2}'], fromStart: true });
+    } finally {
+      watcher.close();
+    }
+  });
+
+  it('forget orders behind a drain already in flight, so it cannot be undone by it', async () => {
+    const file = path.join(dir, 'forget-race.jsonl');
+    writeFileSync(file, '{"i":1}\n');
+    const seen: string[][] = [];
+    const watcher = watchAppendOnly(dir, (_f, lines) => seen.push(lines));
+    try {
+      // Both queued before either settles: the forget must land AFTER the
+      // in-flight drain writes its state, or that write resurrects the offset.
+      const inFlight = watcher.pump(file);
+      const forgotten = watcher.forget(file);
+      await Promise.all([inFlight, forgotten]);
+      await watcher.pump(file);
+      expect(seen).toEqual([['{"i":1}'], ['{"i":1}']]);
+    } finally {
+      watcher.close();
+    }
+  });
+
   it('reads a file the watcher never reported', async () => {
     const got: string[] = [];
     const w = deadWatcher((_p, lines) => got.push(...lines));

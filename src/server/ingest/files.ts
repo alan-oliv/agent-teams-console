@@ -496,6 +496,13 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
   // the same breath.
   const disowned = new Set<string>();
 
+  // Files a watcher event reached before the lead's session chain could place
+  // them. Their bytes were read and dropped, so the offset moved past content
+  // nothing has stored — the next sweep that CAN place the file rewinds it and
+  // reads it whole. Paths only, cleared as each one is recovered, and the
+  // recovery costs one re-read of one file exactly once.
+  const deferred = new Set<string>();
+
   // A TRANSCRIPT this run has proven is not a teammate's keeps nothing. Keyed by
   // the file the sidecar describes, never by the name it carries: a name is not
   // unique across teams (166 sidecars on one ordinary machine, 13 teammate names
@@ -653,7 +660,16 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
       return;
     }
     const claim = claimOfTranscript(file, chain, leadName);
-    if (!claim) return;
+    // Not "not ours" — "not placeable YET". A subagent transcript whose session
+    // has not joined the lead's chain, or the lead's own file seen before
+    // config.json named the session, both land here and both become claimable
+    // moments later. The drain that produced these lines already advanced the
+    // offset, so returning without a note loses them permanently: the sweep's
+    // own pump then reads zero new bytes and the agent stays empty forever.
+    if (!claim) {
+      deferred.add(file);
+      return;
+    }
     if (disowned.has(file)) return;
     // The sidecar's own `name` is the roster's join key, so it decides the
     // identity of the file it describes; the path-derived name is a fallback for
@@ -956,7 +972,11 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
       logError(`ingest ${file}`, err);
     }
     // Keep the sweep's mtime gate in step so it does not re-dispatch a file the
-    // watcher just consumed.
+    // watcher just consumed. A file it could not PLACE was not consumed — it
+    // was discarded — so that one stays off the gate: the sweep resolves the
+    // session chain before it drains, and it is the only pass that can recover
+    // the file. Closing the gate here is what used to strand it for good.
+    if (deferred.has(file)) return;
     void fs.stat(file).then(
       (st) => marks.set(file, st.mtimeMs),
       () => undefined,
@@ -975,6 +995,11 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
     const claim = claimOfTranscript(file, chain, leadName);
     if (!claim || disowned.has(file)) return;
     notePath(sidecars.get(file)?.name ?? claim.agent, file);
+    // The claim resolves now but did not when a watcher event got here first,
+    // and those lines were dropped after their bytes were counted. This is the
+    // first pass that can place the file, so put the whole thing back. Once
+    // only: `delete` clears the note, and a re-read costs one file.
+    if (deferred.delete(file)) await transcripts.forget(file);
     await transcripts.pump(file);
   };
 

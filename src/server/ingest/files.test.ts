@@ -456,14 +456,6 @@ describe('startFileIngest', () => {
     expect(tp.agent).toBe('probe-charlie');
     expect(tp.records).toHaveLength(21);
     expect(tp.records[0].uuid).toBe('11e6d4d8-e189-4e20-af44-164cbfed2cfa');
-    // The file's own clock rides with the records so the staleness rule can tell
-    // a session that went quiet from a log being replayed — see isWallClockLog.
-    // Asserted against the real stat rather than a range: this is the one place
-    // the tailer's mtime is proved to survive the whole path into the store.
-    const onDisk = await fs.stat(
-      path.join(paths.projects, SLUG, LEAD_SESSION, 'subagents', 'agent-aprobe-charlie-12ee4cb1ed35cf7c.jsonl'),
-    );
-    expect(tp.mtimeMs).toBe(onDisk.mtimeMs);
 
     const task = of(events, 'task').at(-1)!.payload as TaskPayload;
     expect(task.id).toBe('1');
@@ -745,6 +737,30 @@ describe('transcript latency', () => {
       await ingest.drainAgent('probe-charlie');
       expect(recordsFor('probe-charlie')).toHaveLength(before + 1);
       expect(recordsFor('probe-charlie').at(-1)!.uuid).toBe('hook-1');
+    } finally {
+      ingest.close();
+    }
+  });
+
+  // The file's own clock rides with the records so the staleness rule can tell a
+  // session that went quiet from a log being replayed — see isWallClockLog. Read
+  // after admission on purpose: lines that arrive before their sidecar are
+  // buffered and flushed WITHOUT a clock, which is deliberate (a buffered batch
+  // has no file read behind it) and would make an assertion here race the walk.
+  it('carries the transcript file mtime into the store, on a batch read straight from the file', async () => {
+    const ingest = await startWithoutFsWatch({ sweepIntervalMs: 0, tailPollMs: 0 });
+    try {
+      await layout();
+      await ingest.sweep();
+
+      await write(charlieTranscript(), 'clock-1');
+      await ingest.drainAgent('probe-charlie');
+
+      const onDisk = await fs.stat(charlieTranscript());
+      const mine = of(store.replay(), 'transcript')
+        .map((e) => e.payload as TranscriptPayload)
+        .filter((p) => p.agent === 'probe-charlie');
+      expect(mine.at(-1)!.mtimeMs).toBe(onDisk.mtimeMs);
     } finally {
       ingest.close();
     }

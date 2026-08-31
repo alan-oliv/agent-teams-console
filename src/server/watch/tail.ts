@@ -91,6 +91,20 @@ export interface AppendOnlyWatcher {
    * file cover all of them and no two readers can emit the same bytes twice.
    */
   pump(file: string): Promise<void>;
+  /**
+   * Put a file's bytes back: drop its offset so the next `pump` re-reads it
+   * whole, `fromStart` and all.
+   *
+   * For a reader that could not place a file YET rather than one that has
+   * decided against it — a subagent transcript whose session has not joined the
+   * lead's chain, or the lead's own transcript seen before `config.json` named
+   * the session. Those lines are dropped, and because the drain that produced
+   * them advanced the offset, nothing would ever read them again.
+   *
+   * Queued on the same per-file chain as `pump`, so a drain already in flight
+   * cannot write its advanced state back on top of the reset.
+   */
+  forget(file: string): Promise<void>;
   close(): void;
 }
 
@@ -130,8 +144,17 @@ export function watchAppendOnly(
     void pump(path.join(root, filename));
   });
 
+  const forget = (file: string): Promise<void> => {
+    const next = (queues.get(file) ?? Promise.resolve()).then(() => {
+      states.delete(file);
+    });
+    queues.set(file, next);
+    return next;
+  };
+
   return {
     pump,
+    forget,
     close() {
       closed = true;
       watcher.close();
