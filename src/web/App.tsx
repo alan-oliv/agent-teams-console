@@ -363,10 +363,17 @@ export function App() {
               store.setAgent(name);
               store.setView('comms');
             }}
+            subagents={state.subagents}
           />
         )}
         {store.view === 'overview' && (
-          <Overview agents={state.agents} focused={store.agent} onFocus={store.setAgent} now={now} />
+          <Overview
+            agents={state.agents}
+            focused={store.agent}
+            onFocus={store.setAgent}
+            now={now}
+            subagents={state.subagents}
+          />
         )}
         {store.view === 'comms' && (
           <Comms
@@ -392,10 +399,17 @@ export function App() {
             onFocus={store.setAgent}
             now={now}
             readOnly={state.readOnly}
+            subagents={state.subagents}
           />
         )}
         {store.view === 'grid' && (
-          <Grid agents={state.agents} focused={store.agent} onFocus={store.setAgent} now={now} />
+          <Grid
+            agents={state.agents}
+            focused={store.agent}
+            onFocus={store.setAgent}
+            now={now}
+            subagents={state.subagents}
+          />
         )}
         {store.view === 'usage' && (
           <Usage

@@ -1,5 +1,5 @@
 import { memo, useState, type KeyboardEvent } from 'react';
-import type { Agent } from '../../shared/domain';
+import type { Agent, Subagent, SubagentTree } from '../../shared/domain';
 import { wallOrder } from '../../shared/roster';
 import { AGENT_STATUS, DORMANT_OPACITY, isDormant } from '../../shared/status';
 import { Composer } from '../components/Composer';
@@ -108,7 +108,13 @@ const Row = memo(function Row({
 // feed and a composer behind it, so a frame in which its agent did not move must not
 // reconcile any of it.
 const Attached = memo(function Attached(
-  { agent, readOnly, teamLive }: { agent: Agent; readOnly: boolean; teamLive: boolean },
+  { agent, readOnly, teamLive, subagents }: {
+    agent: Agent;
+    readOnly: boolean;
+    teamLive: boolean;
+    /** This agent's own Task/Agent dispatches, in spawn order. */
+    subagents?: Subagent[];
+  },
 ) {
   const status = AGENT_STATUS[agent.status];
   const display = useCast().asChar(agent.name).display;
@@ -196,6 +202,7 @@ const Attached = memo(function Attached(
         size="rail"
         agent={agent.name}
         working={agent.status === 'working'}
+        subagents={subagents}
       />
 
       {/* One composer, and it is the lead's. A composer under a teammate's
@@ -234,13 +241,15 @@ const Attached = memo(function Attached(
 });
 
 export function Rail({
-  agents, focused, onFocus, now, readOnly = false,
+  agents, focused, onFocus, now, readOnly = false, subagents,
 }: {
   agents: Agent[];
   focused: string | null;
   onFocus: (name: string) => void;
   now: number;
   readOnly?: boolean;
+  /** Every roster agent's Task/Agent dispatches, keyed by dispatcher name. */
+  subagents?: SubagentTree;
 }) {
   const ordered = wallOrder(agents);
   const startAt = Math.max(0, ordered.findIndex((a) => a.name === focused));
@@ -337,7 +346,12 @@ export function Rail({
         </div>
       </div>
 
-      <Attached agent={attached} readOnly={readOnly} teamLive={teamLive} />
+      <Attached
+        agent={attached}
+        readOnly={readOnly}
+        teamLive={teamLive}
+        subagents={subagents?.[attached.name]}
+      />
     </div>
   );
 }

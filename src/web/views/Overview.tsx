@@ -1,5 +1,5 @@
 import { memo, useCallback, useState, type CSSProperties, type KeyboardEvent } from 'react';
-import type { Agent } from '../../shared/domain';
+import type { Agent, Subagent, SubagentTree } from '../../shared/domain';
 import { wallOrder } from '../../shared/roster';
 import { AGENT_STATUS, DORMANT_OPACITY, isDormant } from '../../shared/status';
 import { useCast } from '../state/useCast';
@@ -18,7 +18,7 @@ const GROUND = 'var(--term)';
 // Every prop must be stable across frames for that to hold: `isTinted` is passed
 // precomputed rather than the hovered name, and the handlers are hoisted callbacks.
 const Tile = memo(function Tile({
-  agent, isFocused, isTinted, onFocus, onHoverEnter, onHoverLeave,
+  agent, isFocused, isTinted, onFocus, onHoverEnter, onHoverLeave, subagents,
 }: {
   agent: Agent;
   isFocused: boolean;
@@ -26,6 +26,8 @@ const Tile = memo(function Tile({
   onFocus: (name: string) => void;
   onHoverEnter: (name: string) => void;
   onHoverLeave: (name: string) => void;
+  /** This agent's own Task/Agent dispatches, in spawn order. */
+  subagents?: Subagent[];
 }) {
   const status = AGENT_STATUS[agent.status];
   const pct = pctLabel(agent.contextTokens, agent.contextLimit);
@@ -143,6 +145,7 @@ const Tile = memo(function Tile({
         lines={agent.transcript}
         size="overview"
         working={agent.status === 'working'}
+        subagents={subagents}
       />
 
       <div
@@ -170,12 +173,14 @@ const Tile = memo(function Tile({
 });
 
 export function Overview({
-  agents, focused, onFocus, now,
+  agents, focused, onFocus, now, subagents,
 }: {
   agents: Agent[];
   focused: string | null;
   onFocus: (name: string) => void;
   now: number;
+  /** Every roster agent's Task/Agent dispatches, keyed by dispatcher name. */
+  subagents?: SubagentTree;
 }) {
   const [hovered, setHovered] = useState<string | null>(null);
   const onHoverEnter = useCallback((name: string) => setHovered(name), []);
@@ -200,6 +205,7 @@ export function Overview({
             onFocus={onFocus}
             onHoverEnter={onHoverEnter}
             onHoverLeave={onHoverLeave}
+            subagents={subagents?.[agent.name]}
           />
         ))}
       </NowContext>

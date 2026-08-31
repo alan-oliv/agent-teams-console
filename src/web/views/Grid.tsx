@@ -1,5 +1,5 @@
 import { memo, type KeyboardEvent } from 'react';
-import type { Agent } from '../../shared/domain';
+import type { Agent, Subagent, SubagentTree } from '../../shared/domain';
 import { ContextMeter } from '../components/ContextMeter';
 import { Elapsed, NowContext } from '../components/Elapsed';
 import { Portrait } from '../components/Portrait';
@@ -14,11 +14,13 @@ const PANES = 6;
 
 // Memoised so an SSE frame only re-renders the panes whose agent actually moved.
 const Pane = memo(function Pane({
-  agent, isFocused, onFocus,
+  agent, isFocused, onFocus, subagents,
 }: {
   agent: Agent;
   isFocused: boolean;
   onFocus: (name: string) => void;
+  /** This agent's own Task/Agent dispatches, in spawn order. */
+  subagents?: Subagent[];
 }) {
   // Display only — focus still carries the real name.
   const display = useCast().asChar(agent.name).display;
@@ -101,6 +103,7 @@ const Pane = memo(function Pane({
         lines={agent.transcript}
         size="grid"
         working={agent.status === 'working'}
+        subagents={subagents}
       />
 
       <div
@@ -122,12 +125,14 @@ const Pane = memo(function Pane({
 });
 
 export function Grid({
-  agents, focused, onFocus, now,
+  agents, focused, onFocus, now, subagents,
 }: {
   agents: Agent[];
   focused: string | null;
   onFocus: (name: string) => void;
   now: number;
+  /** Every roster agent's Task/Agent dispatches, keyed by dispatcher name. */
+  subagents?: SubagentTree;
 }) {
   // Lead first, then live, then departed — a stale departed agent must not
   // hoard a pane while a live teammate is pushed into the '+N more' chip.
@@ -155,6 +160,7 @@ export function Grid({
             agent={agent}
             isFocused={agent.name === focused}
             onFocus={onFocus}
+            subagents={subagents?.[agent.name]}
           />
         ))}
       </NowContext>

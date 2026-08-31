@@ -8,7 +8,7 @@ import {
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from 'react';
-import type { Agent } from '../../shared/domain';
+import type { Agent, Subagent, SubagentTree } from '../../shared/domain';
 import { wallOrder } from '../../shared/roster';
 import { AGENT_STATUS, DORMANT_OPACITY, isDormant } from '../../shared/status';
 import { Composer, RosterContext } from '../components/Composer';
@@ -85,7 +85,7 @@ function InFlight({ agent, onOpen }: { agent: Agent; onOpen?: (name: string) => 
 
 const Column = memo(function Column({
   agent, isFocused, isTinted, isDragging, width, readOnly, teamLive, routed,
-  onFocus, onHoverEnter, onHoverLeave, onGrip, onGripReset, onOpenMail,
+  onFocus, onHoverEnter, onHoverLeave, onGrip, onGripReset, onOpenMail, subagents,
 }: {
   agent: Agent;
   isFocused: boolean;
@@ -121,6 +121,8 @@ const Column = memo(function Column({
   onGripReset: (name: string) => void;
   /** Opens this agent's queued messages in comms. Absent leaves the badge inert. */
   onOpenMail?: (name: string) => void;
+  /** This agent's own Task/Agent dispatches, in spawn order. */
+  subagents?: Subagent[];
 }) {
   const status = AGENT_STATUS[agent.status];
   const isLeadColumn = agent.isLead;
@@ -320,6 +322,7 @@ const Column = memo(function Column({
         size="wall"
         agent={agent.name}
         working={agent.status === 'working'}
+        subagents={subagents}
       />
 
       <div
@@ -399,7 +402,7 @@ const Column = memo(function Column({
 
 export function Wall({
   agents, focused, revealAlso = null, onFocus, now, readOnly = false, widths = {}, onWidthChange,
-  onOpenMail,
+  onOpenMail, subagents,
 }: {
   agents: Agent[];
   focused: string | null;
@@ -412,6 +415,8 @@ export function Wall({
   readOnly?: boolean;
   widths?: Readonly<Record<string, number>>;
   onWidthChange?: (name: string, px: number | null) => void;
+  /** Every roster agent's Task/Agent dispatches, keyed by dispatcher name. */
+  subagents?: SubagentTree;
 }) {
   const [hovered, setHovered] = useState<string | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
@@ -523,6 +528,7 @@ export function Wall({
             onHoverLeave={onHoverLeave}
             onGrip={onGrip}
             onGripReset={onGripReset}
+            subagents={subagents?.[agent.name]}
           />
         ))}
       </NowContext>
