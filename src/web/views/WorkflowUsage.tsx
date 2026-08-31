@@ -1,5 +1,5 @@
-import type { CSSProperties } from 'react';
-import type { WorkflowAgent, WorkflowPhase, WorkflowRun } from '../../shared/domain';
+import { useState, type CSSProperties } from 'react';
+import type { WorkflowAgent, WorkflowAgentState, WorkflowPhase, WorkflowRun } from '../../shared/domain';
 import { formatElapsed, formatTokens } from '../format';
 import { liveCounts, phaseTally } from './workflow-grid';
 import { resumeSplit } from './workflow-resume';
@@ -20,13 +20,17 @@ import { resumeSplit } from './workflow-resume';
  * different quantity wearing a currency symbol. See USAGE-STATE.md.
  *
  * The four-class split those figures would need does exist, live, in each
- * agent's own transcript under `subagents/workflows/<runId>/` — which the
- * ingest refuses by two separate rules, because a workflow fan-out is not a
- * team member. Lifting that is a scope decision, not a view's to make.
+ * agent's own transcript under `subagents/workflows/wf_<runId>/agent-*.jsonl` —
+ * appended WHILE the run is going, with a per-line timestamp and model. The
+ * ingest refuses those files by two separate rules, because a workflow fan-out
+ * is not a team member. Lifting that is a scope decision, not a view's to make.
  *
- * So this mode follows the console's established pattern for a specified figure
- * with no source: do not draw it, draw what exists, and say why here rather
- * than leaving a gap the operator has to explain to themselves.
+ * So the accurate sentence is not "there is no source" — CONSOLE-NOTES §24
+ * re-measured it at 8 runs and 76 agents and found the snapshot understates real
+ * traffic by 15x to 75x, because cache reads are 94.8% of it and the snapshot
+ * holds none. The source exists, it is live, and this console does not read it.
+ * The mode draws what is ingested, and says exactly that where the money would
+ * have been.
  */
 
 export const AGENT_WARN_THRESHOLD = 25;
@@ -103,6 +107,13 @@ export interface PhaseUsageRow {
   /** Undefined, never zero, for a phase the run never reached. */
   contextTokens?: number;
   elapsedMs?: number;
+  /**
+   * First start and last return under this phase — the Gantt's bar. Absent
+   * together with the phase's other figures when the run never reached it: a
+   * phase reaches disk with its agents or with nothing.
+   */
+  startMs?: number;
+  endMs?: number;
   pending: boolean;
 }
 
@@ -116,18 +127,34 @@ export function phaseRows(run: WorkflowRun): PhaseUsageRow[] {
     const mine = run.agents.filter((a) => a.phaseIndex === phase.index);
     const withTokens = mine.filter((a) => a.tokens !== undefined);
     const spans = spansOf(mine);
+    const startMs = spans.length > 0 ? Math.min(...spans.map((s) => s.from)) : undefined;
+    const endMs = spans.length > 0 ? Math.max(...spans.map((s) => s.to)) : undefined;
     return {
       phase,
       tally: phaseTally(run.agents, phase.index),
       contextTokens:
         withTokens.length > 0 ? withTokens.reduce((sum, a) => sum + a.tokens!, 0) : undefined,
-      elapsedMs:
-        spans.length > 0
-          ? Math.max(...spans.map((s) => s.to)) - Math.min(...spans.map((s) => s.from))
-          : undefined,
+      elapsedMs: startMs !== undefined && endMs !== undefined ? endMs - startMs : undefined,
+      startMs,
+      endMs,
       pending: mine.length === 0,
     };
   });
+}
+
+/**
+ * The window the Gantt positions bars against: the run's own first start to its
+ * last return, rather than `startedAt`/`durationMs`, so a bar cannot land
+ * outside the track when the snapshot's run-level timings disagree with the
+ * agents' own.
+ */
+export function runSpan(rows: readonly PhaseUsageRow[]): { from: number; to: number } | undefined {
+  const starts = rows.map((r) => r.startMs).filter((v): v is number => v !== undefined);
+  const ends = rows.map((r) => r.endMs).filter((v): v is number => v !== undefined);
+  if (starts.length === 0 || ends.length === 0) return undefined;
+  const from = Math.min(...starts);
+  const to = Math.max(...ends);
+  return to > from ? { from, to } : undefined;
 }
 
 /**
@@ -170,6 +197,18 @@ const TILE_LABEL: CSSProperties = {
 
 const TILE_VALUE: CSSProperties = { color: 'var(--color-text)', fontSize: '19px' };
 
+/** The words the agents view already uses, so two views cannot disagree. */
+const STATE_WORD: Record<WorkflowAgentState, string> = {
+  done: 'returned',
+  run: 'running',
+  cache: 'cached',
+  null: 'returned null',
+  // `queued`, not `waiting` — CONSOLE-DECISIONS ruling 11.
+  wait: 'queued',
+  fail: 'failed',
+  block: 'blocked',
+};
+
 const CELL: CSSProperties = {
   flex: 'none',
   textAlign: 'right',
@@ -202,8 +241,55 @@ function stateTally(agents: readonly WorkflowAgent[]): string {
   );
 }
 
+/** Which of a phase's rows the Gantt paints, from the states under it. */
+function phaseTone(row: PhaseUsageRow, agents: readonly WorkflowAgent[]): string {
+  const mine = agents.filter((a) => a.phaseIndex === row.phase.index);
+  return mine.some((a) => a.state === 'run')
+    ? 'var(--color-accent-600)'
+    : 'var(--color-accent-700)';
+}
+
+const SCATTER_W = 620;
+const SCATTER_H = 150;
+// §24: radius by cost is downstream of the transcript ingest. Until there is a
+// cost to scale by, every point is the same size — a radius scaled by something
+// else would answer a question nobody asked.
+const POINT_R = 4;
+
+const SCATTER_FILL: Partial<Record<WorkflowAgentState, string>> = {
+  done: 'var(--color-accent-600)',
+  run: 'var(--color-accent-300)',
+  null: 'var(--color-neutral-800)',
+  cache: 'var(--color-accent-700)',
+  block: 'var(--color-neutral-800)',
+  wait: 'var(--color-neutral-800)',
+};
+
+const CHIPS: Array<{ id: string; word: string; match: (a: WorkflowAgent) => boolean }> = [
+  { id: 'all', word: 'all', match: () => true },
+  { id: 'done', word: 'done', match: (a) => a.state === 'done' || a.state === 'cache' },
+  { id: 'running', word: 'running', match: (a) => a.state === 'run' },
+  { id: 'failed', word: 'failed', match: (a) => a.state === 'fail' },
+  { id: 'stopped', word: 'stopped', match: (a) => a.state === 'null' || a.state === 'block' },
+];
+
 export function WorkflowUsage({ run, now }: { run: WorkflowRun; now: number }) {
   const rows = phaseRows(run);
+  const span = runSpan(rows);
+  const [phase, setPhase] = useState<number | null>(null);
+  const [chip, setChip] = useState('all');
+
+  const selected = rows.find((r) => r.phase.index === phase) ?? rows.find((r) => !r.pending);
+  const scoped = selected ? run.agents.filter((a) => a.phaseIndex === selected.phase.index) : [];
+
+  const ran = run.agents.filter((a) => a.startedAt !== undefined);
+  const matcher = CHIPS.find((c) => c.id === chip) ?? CHIPS[0];
+  const points = ran.filter(matcher.match);
+  const maxTok = Math.max(1, ...ran.map((a) => a.tokens ?? 0));
+  const maxDur = Math.max(
+    1,
+    ...ran.map((a) => (a.durationMs === undefined ? now - a.startedAt! : a.durationMs)),
+  );
   const { peak, msAtPeak } = concurrency(run.agents);
   const series = concurrencySeries(run.agents);
   const counts = liveCounts(run);
@@ -318,45 +404,72 @@ export function WorkflowUsage({ run, now }: { run: WorkflowRun; now: number }) {
           <div style={PANEL}>
             <div style={PANEL_TITLE}>Phases</div>
             <div>
-              {rows.map((row) => (
-                <div
-                  key={row.phase.index}
-                  data-testid="wfu-phase-row"
-                  style={{
-                    display: 'flex',
-                    gap: '10px',
-                    alignItems: 'baseline',
-                    padding: '6px 0',
-                    borderTop: '1px solid var(--color-neutral-900)',
-                  }}
-                >
-                  <span
+              {rows.map((row) => {
+                const wide = span !== undefined && row.startMs !== undefined && row.endMs !== undefined;
+                return (
+                  <div
+                    key={row.phase.index}
+                    data-testid="wfu-gantt-row"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setPhase(row.phase.index)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setPhase(row.phase.index); }
+                    }}
                     style={{
-                      width: '180px',
-                      flex: 'none',
-                      color: row.pending ? 'var(--color-neutral-600)' : 'var(--color-text)',
-                      fontSize: '11.5px',
+                      display: 'flex',
+                      gap: '10px',
+                      alignItems: 'center',
+                      padding: '5px 0',
+                      borderTop: '1px solid var(--color-neutral-900)',
+                      background: selected?.phase.index === row.phase.index ? 'var(--color-accent-900)' : 'transparent',
+                      cursor: 'pointer',
                     }}
                   >
-                    {row.phase.title}
-                  </span>
-                  <span
-                    data-testid="wfu-phase-tally"
-                    style={{ flex: 1, minWidth: 0, color: 'var(--color-neutral-600)', fontSize: '10.5px' }}
-                  >
-                    {row.tally}
-                  </span>
-                  {/* Em-dashes, never zeros. A phase the run never reached has
-                      no agents recorded under it at all, so a 0 here would be a
-                      measurement of something that was never measured. */}
-                  <span data-testid="wfu-phase-context" style={{ ...CELL, width: '78px' }}>
-                    {row.contextTokens === undefined ? EM_DASH : formatTokens(row.contextTokens)}
-                  </span>
-                  <span data-testid="wfu-phase-elapsed" style={{ ...CELL, width: '72px' }}>
-                    {row.elapsedMs === undefined ? EM_DASH : formatElapsed(row.elapsedMs)}
-                  </span>
-                </div>
-              ))}
+                    <span style={{ width: '180px', flex: 'none', display: 'flex', alignItems: 'center', gap: '7px' }}>
+                      <span
+                        style={{
+                          width: '6px',
+                          height: '6px',
+                          borderRadius: '50%',
+                          flex: 'none',
+                          background: row.pending ? 'var(--color-neutral-800)' : phaseTone(row, run.agents),
+                        }}
+                      />
+                      <span style={{ color: row.pending ? 'var(--color-neutral-600)' : 'var(--color-text)', fontSize: '11.5px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {row.phase.title}
+                      </span>
+                    </span>
+                    {/* The track is the run's own first-start-to-last-return
+                        window, so a bar is a percentage of measured time. */}
+                    <span style={{ flex: 1, minWidth: 0, height: '22px', borderRadius: '3px', background: 'var(--term)', position: 'relative' }}>
+                      {wide && (
+                        <span
+                          data-testid="wfu-gantt-bar"
+                          style={{
+                            position: 'absolute',
+                            top: '4px',
+                            bottom: '4px',
+                            left: `${((row.startMs! - span!.from) / (span!.to - span!.from)) * 100}%`,
+                            width: `${Math.max(0.5, ((row.endMs! - row.startMs!) / (span!.to - span!.from)) * 100)}%`,
+                            borderRadius: '2px',
+                            background: phaseTone(row, run.agents),
+                          }}
+                        />
+                      )}
+                    </span>
+                    <span data-testid="wfu-phase-tally" style={{ ...CELL, width: '132px', textAlign: 'left' }}>
+                      {row.tally}
+                    </span>
+                    <span data-testid="wfu-phase-context" style={{ ...CELL, width: '78px' }}>
+                      {row.contextTokens === undefined ? EM_DASH : formatTokens(row.contextTokens)}
+                    </span>
+                    <span data-testid="wfu-phase-elapsed" style={{ ...CELL, width: '72px' }}>
+                      {row.elapsedMs === undefined ? EM_DASH : formatElapsed(row.elapsedMs)}
+                    </span>
+                  </div>
+                );
+              })}
               {rows.length === 0 && (
                 <div style={PROSE}>this run declared no phases — the script called agent() without phase()</div>
               )}
@@ -365,9 +478,131 @@ export function WorkflowUsage({ run, now }: { run: WorkflowRun; now: number }) {
               A pending phase shows em-dashes because a phase reaches disk with
               its agents or with nothing: the number waiting to run is not
               recorded anywhere, so the count the row would like to give cannot
-              be filled in. The context column is the sum of each agent's last
+              be filled in. The context column is the sum of each agent&apos;s last
               turn, so a fan-out phase whose siblings shared one cached prefix
-              counts that prefix once per sibling.
+              counts that prefix once per sibling. There is no cost column for
+              the reason below.
+            </div>
+          </div>
+
+          {selected && (
+            <div style={PANEL}>
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '12px' }}>
+                <span data-testid="wfu-agent-table-title" style={PANEL_TITLE}>
+                  {`Agents in "${selected.phase.title}"`}
+                </span>
+                <span style={{ ...PROSE, fontSize: '10.5px' }}>click a phase row to scope this table</span>
+              </div>
+              <div style={{ display: 'flex', gap: '10px', color: 'var(--color-neutral-700)', fontSize: '9.5px', letterSpacing: '.06em', textTransform: 'uppercase', paddingBottom: '4px' }}>
+                <span style={{ width: '32px', flex: 'none' }}>#</span>
+                <span style={{ flex: 1, minWidth: 0 }}>label</span>
+                <span style={{ ...CELL, width: '132px' }}>model</span>
+                <span style={{ ...CELL, width: '92px' }}>status</span>
+                <span style={{ ...CELL, width: '72px' }}>time</span>
+                <span style={{ ...CELL, width: '78px' }}>final context</span>
+              </div>
+              {scoped.map((a, i) => (
+                <div
+                  key={a.agentId}
+                  data-testid="wfu-agent-row"
+                  style={{ display: 'flex', gap: '10px', alignItems: 'baseline', padding: '4px 0', borderTop: '1px solid var(--color-neutral-900)', fontSize: '11px' }}
+                >
+                  <span style={{ width: '32px', flex: 'none', color: 'var(--color-neutral-600)' }}>{i + 1}</span>
+                  <span style={{ flex: 1, minWidth: 0, color: 'var(--color-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {a.label ?? a.agentId}
+                  </span>
+                  <span style={{ ...CELL, width: '132px' }}>{a.model ?? EM_DASH}</span>
+                  <span style={{ ...CELL, width: '92px' }}>{STATE_WORD[a.state]}</span>
+                  <span style={{ ...CELL, width: '72px' }}>
+                    {a.durationMs !== undefined
+                      ? formatElapsed(a.durationMs)
+                      : a.startedAt !== undefined
+                        ? formatElapsed(now - a.startedAt)
+                        : EM_DASH}
+                  </span>
+                  <span style={{ ...CELL, width: '78px' }}>
+                    {a.tokens === undefined ? EM_DASH : formatTokens(a.tokens)}
+                  </span>
+                </div>
+              ))}
+              {scoped.length === 0 && (
+                <div style={PROSE}>
+                  this phase has no agents on disk — the run never reached it, and
+                  the number waiting to run is recorded nowhere
+                </div>
+              )}
+            </div>
+          )}
+
+          <div style={PANEL}>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '12px' }}>
+              <span style={PANEL_TITLE}>Every agent in the run</span>
+              <span data-testid="wfu-scatter-ylabel" style={{ ...PROSE, fontSize: '10.5px' }}>
+                y: final context · x: wall time
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              {CHIPS.map((c) => (
+                <span
+                  key={c.id}
+                  data-testid="wfu-scatter-chip"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setChip(c.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setChip(c.id); }
+                  }}
+                  style={{
+                    padding: '2px 8px',
+                    borderRadius: '999px',
+                    border: '1px solid var(--color-accent-700)',
+                    background: chip === c.id ? 'var(--color-accent-900)' : 'transparent',
+                    color: chip === c.id ? 'var(--color-accent-300)' : 'var(--color-neutral-600)',
+                    fontSize: '10.5px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {`${c.word} ${ran.filter(c.match).length}`}
+                </span>
+              ))}
+            </div>
+            {ran.length === 0 ? (
+              <div style={PROSE}>
+                no agent on this run recorded a start time, so there is nothing to
+                place — timings arrive with the snapshot.
+              </div>
+            ) : (
+              <svg
+                viewBox={`0 0 ${SCATTER_W} ${SCATTER_H}`}
+                preserveAspectRatio="none"
+                style={{ width: '100%', height: `${SCATTER_H}px`, background: 'var(--term)', borderRadius: '3px' }}
+              >
+                {points.map((a) => {
+                  const dur = a.durationMs === undefined ? now - a.startedAt! : a.durationMs;
+                  const cx = (dur / maxDur) * (SCATTER_W - 2 * POINT_R) + POINT_R;
+                  const cy = SCATTER_H - ((a.tokens ?? 0) / maxTok) * (SCATTER_H - 2 * POINT_R) - POINT_R;
+                  const hollow = a.state === 'fail';
+                  return (
+                    <circle
+                      key={a.agentId}
+                      data-testid="wfu-scatter-point"
+                      data-state={a.state}
+                      cx={cx}
+                      cy={cy}
+                      r={POINT_R}
+                      fill={hollow ? 'none' : SCATTER_FILL[a.state] ?? 'var(--color-neutral-800)'}
+                      stroke={hollow ? 'var(--color-text)' : undefined}
+                      strokeWidth={hollow ? 1.5 : undefined}
+                    />
+                  );
+                })}
+              </svg>
+            )}
+            <div style={PROSE}>
+              A failed agent is drawn as a hollow ring rather than a second hue,
+              so it is findable on a page that carries no failure colour. Every
+              point is the same size: the design scales radius by cost, and there
+              is no cost here to scale it by.
             </div>
           </div>
         </>
@@ -377,17 +612,41 @@ export function WorkflowUsage({ run, now }: { run: WorkflowRun; now: number }) {
         <div data-testid="wfu-no-cost" style={{ ...PANEL, flex: 1, minWidth: 0 }}>
           <div style={PANEL_TITLE}>Why there are no costs here</div>
           <div style={PROSE}>
-            The run snapshot records one number per agent, and it is that agent's
-            final context size — its last turn's input plus cache creation plus
-            cache read. Checked against the agents' own transcripts it matched
-            the context reading in every one of the 135 records on disk and
-            matched a billed-token sum in none of them. A rate applied to it
-            would not be an approximate bill, it would be a different quantity
-            with a currency symbol on it, so this mode reports the run in agents,
-            tool calls and time instead. The per-class token counts that would
-            price it are written live to each agent's transcript, which the
-            console does not read: a workflow fan-out is not a team member, and
-            widening that rule is not a decision a view gets to make.
+            <p style={{ margin: '0 0 7px' }}>
+              The run snapshot records one number per agent, and it is that
+              agent&apos;s final context size — its last turn&apos;s input plus cache
+              creation plus cache read. A rate applied to it would not be an
+              approximate bill, it would be a different quantity with a currency
+              symbol on it, so this mode reports the run in agents, tool calls
+              and time instead.
+            </p>
+            <p style={{ margin: '0 0 7px' }}>
+              The source that would price it is not missing. Each agent writes
+              its own four-class usage to
+              {' '}
+              <code style={{ color: 'var(--color-accent-400)' }}>subagents/workflows/wf_&lt;runId&gt;/agent-*.jsonl</code>
+              {' '}
+              while the run is going, with a per-line timestamp and model.
+              Re-measured across 8 runs and 76 agents, the snapshot understates
+              real token traffic by 15× to 75× — cache reads are 94.8% of it and
+              the snapshot carries none. So the honest sentence is not that there
+              is no source: the source exists, it is live, and this console does
+              not read it. A workflow fan-out is not a team member, and widening
+              that rule is a scope decision rather than a view&apos;s to make.
+            </p>
+            <p style={{ margin: 0 }}>
+              Two figures stay refused whatever is decided. The concurrency
+              chart&apos;s <code style={{ color: 'var(--color-accent-400)' }}>cap 16</code> line
+              asserts a ceiling this run may not have had — the cap is
+              min(16, CPUs − 2), resolved on the launching host and never written
+              down. And the 1.5M projected-token warning line is dead against the
+              quantity on disk (0 of 8 runs reach it) and permanently tripped
+              against the quantity actually spent (8 of 8, the smallest by 6×), so
+              the constant has to be re-derived once the quantity is settled
+              rather than carried across. A third figure needs the runtime, not
+              this console: the count of agents scheduled but not yet started,
+              which exists only inside the running process.
+            </p>
           </div>
         </div>
 

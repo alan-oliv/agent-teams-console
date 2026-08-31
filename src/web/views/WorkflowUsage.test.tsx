@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import type { WorkflowAgent, WorkflowRun } from '../../shared/domain';
 import { WorkflowUsage, bannerFires, concurrency, phaseRows } from './WorkflowUsage';
 
@@ -243,5 +243,137 @@ describe('a live run', () => {
   it('still draws the footer, whose caps do not depend on the run', () => {
     draw(liveRun);
     expect(screen.getByTestId('wfu-footer')).toBeTruthy();
+  });
+});
+
+describe('the phase Gantt', () => {
+  const twoPhases = () =>
+    run({
+      startedAt: T0,
+      durationMs: 300_000,
+      phases: [
+        { index: 1, title: 'Survey' },
+        { index: 2, title: 'Build' },
+        { index: 3, title: 'Never reached' },
+      ],
+      agents: [
+        agent({ agentId: 'a1', phaseIndex: 1, startedAt: T0, durationMs: 60_000, tokens: 10_000 }),
+        agent({ agentId: 'a2', phaseIndex: 2, startedAt: T0 + 60_000, durationMs: 120_000, tokens: 20_000 }),
+      ],
+    });
+
+  it('folds each phase to its own first start and last return', () => {
+    const rows = phaseRows(twoPhases());
+    expect(rows[0].startMs).toBe(T0);
+    expect(rows[0].endMs).toBe(T0 + 60_000);
+    expect(rows[1].startMs).toBe(T0 + 60_000);
+    expect(rows[1].endMs).toBe(T0 + 180_000);
+  });
+
+  it('leaves a phase the run never reached without a span at all', () => {
+    const rows = phaseRows(twoPhases());
+    expect(rows[2].startMs).toBeUndefined();
+    expect(rows[2].endMs).toBeUndefined();
+    expect(rows[2].pending).toBe(true);
+  });
+
+  it('positions each bar as a percentage of the run span', () => {
+    draw(twoPhases());
+    const bars = screen.getAllByTestId('wfu-gantt-bar');
+    expect(bars).toHaveLength(2); // the pending phase draws no bar
+    expect(bars[0].style.left).toBe('0%');
+    expect(parseFloat(bars[0].style.width)).toBeCloseTo(33.33, 1);
+  });
+
+  it('says "queued" and draws em-dashes for a pending row, never a zero', () => {
+    draw(twoPhases());
+    const rows = screen.getAllByTestId('wfu-gantt-row');
+    expect(rows[2].textContent).toContain('queued');
+    expect(within(rows[2]).getByTestId('wfu-phase-elapsed').textContent).toBe('—');
+  });
+
+  it('scopes the agent table to the phase whose row was clicked', () => {
+    draw(twoPhases());
+    fireEvent.click(screen.getAllByTestId('wfu-gantt-row')[1]);
+    expect(screen.getByTestId('wfu-agent-table-title').textContent).toContain('Build');
+    expect(screen.getAllByTestId('wfu-agent-row')).toHaveLength(1);
+  });
+});
+
+describe('the per-agent scatter', () => {
+  const mixed = () =>
+    run({
+      startedAt: T0,
+      durationMs: 300_000,
+      agents: [
+        agent({ agentId: 'a1', state: 'done', startedAt: T0, durationMs: 60_000, tokens: 10_000 }),
+        agent({ agentId: 'a2', state: 'fail', startedAt: T0, durationMs: 30_000, tokens: 5_000 }),
+        agent({ agentId: 'a3', state: 'run', startedAt: T0 + 10_000, tokens: 8_000 }),
+        agent({ agentId: 'a4', state: 'null', startedAt: T0, durationMs: 10_000, tokens: 1_000 }),
+      ],
+    });
+
+  it('draws one point per agent that actually ran', () => {
+    draw(mixed());
+    expect(screen.getAllByTestId('wfu-scatter-point')).toHaveLength(4);
+  });
+
+  // §24: radius by cost is blocked on the transcript ingest, so every point is
+  // the same size until there is a cost to scale it by.
+  it('gives every point the same radius, because there is no cost to scale it by', () => {
+    draw(mixed());
+    const radii = screen.getAllByTestId('wfu-scatter-point').map((p) => p.getAttribute('r'));
+    expect(new Set(radii).size).toBe(1);
+  });
+
+  it('draws a failed agent as a hollow ring so it is findable without a second hue', () => {
+    draw(mixed());
+    const failed = screen.getAllByTestId('wfu-scatter-point').find((p) => p.getAttribute('data-state') === 'fail')!;
+    expect(failed.getAttribute('fill')).toBe('none');
+    expect(failed.getAttribute('stroke')).toBeTruthy();
+  });
+
+  it('counts each state on its filter chip', () => {
+    draw(mixed());
+    const chips = screen.getAllByTestId('wfu-scatter-chip').map((c) => c.textContent);
+    expect(chips.some((c) => c?.includes('all') && c?.includes('4'))).toBe(true);
+    expect(chips.some((c) => c?.includes('failed') && c?.includes('1'))).toBe(true);
+  });
+
+  it('filters the points down to the chip that was clicked', () => {
+    draw(mixed());
+    const done = screen.getAllByTestId('wfu-scatter-chip').find((c) => c.textContent?.includes('done'))!;
+    fireEvent.click(done);
+    expect(screen.getAllByTestId('wfu-scatter-point')).toHaveLength(1);
+  });
+
+  // The y axis is final context occupancy, not billed spend. Labelling it
+  // "tokens" is the exact conflation the whole mode exists to avoid.
+  it('names its y axis final context rather than tokens', () => {
+    draw(mixed());
+    expect(screen.getByTestId('wfu-scatter-ylabel').textContent).toMatch(/final context/i);
+  });
+});
+
+describe('what the mode still refuses, and why', () => {
+  // §24 re-words this: "no source" stopped being accurate once the workflow
+  // transcripts were found to be live and un-ingested.
+  it('says the source exists and is not read, rather than that there is none', () => {
+    draw(run());
+    const why = screen.getByTestId('wfu-no-cost').textContent ?? '';
+    expect(why).toMatch(/not read|un-?ingested|does not read/i);
+  });
+
+  it('refuses the cap line and the 1.5M threshold by name', () => {
+    draw(run());
+    const why = screen.getByTestId('wfu-no-cost').textContent ?? '';
+    expect(why).toContain('1.5M');
+    expect(why.toLowerCase()).toContain('cap');
+  });
+
+  it('never reaches for --warn or --fail anywhere on the page', () => {
+    const { container } = draw(run());
+    expect(container.innerHTML).not.toContain('--warn');
+    expect(container.innerHTML).not.toContain('--fail');
   });
 });
