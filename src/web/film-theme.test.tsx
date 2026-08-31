@@ -258,3 +258,52 @@ describe('all ten films paint', () => {
     }
   });
 });
+
+// Decision 29's practical argument, pinned end to end. The portrait never
+// carried status — failure is the status glyph's job — so a repro portrait
+// painted in var(--fail) at rest meant a repro agent that had ACTUALLY failed
+// looked exactly like one that had not. The colour has to mean one thing.
+describe('the failure colour signals failure, and nothing else', () => {
+  const withRepro = (status: 'working' | 'failed') => {
+    const state = sampleTeamState();
+    state.agents = state.agents.map((a, i) =>
+      i === 1 ? { ...a, name: 'repro-probe', agentType: 'repro', status } : a,
+    );
+    return state;
+  };
+
+  const mountWith = (status: 'working' | 'failed') => {
+    window.history.replaceState(null, '', '/?view=wall');
+    render(<App />);
+    act(() => MockEventSource.last().emit('snapshot', withRepro(status)));
+  };
+
+  it('never paints a portrait in the failure colour, at rest or otherwise', () => {
+    for (const status of ['working', 'failed'] as const) {
+      mountWith(status);
+      for (const portrait of screen.getAllByTestId('portrait')) {
+        expect(portrait.innerHTML, `${status} portrait`).not.toContain('var(--fail)');
+      }
+      reset();
+    }
+  });
+
+  it('leaves a repro agent at rest indistinguishable from any other at rest', () => {
+    mountWith('working');
+    const glyphs = screen.getAllByTestId('status-glyph').map((g) => g.style.color);
+    expect(glyphs).not.toContain('var(--fail)');
+    reset();
+
+    // ...and only the failed one wears the colour, which is the whole point.
+    mountWith('failed');
+    expect(screen.getAllByTestId('status-glyph').map((g) => g.style.color)).toContain('var(--fail)');
+  });
+
+  it('dresses a repro agent in the film garment, not the failure rose', () => {
+    mountWith('working');
+    openConfig();
+    pickFilm('pulp');
+    const rose = screen.getAllByTestId('portrait').filter((p) => p.innerHTML.includes('var(--fail)'));
+    expect(rose).toHaveLength(0);
+  });
+});
