@@ -87,14 +87,14 @@ var require_polyfills = __commonJS({
       fs9.fstatSync = statFixSync(fs9.fstatSync);
       fs9.lstatSync = statFixSync(fs9.lstatSync);
       if (fs9.chmod && !fs9.lchmod) {
-        fs9.lchmod = function(path10, mode, cb) {
+        fs9.lchmod = function(path11, mode, cb) {
           if (cb) process.nextTick(cb);
         };
         fs9.lchmodSync = function() {
         };
       }
       if (fs9.chown && !fs9.lchown) {
-        fs9.lchown = function(path10, uid, gid, cb) {
+        fs9.lchown = function(path11, uid, gid, cb) {
           if (cb) process.nextTick(cb);
         };
         fs9.lchownSync = function() {
@@ -161,9 +161,9 @@ var require_polyfills = __commonJS({
         };
       })(fs9.readSync);
       function patchLchmod(fs10) {
-        fs10.lchmod = function(path10, mode, callback) {
+        fs10.lchmod = function(path11, mode, callback) {
           fs10.open(
-            path10,
+            path11,
             constants.O_WRONLY | constants.O_SYMLINK,
             mode,
             function(err, fd) {
@@ -179,8 +179,8 @@ var require_polyfills = __commonJS({
             }
           );
         };
-        fs10.lchmodSync = function(path10, mode) {
-          var fd = fs10.openSync(path10, constants.O_WRONLY | constants.O_SYMLINK, mode);
+        fs10.lchmodSync = function(path11, mode) {
+          var fd = fs10.openSync(path11, constants.O_WRONLY | constants.O_SYMLINK, mode);
           var threw = true;
           var ret;
           try {
@@ -201,8 +201,8 @@ var require_polyfills = __commonJS({
       }
       function patchLutimes(fs10) {
         if (constants.hasOwnProperty("O_SYMLINK") && fs10.futimes) {
-          fs10.lutimes = function(path10, at, mt, cb) {
-            fs10.open(path10, constants.O_SYMLINK, function(er, fd) {
+          fs10.lutimes = function(path11, at, mt, cb) {
+            fs10.open(path11, constants.O_SYMLINK, function(er, fd) {
               if (er) {
                 if (cb) cb(er);
                 return;
@@ -214,8 +214,8 @@ var require_polyfills = __commonJS({
               });
             });
           };
-          fs10.lutimesSync = function(path10, at, mt) {
-            var fd = fs10.openSync(path10, constants.O_SYMLINK);
+          fs10.lutimesSync = function(path11, at, mt) {
+            var fd = fs10.openSync(path11, constants.O_SYMLINK);
             var ret;
             var threw = true;
             try {
@@ -333,11 +333,11 @@ var require_legacy_streams = __commonJS({
         ReadStream,
         WriteStream
       };
-      function ReadStream(path10, options) {
-        if (!(this instanceof ReadStream)) return new ReadStream(path10, options);
+      function ReadStream(path11, options) {
+        if (!(this instanceof ReadStream)) return new ReadStream(path11, options);
         Stream.call(this);
         var self = this;
-        this.path = path10;
+        this.path = path11;
         this.fd = null;
         this.readable = true;
         this.paused = false;
@@ -382,10 +382,10 @@ var require_legacy_streams = __commonJS({
           self._read();
         });
       }
-      function WriteStream(path10, options) {
-        if (!(this instanceof WriteStream)) return new WriteStream(path10, options);
+      function WriteStream(path11, options) {
+        if (!(this instanceof WriteStream)) return new WriteStream(path11, options);
         Stream.call(this);
-        this.path = path10;
+        this.path = path11;
         this.fd = null;
         this.writable = true;
         this.flags = "w";
@@ -528,14 +528,14 @@ var require_graceful_fs = __commonJS({
       fs10.createWriteStream = createWriteStream;
       var fs$readFile = fs10.readFile;
       fs10.readFile = readFile;
-      function readFile(path10, options, cb) {
+      function readFile(path11, options, cb) {
         if (typeof options === "function")
           cb = options, options = null;
-        return go$readFile(path10, options, cb);
-        function go$readFile(path11, options2, cb2, startTime) {
-          return fs$readFile(path11, options2, function(err) {
+        return go$readFile(path11, options, cb);
+        function go$readFile(path12, options2, cb2, startTime) {
+          return fs$readFile(path12, options2, function(err) {
             if (err && (err.code === "EMFILE" || err.code === "ENFILE"))
-              enqueue([go$readFile, [path11, options2, cb2], err, startTime || Date.now(), Date.now()]);
+              enqueue([go$readFile, [path12, options2, cb2], err, startTime || Date.now(), Date.now()]);
             else {
               if (typeof cb2 === "function")
                 cb2.apply(this, arguments);
@@ -545,14 +545,14 @@ var require_graceful_fs = __commonJS({
       }
       var fs$writeFile = fs10.writeFile;
       fs10.writeFile = writeFile;
-      function writeFile(path10, data, options, cb) {
+      function writeFile(path11, data, options, cb) {
         if (typeof options === "function")
           cb = options, options = null;
-        return go$writeFile(path10, data, options, cb);
-        function go$writeFile(path11, data2, options2, cb2, startTime) {
-          return fs$writeFile(path11, data2, options2, function(err) {
+        return go$writeFile(path11, data, options, cb);
+        function go$writeFile(path12, data2, options2, cb2, startTime) {
+          return fs$writeFile(path12, data2, options2, function(err) {
             if (err && (err.code === "EMFILE" || err.code === "ENFILE"))
-              enqueue([go$writeFile, [path11, data2, options2, cb2], err, startTime || Date.now(), Date.now()]);
+              enqueue([go$writeFile, [path12, data2, options2, cb2], err, startTime || Date.now(), Date.now()]);
             else {
               if (typeof cb2 === "function")
                 cb2.apply(this, arguments);
@@ -563,14 +563,14 @@ var require_graceful_fs = __commonJS({
       var fs$appendFile = fs10.appendFile;
       if (fs$appendFile)
         fs10.appendFile = appendFile;
-      function appendFile(path10, data, options, cb) {
+      function appendFile(path11, data, options, cb) {
         if (typeof options === "function")
           cb = options, options = null;
-        return go$appendFile(path10, data, options, cb);
-        function go$appendFile(path11, data2, options2, cb2, startTime) {
-          return fs$appendFile(path11, data2, options2, function(err) {
+        return go$appendFile(path11, data, options, cb);
+        function go$appendFile(path12, data2, options2, cb2, startTime) {
+          return fs$appendFile(path12, data2, options2, function(err) {
             if (err && (err.code === "EMFILE" || err.code === "ENFILE"))
-              enqueue([go$appendFile, [path11, data2, options2, cb2], err, startTime || Date.now(), Date.now()]);
+              enqueue([go$appendFile, [path12, data2, options2, cb2], err, startTime || Date.now(), Date.now()]);
             else {
               if (typeof cb2 === "function")
                 cb2.apply(this, arguments);
@@ -601,31 +601,31 @@ var require_graceful_fs = __commonJS({
       var fs$readdir = fs10.readdir;
       fs10.readdir = readdir;
       var noReaddirOptionVersions = /^v[0-5]\./;
-      function readdir(path10, options, cb) {
+      function readdir(path11, options, cb) {
         if (typeof options === "function")
           cb = options, options = null;
-        var go$readdir = noReaddirOptionVersions.test(process.version) ? function go$readdir2(path11, options2, cb2, startTime) {
-          return fs$readdir(path11, fs$readdirCallback(
-            path11,
+        var go$readdir = noReaddirOptionVersions.test(process.version) ? function go$readdir2(path12, options2, cb2, startTime) {
+          return fs$readdir(path12, fs$readdirCallback(
+            path12,
             options2,
             cb2,
             startTime
           ));
-        } : function go$readdir2(path11, options2, cb2, startTime) {
-          return fs$readdir(path11, options2, fs$readdirCallback(
-            path11,
+        } : function go$readdir2(path12, options2, cb2, startTime) {
+          return fs$readdir(path12, options2, fs$readdirCallback(
+            path12,
             options2,
             cb2,
             startTime
           ));
         };
-        return go$readdir(path10, options, cb);
-        function fs$readdirCallback(path11, options2, cb2, startTime) {
+        return go$readdir(path11, options, cb);
+        function fs$readdirCallback(path12, options2, cb2, startTime) {
           return function(err, files) {
             if (err && (err.code === "EMFILE" || err.code === "ENFILE"))
               enqueue([
                 go$readdir,
-                [path11, options2, cb2],
+                [path12, options2, cb2],
                 err,
                 startTime || Date.now(),
                 Date.now()
@@ -696,7 +696,7 @@ var require_graceful_fs = __commonJS({
         enumerable: true,
         configurable: true
       });
-      function ReadStream(path10, options) {
+      function ReadStream(path11, options) {
         if (this instanceof ReadStream)
           return fs$ReadStream.apply(this, arguments), this;
         else
@@ -716,7 +716,7 @@ var require_graceful_fs = __commonJS({
           }
         });
       }
-      function WriteStream(path10, options) {
+      function WriteStream(path11, options) {
         if (this instanceof WriteStream)
           return fs$WriteStream.apply(this, arguments), this;
         else
@@ -734,22 +734,22 @@ var require_graceful_fs = __commonJS({
           }
         });
       }
-      function createReadStream(path10, options) {
-        return new fs10.ReadStream(path10, options);
+      function createReadStream(path11, options) {
+        return new fs10.ReadStream(path11, options);
       }
-      function createWriteStream(path10, options) {
-        return new fs10.WriteStream(path10, options);
+      function createWriteStream(path11, options) {
+        return new fs10.WriteStream(path11, options);
       }
       var fs$open = fs10.open;
       fs10.open = open;
-      function open(path10, flags, mode, cb) {
+      function open(path11, flags, mode, cb) {
         if (typeof mode === "function")
           cb = mode, mode = null;
-        return go$open(path10, flags, mode, cb);
-        function go$open(path11, flags2, mode2, cb2, startTime) {
-          return fs$open(path11, flags2, mode2, function(err, fd) {
+        return go$open(path11, flags, mode, cb);
+        function go$open(path12, flags2, mode2, cb2, startTime) {
+          return fs$open(path12, flags2, mode2, function(err, fd) {
             if (err && (err.code === "EMFILE" || err.code === "ENFILE"))
-              enqueue([go$open, [path11, flags2, mode2, cb2], err, startTime || Date.now(), Date.now()]);
+              enqueue([go$open, [path12, flags2, mode2, cb2], err, startTime || Date.now(), Date.now()]);
             else {
               if (typeof cb2 === "function")
                 cb2.apply(this, arguments);
@@ -1278,7 +1278,7 @@ var require_mtime_precision = __commonJS({
 var require_lockfile = __commonJS({
   "node_modules/proper-lockfile/lib/lockfile.js"(exports, module) {
     "use strict";
-    var path10 = __require("path");
+    var path11 = __require("path");
     var fs9 = require_graceful_fs();
     var retry = require_retry2();
     var onExit = require_signal_exit();
@@ -1289,7 +1289,7 @@ var require_lockfile = __commonJS({
     }
     function resolveCanonicalPath(file, options, callback) {
       if (!options.realpath) {
-        return callback(null, path10.resolve(file));
+        return callback(null, path11.resolve(file));
       }
       options.fs.realpath(file, callback);
     }
@@ -1614,7 +1614,7 @@ var require_proper_lockfile = __commonJS({
 
 // src/server/index.ts
 import os2 from "node:os";
-import path9 from "node:path";
+import path10 from "node:path";
 import { execFile as execFile3 } from "node:child_process";
 import { promises as fs8 } from "node:fs";
 import { promisify as promisify3 } from "node:util";
@@ -1773,6 +1773,10 @@ var catalog_default = {
     haiku: "claude-haiku-4-5"
   },
   models: {
+    "claude-fable-5": {
+      window: 1e6,
+      pricing: { input: 10, output: 50, cacheWrite5m: 12.5, cacheWrite1h: 20, cacheRead: 1, webSearch: 0.01 }
+    },
     "claude-opus-5": {
       window: 1e6,
       pricing: { input: 5, output: 25, cacheWrite5m: 6.25, cacheWrite1h: 10, cacheRead: 0.5, webSearch: 0.01 }
@@ -1916,7 +1920,18 @@ var KIND_RETENTION = {
   // the only kind here whose row count grows with a run's length rather than
   // with how many there are — and 16 runs was the whole of a heavy week on the
   // capture machine. Rows are ~9 KB each with the script stripped (leanRun).
-  workflow: 500
+  workflow: 500,
+  // One row per RUN per drain of any of its agent transcripts, folded last-wins
+  // per runId. A live run re-appends as its agents write, so like `workflow`
+  // this caps re-reads rather than runs. Rows are small by construction — the
+  // per-agent totals plus a burn series capped at WORKFLOW_BURN_SAMPLES points,
+  // never the turns behind them.
+  "workflow-usage": 500,
+  // One digest per subagent per drain, folded last-wins per toolUseId — so this
+  // caps re-reads, not subagents. A LIVE subagent re-appends on every drain of
+  // its transcript, and a fan-out runs several at once, which is why the cap is
+  // higher than workflow's: a digest is a few hundred bytes, not nine kilobytes.
+  subagent: 2e3
 };
 var TRANSCRIPT_RECORDS_PER_AGENT = 1e3;
 var TRANSCRIPT_EVENTS_PER_AGENT = 1200;
@@ -2346,6 +2361,238 @@ function openStore(dbPath, team = "") {
   };
 }
 
+// src/shared/subagents.ts
+var SUBAGENT_SUMMARY_CAP = 400;
+var SUBAGENT_TOOLS = /* @__PURE__ */ new Set(["Task", "Agent"]);
+function emptySubagentFold() {
+  return {
+    records: 0,
+    toolCalls: 0,
+    contextTokens: 0,
+    usage: /* @__PURE__ */ new Map(),
+    spawns: [],
+    at: /* @__PURE__ */ new Map()
+  };
+}
+function digestOf(fold) {
+  return {
+    records: fold.records,
+    startedAt: fold.startedAt,
+    lastAt: fold.lastAt,
+    tokens: tokensOf([...fold.usage.values()]),
+    toolCalls: fold.toolCalls,
+    contextTokens: fold.contextTokens,
+    summary: fold.summary,
+    spawns: fold.spawns
+  };
+}
+function cap(s) {
+  if (s.length <= SUBAGENT_SUMMARY_CAP) return s;
+  return `${s.slice(0, SUBAGENT_SUMMARY_CAP - 1).replace(/[\uD800-\uDBFF]$/, "")}\u2026`;
+}
+function flatten(content) {
+  if (typeof content === "string") return content.replace(/\s+/g, " ").trim();
+  if (Array.isArray(content)) {
+    return content.map((block) => {
+      if (block && typeof block === "object") {
+        const text = block.text;
+        if (typeof text === "string") return text;
+      }
+      return "";
+    }).join(" ").replace(/\s+/g, " ").trim();
+  }
+  return "";
+}
+function str(value) {
+  return typeof value === "string" && value !== "" ? value : void 0;
+}
+var NOTIFICATION = /<task-notification>([\s\S]*?)<\/task-notification>/;
+var NOTIFIED_TOOL_USE = /<tool-use-id>([\s\S]*?)<\/tool-use-id>/;
+var NOTIFIED_STATUS = /<status>([\s\S]*?)<\/status>/;
+var NOTIFIED_SUMMARY = /<summary>([\s\S]*?)<\/summary>/;
+function notificationOf(rec) {
+  const content = rec.message?.content;
+  const text = typeof content === "string" ? content : rec.attachment?.prompt;
+  if (typeof text !== "string" || !text.includes("<task-notification>")) return null;
+  const body = NOTIFICATION.exec(text)?.[1];
+  if (!body) return null;
+  const toolUseId = str(NOTIFIED_TOOL_USE.exec(body)?.[1]?.trim());
+  if (!toolUseId) return null;
+  const ts = rec.timestamp ? Date.parse(rec.timestamp) : NaN;
+  if (Number.isNaN(ts)) return null;
+  const status = NOTIFIED_STATUS.exec(body)?.[1]?.trim();
+  const summary = str(NOTIFIED_SUMMARY.exec(body)?.[1]?.trim());
+  return {
+    kind: "update",
+    toolUseId,
+    returnedAt: ts,
+    ...summary ? { returnedSummary: cap(summary) } : {},
+    // Every notification observed so far reads `completed`; anything else is
+    // the runtime saying it did not, so it is reported rather than smoothed.
+    ...status !== void 0 && status !== "completed" ? { failed: true } : {}
+  };
+}
+function spawnEventsOf(rec) {
+  const events = [];
+  const notified = notificationOf(rec);
+  if (notified) events.push(notified);
+  const content = rec.message?.content;
+  if (!Array.isArray(content)) return events;
+  const ts = rec.timestamp ? Date.parse(rec.timestamp) : NaN;
+  if (Number.isNaN(ts)) return events;
+  const raw = rec.toolUseResult;
+  const result = raw && typeof raw === "object" ? raw : void 0;
+  for (const block of content) {
+    if (!block || typeof block !== "object") continue;
+    const b = block;
+    if (rec.type === "assistant" && b.type === "tool_use" && SUBAGENT_TOOLS.has(b.name ?? "")) {
+      if (typeof b.id !== "string" || !rec.uuid) continue;
+      const input = b.input && typeof b.input === "object" ? b.input : {};
+      const spawn = { toolUseId: b.id, siblingGroup: rec.uuid, queuedAt: ts };
+      const name = str(input.name);
+      const description = str(input.description);
+      const agentType = str(input.subagent_type);
+      const model = str(input.model);
+      if (name) spawn.name = name;
+      if (description) spawn.description = description;
+      if (agentType) spawn.agentType = agentType;
+      if (model) spawn.model = model;
+      events.push({ kind: "dispatch", spawn });
+    } else if (rec.type === "user" && b.type === "tool_result" && typeof b.tool_use_id === "string") {
+      if (result?.status === "teammate_spawned" || typeof result?.teammate_id === "string" || typeof result?.runId === "string") {
+        events.push({ kind: "retract", toolUseId: b.tool_use_id });
+        continue;
+      }
+      const agentId = str(result?.agentId);
+      const launched = result?.status === "async_launched" || result?.isAsync === true;
+      events.push({
+        kind: "update",
+        toolUseId: b.tool_use_id,
+        ...agentId ? { agentId } : {},
+        ...launched ? {} : { returnedAt: ts, content: b.content, failed: b.is_error === true }
+      });
+    }
+  }
+  return events;
+}
+function applySpawnEvents(fold, events) {
+  for (const event of events) {
+    if (event.kind === "dispatch") {
+      if (fold.at.has(event.spawn.toolUseId)) continue;
+      fold.at.set(event.spawn.toolUseId, fold.spawns.length);
+      fold.spawns.push(event.spawn);
+      continue;
+    }
+    if (event.kind === "retract") {
+      const gone = fold.at.get(event.toolUseId);
+      if (gone === void 0) continue;
+      fold.spawns.splice(gone, 1);
+      fold.at.clear();
+      fold.spawns.forEach((s, i) => fold.at.set(s.toolUseId, i));
+      continue;
+    }
+    const at = fold.at.get(event.toolUseId);
+    if (at === void 0) continue;
+    const spawn = fold.spawns[at];
+    if (event.agentId) spawn.agentId = event.agentId;
+    if (event.returnedAt !== void 0) spawn.returnedAt = event.returnedAt;
+    if (event.failed) spawn.failed = true;
+    const summary = event.returnedSummary ?? (event.content === void 0 ? void 0 : flatten(event.content));
+    if (summary) spawn.returnedSummary = cap(summary);
+  }
+}
+function bearsContext(rec) {
+  if (rec.type === "system") return rec.subtype === "compact_boundary";
+  return rec.type === "assistant" && rec.isApiErrorMessage !== true && rec.message?.usage != null;
+}
+function foldSubagentRecords(fold, records) {
+  let moved = false;
+  for (const rec of records) {
+    fold.records++;
+    const ts = rec.timestamp ? Date.parse(rec.timestamp) : NaN;
+    if (!Number.isNaN(ts)) {
+      if (fold.startedAt === void 0 || ts < fold.startedAt) fold.startedAt = ts;
+      if (fold.lastAt === void 0 || ts > fold.lastAt) fold.lastAt = ts;
+    }
+    const content = rec.message?.content;
+    if (rec.type === "assistant" && Array.isArray(content)) {
+      for (const block of content) {
+        if (!block || typeof block !== "object") continue;
+        const b = block;
+        if (b.type === "tool_use") fold.toolCalls++;
+        else if (b.type === "text" && typeof b.text === "string" && b.text.trim()) {
+          fold.summary = cap(b.text.replace(/\s+/g, " ").trim());
+        }
+      }
+    }
+    if (bearsContext(rec)) moved = true;
+    applySpawnEvents(fold, spawnEventsOf(rec));
+  }
+  for (const u of usageRecordsOf(records)) {
+    const best = fold.usage.get(u.messageId);
+    if (!best || u.usage.output_tokens > best.usage.output_tokens) fold.usage.set(u.messageId, u);
+  }
+  if (moved) fold.contextTokens = contextOccupancy(records);
+}
+function stateOf(spawn, digest) {
+  if (spawn.failed) return "failed";
+  if (spawn.returnedAt !== void 0) return "returned";
+  return digest && digest.records > 0 ? "running" : "queued";
+}
+function nodesOf(spawns, agent, parent, depth, facts, seen) {
+  const out = [];
+  for (let i = 0; i < spawns.length; i++) {
+    const spawn = spawns[i];
+    if (seen.has(spawn.toolUseId)) continue;
+    seen.add(spawn.toolUseId);
+    const found = facts.get(spawn.toolUseId);
+    const digest = found?.digest;
+    const started = digest && digest.records > 0 ? digest.startedAt : void 0;
+    const node = {
+      toolUseId: spawn.toolUseId,
+      name: found?.meta?.name ?? spawn.name ?? spawn.description ?? found?.agentId ?? spawn.agentId ?? spawn.toolUseId,
+      agent,
+      parent,
+      depth,
+      spawnIndex: i,
+      siblingGroup: spawn.siblingGroup,
+      state: stateOf(spawn, digest),
+      queuedAt: spawn.queuedAt,
+      children: nodesOf(digest?.spawns ?? [], agent, spawn.toolUseId, depth + 1, facts, seen)
+    };
+    const agentId = found?.agentId ?? spawn.agentId;
+    const agentType = found?.meta?.agentType ?? spawn.agentType;
+    const model = found?.meta?.model ?? spawn.model;
+    const description = spawn.description ?? found?.meta?.description;
+    if (agentId) node.agentId = agentId;
+    if (agentType) node.agentType = agentType;
+    if (model) node.model = model;
+    if (description) node.description = description;
+    if (started !== void 0) node.startedAt = started;
+    if (spawn.returnedAt !== void 0) {
+      node.returnedAt = spawn.returnedAt;
+      node.durationMs = spawn.returnedAt - (started ?? spawn.queuedAt);
+    }
+    if (spawn.returnedSummary) node.returnedSummary = spawn.returnedSummary;
+    if (digest && digest.records > 0) {
+      node.tokens = digest.tokens;
+      node.toolCalls = digest.toolCalls;
+      node.contextTokens = digest.contextTokens;
+      if (!node.returnedSummary && digest.summary) node.returnedSummary = digest.summary;
+    }
+    out.push(node);
+  }
+  return out;
+}
+function buildSubagentTree(roots, facts) {
+  const tree = {};
+  for (const root of roots) {
+    const nodes = nodesOf(root.spawns, root.agent, root.agent, 1, facts, /* @__PURE__ */ new Set());
+    if (nodes.length > 0) tree[root.agent] = nodes;
+  }
+  return tree;
+}
+
 // src/shared/roster.ts
 var ROLE_MAX = 80;
 function typeFromSidecar(meta) {
@@ -2398,6 +2645,7 @@ function buildRoster(config, sidecars) {
 var DIFF_LINES_CAP = 300;
 var DIFF_LINE_TEXT_CAP = 200;
 var CONSOLE_SENDER = "console";
+var WORKFLOW_BURN_SAMPLES = 60;
 
 // src/shared/mailbox.ts
 var PROTOCOL_TYPES = /* @__PURE__ */ new Set([
@@ -2772,6 +3020,11 @@ function currentToolOf(rec) {
 
 // src/shared/status.ts
 var AGENT_STALE_MS = 30 * 60 * 1e3;
+var LOG_CLOCK_SKEW_MS = 5 * 60 * 1e3;
+function isWallClockLog(mtimeMs, lastRecordTs) {
+  if (mtimeMs === void 0 || lastRecordTs <= 0) return false;
+  return Math.abs(mtimeMs - lastRecordTs) <= LOG_CLOCK_SKEW_MS;
+}
 function deriveTaskState(raw, task, agents) {
   if (raw === "completed") return "completed";
   const owner = task.owner ? agents.find((a) => a.name === task.owner) : void 0;
@@ -2816,6 +3069,16 @@ function toolOf(rec) {
   toolMemo.set(rec, tool ?? NO_TOOL);
   return tool;
 }
+var spawnMemo = /* @__PURE__ */ new WeakMap();
+function spawnEventsFor(rec) {
+  if (!memoisable(rec)) return spawnEventsOf(rec);
+  let events = spawnMemo.get(rec);
+  if (events === void 0) {
+    events = spawnEventsOf(rec);
+    spawnMemo.set(rec, events);
+  }
+  return events;
+}
 function transcriptHistory(events, agent) {
   const records = [];
   const seen = /* @__PURE__ */ new Set();
@@ -2857,7 +3120,7 @@ function transcriptLineText(events, agent, id) {
   }
   return void 0;
 }
-function project(events, readOnly) {
+function project(events, readOnly, now = Date.now()) {
   let config = null;
   let sidecars = [];
   let branch;
@@ -2871,8 +3134,11 @@ function project(events, readOnly) {
   const currentTool = /* @__PURE__ */ new Map();
   const errors = /* @__PURE__ */ new Map();
   const lastActivity = /* @__PURE__ */ new Map();
+  const logClock = /* @__PURE__ */ new Map();
   const needsYou = /* @__PURE__ */ new Map();
   const usageTotals = /* @__PURE__ */ new Map();
+  const spawnFolds = /* @__PURE__ */ new Map();
+  const subagentFacts = /* @__PURE__ */ new Map();
   let mail = [];
   const bump = (agent, ts) => {
     if (ts > (lastActivity.get(agent) ?? -1)) lastActivity.set(agent, ts);
@@ -2888,12 +3154,15 @@ function project(events, readOnly) {
       case "transcript": {
         const p = ev.payload;
         if (p.totals) usageTotals.set(p.agent, p.totals);
+        if (p.mtimeMs !== void 0) logClock.set(p.agent, p.mtimeMs);
         if (p.fromStart) {
           records.set(p.agent, []);
           seenRecords.set(p.agent, /* @__PURE__ */ new Set());
+          spawnFolds.set(p.agent, emptySubagentFold());
         }
         const list = records.get(p.agent) ?? [];
         const seen = seenRecords.get(p.agent) ?? /* @__PURE__ */ new Set();
+        const spawns = spawnFolds.get(p.agent) ?? emptySubagentFold();
         for (const rec of p.records) {
           const key = rec.uuid ?? "";
           if (key && seen.has(key)) continue;
@@ -2911,11 +3180,22 @@ function project(events, readOnly) {
               errors.delete(p.agent);
             }
           }
+          applySpawnEvents(spawns, spawnEventsFor(rec));
           const ts = rec.timestamp ? Date.parse(rec.timestamp) : NaN;
           if (!Number.isNaN(ts)) bump(p.agent, ts);
         }
         records.set(p.agent, list);
         seenRecords.set(p.agent, seen);
+        spawnFolds.set(p.agent, spawns);
+        break;
+      }
+      case "subagent": {
+        const p = ev.payload;
+        subagentFacts.set(p.toolUseId, {
+          agentId: p.agentId,
+          meta: p.meta,
+          digest: p.digest
+        });
         break;
       }
       case "task": {
@@ -3009,6 +3289,9 @@ function project(events, readOnly) {
       const idle = lastIdle.get(id.name) ?? -1;
       if (act < 0 || idle >= act) status = "idle";
       else if (latestActivity - act > AGENT_STALE_MS) status = "departed";
+      else if (isWallClockLog(logClock.get(id.name), act) && now - act > AGENT_STALE_MS) {
+        status = "idle";
+      }
     }
     return {
       name: id.name,
@@ -3053,6 +3336,10 @@ function project(events, readOnly) {
     if (owned.some((t) => t.state === "in_progress")) continue;
     if (owned.some((t) => t.state === "blocked")) agent.status = "blocked";
   }
+  const subagents = buildSubagentTree(
+    agents.map((a) => ({ agent: a.name, spawns: spawnFolds.get(a.name)?.spawns ?? [] })),
+    subagentFacts
+  );
   return {
     teamName: config?.name ?? "",
     sessionName,
@@ -3066,13 +3353,14 @@ function project(events, readOnly) {
     tasks,
     mail,
     needsYou: cards,
-    readOnly
+    readOnly,
+    ...Object.keys(subagents).length > 0 ? { subagents } : {}
   };
 }
 
 // src/server/ingest/files.ts
 import { promises as fs4 } from "node:fs";
-import path5 from "node:path";
+import path6 from "node:path";
 
 // src/server/watch/tail.ts
 import { promises as fs2 } from "node:fs";
@@ -3122,8 +3410,9 @@ async function drain(filePath, state) {
     next = { inode: st.ino, offset: 0, partial: "" };
   }
   const fromStart = next.offset === 0;
+  const mtimeMs = st.mtimeMs;
   const length = st.size - next.offset;
-  if (length <= 0) return { lines: [], state: next, fromStart: false };
+  if (length <= 0) return { lines: [], state: next, fromStart: false, mtimeMs };
   const buf = Buffer.alloc(length);
   let read = 0;
   const fh = await fs2.open(filePath, "r");
@@ -3140,10 +3429,15 @@ async function drain(filePath, state) {
   const cut = chunk.lastIndexOf("\n");
   const offset = next.offset + read;
   if (cut === -1) {
-    return { lines: [], state: { inode: next.inode, offset, partial: chunk }, fromStart };
+    return { lines: [], state: { inode: next.inode, offset, partial: chunk }, fromStart, mtimeMs };
   }
   const lines = chunk.slice(0, cut).split("\n").filter((l) => l.length > 0);
-  return { lines, state: { inode: next.inode, offset, partial: chunk.slice(cut + 1) }, fromStart };
+  return {
+    lines,
+    state: { inode: next.inode, offset, partial: chunk.slice(cut + 1) },
+    fromStart,
+    mtimeMs
+  };
 }
 function watchAppendOnly(root, onLines) {
   const states = /* @__PURE__ */ new Map();
@@ -3159,7 +3453,7 @@ function watchAppendOnly(root, onLines) {
       if (closed) return;
       const out = await drain(file, states.get(file) ?? emptyTailState());
       states.set(file, out.state);
-      if (out.lines.length > 0) onLines(file, out.lines, out.fromStart);
+      if (out.lines.length > 0) onLines(file, out.lines, out.fromStart, out.mtimeMs);
     }).catch((err) => logError(`tail ${file}`, err));
     queues.set(file, next);
     return next;
@@ -3168,8 +3462,16 @@ function watchAppendOnly(root, onLines) {
     if (!filename.endsWith(".jsonl")) return;
     void pump(path3.join(root, filename));
   });
+  const forget = (file) => {
+    const next = (queues.get(file) ?? Promise.resolve()).then(() => {
+      states.delete(file);
+    });
+    queues.set(file, next);
+    return next;
+  };
   return {
     pump,
+    forget,
     close() {
       closed = true;
       watcher.close();
@@ -3221,9 +3523,174 @@ function watchJsonTree(root, onChange) {
   };
 }
 
+// src/server/ingest/workflow-agents.ts
+import path5 from "node:path";
+
+// src/shared/workflow-usage.ts
+function emptyWorkflowUsageFold() {
+  return { agents: /* @__PURE__ */ new Map() };
+}
+var WORKFLOW_AGENT_FILE = /^agent-(a[0-9a-f]{16})\.jsonl$/;
+function workflowAgentIdOf(basename) {
+  return WORKFLOW_AGENT_FILE.exec(basename)?.[1] ?? null;
+}
+function foldWorkflowAgentRecords(fold, agentId, records) {
+  let turns = fold.agents.get(agentId);
+  if (!turns) {
+    turns = /* @__PURE__ */ new Map();
+    fold.agents.set(agentId, turns);
+  }
+  for (const rec of records) {
+    if (rec.type !== "assistant" || rec.isApiErrorMessage === true) continue;
+    const usage = rec.message?.usage;
+    if (!usage) continue;
+    const ts = rec.timestamp ? Date.parse(rec.timestamp) : NaN;
+    if (Number.isNaN(ts)) continue;
+    const messageId = rec.message?.id ?? rec.uuid ?? "";
+    if (!messageId) continue;
+    const best = turns.get(messageId);
+    if (best && best.usage.output_tokens >= (usage.output_tokens ?? 0)) continue;
+    turns.set(messageId, { ts, model: rec.message?.model ?? "", usage });
+  }
+}
+var recordsOf2 = (turns) => [...turns].map(([messageId, t]) => ({ messageId, model: t.model, usage: t.usage }));
+var TOTAL = (split) => split.in + split.out + split.cacheWrite + split.cacheRead;
+function addSplit(into, from) {
+  into.in += from.in;
+  into.out += from.out;
+  into.cacheWrite += from.cacheWrite;
+  into.cacheWrite1h += from.cacheWrite1h;
+  into.cacheRead += from.cacheRead;
+}
+var emptySplit = () => ({
+  in: 0,
+  out: 0,
+  cacheWrite: 0,
+  cacheWrite1h: 0,
+  cacheRead: 0
+});
+function burnOf(turns) {
+  const sorted = [...turns].sort((a, b) => a.ts - b.ts);
+  if (sorted.length === 0) return { startedAt: 0, stepMs: 1, cumulative: [] };
+  const startedAt = sorted[0]?.ts ?? 0;
+  const endedAt = sorted[sorted.length - 1]?.ts ?? startedAt;
+  const span = endedAt - startedAt;
+  const stepMs = span <= 0 ? 1 : Math.ceil(span / WORKFLOW_BURN_SAMPLES);
+  const buckets = span <= 0 ? 1 : Math.min(WORKFLOW_BURN_SAMPLES, Math.floor(span / stepMs) + 1);
+  const perBucket = new Array(buckets).fill(0);
+  for (const turn of sorted) {
+    const at = Math.min(buckets - 1, Math.floor((turn.ts - startedAt) / stepMs));
+    perBucket[at] += TOTAL(splitTok([{ messageId: "", model: turn.model, usage: turn.usage }]));
+  }
+  const cumulative = [];
+  let running = 0;
+  for (const tokens of perBucket) {
+    running += tokens;
+    cumulative.push(running);
+  }
+  return { startedAt, stepMs, cumulative };
+}
+function workflowUsageOf(runId, fold) {
+  const agents = [];
+  const split = emptySplit();
+  const turns = [];
+  for (const [agentId, byMessage] of fold.agents) {
+    if (byMessage.size === 0) continue;
+    const rows = recordsOf2(byMessage);
+    const own = splitTok(rows);
+    addSplit(split, own);
+    for (const turn of byMessage.values()) turns.push(turn);
+    const model = [...byMessage.values()].sort((a, b) => a.ts - b.ts).at(-1)?.model;
+    agents.push({ agentId, split: own, ...model ? { model } : {} });
+  }
+  return { runId, agents, split, burn: burnOf(turns) };
+}
+function attachWorkflowUsage(agents, payload) {
+  const byId = new Map(payload.agents.map((a) => [a.agentId, a]));
+  const merged = agents.map((agent) => {
+    const own = byId.get(agent.agentId);
+    if (!own) return agent;
+    return {
+      ...agent,
+      tokenSplit: own.split,
+      // The snapshot's model wins when there is one: it is what the runtime
+      // resolved, where the transcript reports what a given turn ran on.
+      ...agent.model || !own.model ? {} : { model: own.model }
+    };
+  });
+  const perPhase = /* @__PURE__ */ new Map();
+  for (const agent of agents) {
+    const own = byId.get(agent.agentId);
+    if (!own || agent.phaseIndex === void 0) continue;
+    const into = perPhase.get(agent.phaseIndex) ?? emptySplit();
+    addSplit(into, own.split);
+    perPhase.set(agent.phaseIndex, into);
+  }
+  return {
+    usage: {
+      split: payload.split,
+      byPhase: [...perPhase].sort((a, b) => a[0] - b[0]).map(([phaseIndex, split]) => ({ phaseIndex, split })),
+      burn: payload.burn,
+      agentsMeasured: payload.agents.length
+    },
+    agents: merged
+  };
+}
+
+// src/server/ingest/workflow-agents.ts
+var RUN_ID = /^wf_.+$/;
+function workflowAgentClaimOf(file) {
+  const agentId = workflowAgentIdOf(path5.basename(file));
+  if (!agentId) return null;
+  const dir = path5.dirname(file);
+  const runId = path5.basename(dir);
+  if (!RUN_ID.test(runId)) return null;
+  const up = (n) => {
+    let at = dir;
+    for (let i = 0; i < n; i++) at = path5.dirname(at);
+    return path5.basename(at);
+  };
+  if (up(1) !== "workflows" || up(2) !== "subagents") return null;
+  return { runId, sessionId: up(3), agentId };
+}
+function createWorkflowUsageIngest(store, inScope) {
+  const runs = /* @__PURE__ */ new Map();
+  const publish = (runId) => {
+    const held = runs.get(runId);
+    if (!held || !inScope(held.sessionId)) return;
+    const payload = workflowUsageOf(runId, held.fold);
+    if (payload.agents.length === 0) return;
+    store.append("workflow-usage", payload);
+  };
+  return {
+    handle(file, lines, fromStart) {
+      const claim = workflowAgentClaimOf(file);
+      if (!claim) return false;
+      const records = [];
+      for (const line of lines) {
+        const rec = parseLine(line);
+        if (rec) records.push(rec);
+      }
+      if (records.length === 0) return true;
+      let held = runs.get(claim.runId);
+      if (!held) {
+        held = { sessionId: claim.sessionId, fold: emptyWorkflowUsageFold() };
+        runs.set(claim.runId, held);
+      }
+      if (fromStart) held.fold.agents.delete(claim.agentId);
+      foldWorkflowAgentRecords(held.fold, claim.agentId, records);
+      publish(claim.runId);
+      return true;
+    },
+    flush() {
+      for (const runId of runs.keys()) publish(runId);
+    }
+  };
+}
+
 // src/server/workflow.ts
 var bagOf = (v) => v !== null && typeof v === "object" ? v : {};
-var str = (v) => typeof v === "string" && v ? v : void 0;
+var str2 = (v) => typeof v === "string" && v ? v : void 0;
 var num = (v) => typeof v === "number" && Number.isFinite(v) ? v : void 0;
 var arr = (v) => Array.isArray(v) ? v : [];
 function resultText2(v) {
@@ -3238,7 +3705,7 @@ function resultText2(v) {
 var RUN_STATUS = /* @__PURE__ */ new Set(["completed", "killed", "failed", "running"]);
 function agentStateOf(rec) {
   if (rec.cached === true) return "cache";
-  switch (str(rec.state)) {
+  switch (str2(rec.state)) {
     case "done":
       return "done";
     case "progress":
@@ -3258,27 +3725,27 @@ function agentStateOf(rec) {
   }
 }
 function agentOf(rec) {
-  const agentId = str(rec.agentId);
+  const agentId = str2(rec.agentId);
   if (!agentId) return null;
   return {
     agentId,
     state: agentStateOf(rec),
-    ...opt("label", str(rec.label)),
-    ...opt("model", str(rec.model)),
+    ...opt("label", str2(rec.label)),
+    ...opt("model", str2(rec.model)),
     ...opt("queuedAt", num(rec.queuedAt)),
     ...opt("tokens", num(rec.tokens)),
     ...opt("toolCalls", num(rec.toolCalls)),
     ...opt("attempt", num(rec.attempt)),
-    ...opt("prompt", str(rec.promptPreview)),
+    ...opt("prompt", str2(rec.promptPreview)),
     ...opt("phaseIndex", num(rec.phaseIndex)),
-    ...opt("phaseTitle", str(rec.phaseTitle)),
+    ...opt("phaseTitle", str2(rec.phaseTitle)),
     ...opt("startedAt", num(rec.startedAt)),
     ...opt("durationMs", num(rec.durationMs)),
-    ...opt("result", str(rec.resultPreview)),
-    ...opt("lastTool", str(rec.lastToolName)),
-    ...opt("error", str(rec.error)),
-    ...opt("isolation", str(rec.isolation)),
-    ...opt("agentType", str(rec.agentType))
+    ...opt("result", str2(rec.resultPreview)),
+    ...opt("lastTool", str2(rec.lastToolName)),
+    ...opt("error", str2(rec.error)),
+    ...opt("isolation", str2(rec.isolation)),
+    ...opt("agentType", str2(rec.agentType))
   };
 }
 function opt(key, value) {
@@ -3287,8 +3754,8 @@ function opt(key, value) {
 function phasesOf(snapshot, progress) {
   const declared = arr(snapshot.phases).map(bagOf);
   return progress.filter((rec) => rec.type === "workflow_phase").map((rec, i) => {
-    const title = str(rec.title) ?? str(declared[i]?.title) ?? "";
-    return { index: num(rec.index) ?? i + 1, title, ...opt("detail", str(declared[i]?.detail)) };
+    const title = str2(rec.title) ?? str2(declared[i]?.title) ?? "";
+    return { index: num(rec.index) ?? i + 1, title, ...opt("detail", str2(declared[i]?.detail)) };
   });
 }
 function parseWorkflowJournal(runId, lines) {
@@ -3301,7 +3768,7 @@ function parseWorkflowJournal(runId, lines) {
     } catch {
       continue;
     }
-    const agentId = str(rec.agentId);
+    const agentId = str2(rec.agentId);
     if (!agentId) continue;
     const existing = byId.get(agentId);
     if (rec.type === "result") {
@@ -3321,11 +3788,11 @@ function parseWorkflowJournal(runId, lines) {
 }
 function parseWorkflowRun(raw) {
   const snapshot = bagOf(raw);
-  const runId = str(snapshot.runId);
-  const name = str(snapshot.workflowName);
+  const runId = str2(snapshot.runId);
+  const name = str2(snapshot.workflowName);
   if (!runId || !name) return null;
   const progress = arr(snapshot.workflowProgress).map(bagOf);
-  const rawStatus = str(snapshot.status);
+  const rawStatus = str2(snapshot.status);
   return {
     runId,
     name,
@@ -3335,22 +3802,28 @@ function parseWorkflowRun(raw) {
     agents: progress.filter((rec) => rec.type === "workflow_agent").map(agentOf).filter((a) => a !== null),
     logs: arr(snapshot.logs).filter((l) => typeof l === "string"),
     live: false,
-    ...opt("taskId", str(snapshot.taskId)),
-    ...opt("description", str(snapshot.summary)),
-    ...opt("scriptPath", str(snapshot.scriptPath)),
-    ...opt("script", str(snapshot.script)),
+    ...opt("taskId", str2(snapshot.taskId)),
+    ...opt("description", str2(snapshot.summary)),
+    ...opt("scriptPath", str2(snapshot.scriptPath)),
+    ...opt("script", str2(snapshot.script)),
     ...opt("durationMs", num(snapshot.durationMs)),
     ...opt("agentCount", num(snapshot.agentCount)),
     ...opt("totalTokens", num(snapshot.totalTokens)),
     ...opt("totalToolCalls", num(snapshot.totalToolCalls)),
-    ...opt("defaultModel", str(snapshot.defaultModel)),
-    ...opt("result", str(snapshot.result)),
-    ...opt("error", str(snapshot.error))
+    ...opt("defaultModel", str2(snapshot.defaultModel)),
+    ...opt("result", str2(snapshot.result)),
+    ...opt("error", str2(snapshot.error))
   };
 }
 function foldWorkflows(events) {
   const byRun = /* @__PURE__ */ new Map();
+  const usage = /* @__PURE__ */ new Map();
   for (const event of events) {
+    if (event.kind === "workflow-usage") {
+      const payload = event.payload;
+      if (payload?.runId) usage.set(payload.runId, payload);
+      continue;
+    }
     if (event.kind !== "workflow") continue;
     const run2 = event.payload;
     const runId = run2?.runId;
@@ -3358,7 +3831,13 @@ function foldWorkflows(events) {
     if (run2.live && byRun.get(runId)?.live === false) continue;
     byRun.set(runId, run2);
   }
-  return [...byRun.values()].sort((a, b) => (b.startedAt ?? -1) - (a.startedAt ?? -1));
+  const runs = [...byRun.values()].map((run2) => {
+    const measured = usage.get(run2.runId);
+    if (!measured || measured.agents.length === 0) return run2;
+    const { usage: rollup, agents } = attachWorkflowUsage(run2.agents, measured);
+    return { ...run2, agents, usage: rollup };
+  });
+  return runs.sort((a, b) => (b.startedAt ?? -1) - (a.startedAt ?? -1));
 }
 function modeOf(teamAgents, runs) {
   return teamAgents < 2 && runs.length > 0 ? "workflow" : "team";
@@ -3374,7 +3853,8 @@ var TAIL_POLL_MS = 250;
 var INGEST_BATCH_RECORDS = 200;
 var PENDING_RECORDS = 6e3;
 var SUBAGENT_FILE = /^agent-a(.+)-[0-9a-f]{16}\.jsonl$/;
-var WORKFLOW_SEGMENT = `${path5.sep}workflows${path5.sep}`;
+var SUBAGENT_TRANSCRIPT = /^agent-(a(?:.+-)?[0-9a-f]{16})\.jsonl$/;
+var WORKFLOW_SEGMENT = `${path6.sep}workflows${path6.sep}`;
 function chainHas(chain, sessionId) {
   if (!chain) return false;
   return typeof chain === "string" ? chain === sessionId : chain.has(sessionId);
@@ -3385,7 +3865,7 @@ function chainKnown(chain) {
 }
 function claimOfTranscript(file, leadSessionId, leadName) {
   if (file.includes(WORKFLOW_SEGMENT)) return null;
-  const base = path5.basename(file);
+  const base = path6.basename(file);
   const known = chainKnown(leadSessionId);
   if (known && base.endsWith(".jsonl") && chainHas(leadSessionId, base.slice(0, -".jsonl".length))) {
     return { agent: leadName, scoped: true };
@@ -3393,33 +3873,40 @@ function claimOfTranscript(file, leadSessionId, leadName) {
   const m = SUBAGENT_FILE.exec(base);
   if (!m) return null;
   if (!known) return { agent: m[1], scoped: false };
-  if (!chainHas(leadSessionId, path5.basename(path5.dirname(path5.dirname(file))))) return null;
+  if (!chainHas(leadSessionId, path6.basename(path6.dirname(path6.dirname(file))))) return null;
   return { agent: m[1], scoped: true };
 }
-var RUN_ID = /^wf_.+$/;
+function subagentIdOf(file, leadSessionId) {
+  if (file.includes(WORKFLOW_SEGMENT)) return null;
+  const m = SUBAGENT_TRANSCRIPT.exec(path6.basename(file));
+  if (!m) return null;
+  if (!chainHas(leadSessionId, path6.basename(path6.dirname(path6.dirname(file))))) return null;
+  return m[1];
+}
+var RUN_ID2 = /^wf_.+$/;
 function isWorkflowPath(file) {
-  const base = path5.basename(file);
-  const dir = path5.dirname(file);
-  if (base === "journal.jsonl") return path5.basename(path5.dirname(dir)) === "workflows";
-  return base.endsWith(".json") && path5.basename(dir) === "workflows" && RUN_ID.test(base.slice(0, -".json".length));
+  const base = path6.basename(file);
+  const dir = path6.dirname(file);
+  if (base === "journal.jsonl") return path6.basename(path6.dirname(dir)) === "workflows";
+  return base.endsWith(".json") && path6.basename(dir) === "workflows" && RUN_ID2.test(base.slice(0, -".json".length));
 }
 function workflowClaimOf(file, leadSessionId) {
-  const base = path5.basename(file);
-  const dir = path5.dirname(file);
+  const base = path6.basename(file);
+  const dir = path6.dirname(file);
   const up = (n) => {
     let at = dir;
-    for (let i = 0; i < n; i++) at = path5.dirname(at);
-    return path5.basename(at);
+    for (let i = 0; i < n; i++) at = path6.dirname(at);
+    return path6.basename(at);
   };
   if (base === "journal.jsonl" && up(1) === "workflows" && up(2) === "subagents") {
-    const runId = path5.basename(dir);
-    if (!RUN_ID.test(runId)) return null;
+    const runId = path6.basename(dir);
+    if (!RUN_ID2.test(runId)) return null;
     const sessionId = up(3);
     return chainHas(leadSessionId, sessionId) ? { kind: "journal", runId, sessionId } : null;
   }
-  if (base.endsWith(".json") && path5.basename(dir) === "workflows" && up(1) !== "subagents") {
+  if (base.endsWith(".json") && path6.basename(dir) === "workflows" && up(1) !== "subagents") {
     const runId = base.slice(0, -".json".length);
-    if (!RUN_ID.test(runId)) return null;
+    if (!RUN_ID2.test(runId)) return null;
     const sessionId = up(1);
     return chainHas(leadSessionId, sessionId) ? { kind: "snapshot", runId, sessionId } : null;
   }
@@ -3437,13 +3924,13 @@ async function walk(root) {
       continue;
     }
     for (const e of entries) {
-      const full = path5.join(dir, e.name);
+      const full = path6.join(dir, e.name);
       if (e.isDirectory()) stack.push(full);
       else if (e.isFile()) out.push(full);
     }
   }
   return out.sort(
-    (a, b) => (path5.basename(a) === "config.json" ? 0 : 1) - (path5.basename(b) === "config.json" ? 0 : 1) || a.localeCompare(b)
+    (a, b) => (path6.basename(a) === "config.json" ? 0 : 1) - (path6.basename(b) === "config.json" ? 0 : 1) || a.localeCompare(b)
   );
 }
 var FIRST_LINE_BYTES = 64 * 1024;
@@ -3473,6 +3960,9 @@ function startFileIngest(store, config) {
   const ownedFiles = /* @__PURE__ */ new Map();
   const marks = /* @__PURE__ */ new Map();
   const unresolvedSidecars = /* @__PURE__ */ new Map();
+  const subagentOf = /* @__PURE__ */ new Map();
+  const subagentFolds = /* @__PURE__ */ new Map();
+  const workflowUsage = createWorkflowUsageIngest(store, (sessionId) => chainHas(chain, sessionId));
   const unresolvedWorkflows = /* @__PURE__ */ new Set();
   const transcriptPaths = /* @__PURE__ */ new Map();
   const notePath = (agent, file) => {
@@ -3551,6 +4041,7 @@ function startFileIngest(store, config) {
   };
   const transcriptOfSidecar = (file) => file.replace(/\.meta\.json$/, ".jsonl");
   const disowned = /* @__PURE__ */ new Set();
+  const deferred = /* @__PURE__ */ new Set();
   const forget = (transcript) => {
     disowned.add(transcript);
     dropPending(transcript);
@@ -3558,7 +4049,7 @@ function startFileIngest(store, config) {
     for (const files of ledgerFiles.values()) files.delete(transcript);
     for (const files of transcriptPaths.values()) files.delete(transcript);
   };
-  const appendTranscript = (agent, records, fromStart) => {
+  const appendTranscript = (agent, records, fromStart, mtimeMs) => {
     const totals = totalsFor(agent);
     for (let i = 0; i < records.length; i += INGEST_BATCH_RECORDS) {
       const payload = {
@@ -3566,7 +4057,10 @@ function startFileIngest(store, config) {
         records: records.slice(i, i + INGEST_BATCH_RECORDS)
       };
       if (fromStart && i === 0) payload.fromStart = true;
-      if (i + INGEST_BATCH_RECORDS >= records.length) payload.totals = totals;
+      if (i + INGEST_BATCH_RECORDS >= records.length) {
+        payload.totals = totals;
+        if (mtimeMs !== void 0) payload.mtimeMs = mtimeMs;
+      }
       store.append("transcript", payload, agent);
     }
     appendDrainedMail(agent, records);
@@ -3581,14 +4075,65 @@ function startFileIngest(store, config) {
       store.append("mail", { source: "transcript", to: agent, text: content, deliveredAt }, agent);
     }
   };
+  const appendSubagent = (transcript, records, fromStart = false) => {
+    const known = subagentOf.get(transcript);
+    if (!known) return;
+    let fold = subagentFolds.get(transcript);
+    if (!fold || fromStart) {
+      fold = emptySubagentFold();
+      subagentFolds.set(transcript, fold);
+    }
+    if (records.length > 0) foldSubagentRecords(fold, records);
+    const payload = {
+      toolUseId: known.toolUseId,
+      agentId: known.agentId,
+      meta: {
+        name: known.meta.name,
+        agentType: known.meta.agentType,
+        model: known.meta.model,
+        description: known.meta.description
+      },
+      digest: digestOf(fold)
+    };
+    store.append("subagent", payload);
+  };
+  const adoptSubagent = (transcript, meta) => {
+    const toolUseId = meta.toolUseId;
+    if (!toolUseId) return;
+    const agentId = subagentIdOf(transcript, chain);
+    if (!agentId) return;
+    const first = !subagentOf.has(transcript);
+    subagentOf.set(transcript, { toolUseId, agentId, meta });
+    if (!first) return;
+    const buffered = pending.get(transcript)?.records ?? [];
+    dropPending(transcript);
+    appendSubagent(transcript, buffered);
+    void transcripts.pump(transcript);
+  };
+  const handleSubagentLines = (transcript, lines, fromStart) => {
+    const records = [];
+    for (const l of lines) {
+      const rec = parseLine(l);
+      if (rec) records.push(rec);
+    }
+    if (records.length === 0) return;
+    appendSubagent(transcript, records, fromStart);
+  };
   const flushPending = (agent, transcript) => {
     const buf = pending.get(transcript);
     dropPending(transcript);
     if (buf && buf.records.length > 0) appendTranscript(agent, buf.records, false);
   };
-  const handleLines = (file, lines, fromStart) => {
+  const handleLines = (file, lines, fromStart, mtimeMs) => {
+    if (subagentOf.has(file)) {
+      handleSubagentLines(file, lines, fromStart);
+      return;
+    }
     const claim = claimOfTranscript(file, chain, leadName);
-    if (!claim) return;
+    if (!claim) {
+      deferred.add(file);
+      return;
+    }
     if (disowned.has(file)) return;
     const meta = sidecars.get(file);
     const agent = meta?.name ?? claim.agent;
@@ -3604,7 +4149,7 @@ function startFileIngest(store, config) {
     if (lead) own(leadName, file);
     if (meta || lead) {
       flushPending(agent, file);
-      appendTranscript(agent, records, fromStart && (ownedFiles.get(agent)?.size ?? 1) <= 1);
+      appendTranscript(agent, records, fromStart && (ownedFiles.get(agent)?.size ?? 1) <= 1, mtimeMs);
       return;
     }
     const buf = pending.get(file)?.records ?? [];
@@ -3617,7 +4162,7 @@ function startFileIngest(store, config) {
   };
   const readOwnInboxes = async () => {
     if (!teamName) return;
-    const dir = path5.join(config.paths.teams, teamName, "inboxes");
+    const dir = path6.join(config.paths.teams, teamName, "inboxes");
     let names;
     try {
       names = await fs4.readdir(dir);
@@ -3626,15 +4171,15 @@ function startFileIngest(store, config) {
     }
     for (const name of names) {
       if (!name.endsWith(".json")) continue;
-      const entries = await readJsonSafe(path5.join(dir, name));
+      const entries = await readJsonSafe(path6.join(dir, name));
       if (!Array.isArray(entries)) continue;
       const to = name.replace(/\.json$/, "");
       store.append("mail", { source: "inbox", to, entries }, to);
     }
   };
   const handleTeamsJson = async (file) => {
-    const base = path5.basename(file);
-    const dirName = path5.basename(path5.dirname(file));
+    const base = path6.basename(file);
+    const dirName = path6.basename(path6.dirname(file));
     if (base === "config.json") {
       if (teamName && dirName !== teamName) return;
       const cfg = await readJsonSafe(file);
@@ -3658,15 +4203,19 @@ function startFileIngest(store, config) {
           if (claimOfTranscript(f, chain, leadName)?.scoped !== true) forget(f);
         }
       }
-      for (const [f, meta] of unresolvedSidecars) acceptSidecar(f, meta);
+      for (const [f, meta] of unresolvedSidecars) {
+        if (meta.taskKind === "in_process_teammate") acceptSidecar(f, meta);
+        else adoptSubagent(transcriptOfSidecar(f), meta);
+      }
       unresolvedSidecars.clear();
       for (const f of [...unresolvedWorkflows]) await handleWorkflowFile(f);
+      if (learned) workflowUsage.flush();
       if (learned) await readOwnInboxes();
       appendRoster();
       return;
     }
     if (dirName !== "inboxes") return;
-    if (!teamName || path5.basename(path5.dirname(path5.dirname(file))) !== teamName) return;
+    if (!teamName || path6.basename(path6.dirname(path6.dirname(file))) !== teamName) return;
     const to = base.replace(/\.json$/, "");
     const entries = await readJsonSafe(file);
     if (!Array.isArray(entries)) return;
@@ -3674,7 +4223,7 @@ function startFileIngest(store, config) {
   };
   const isRosterMember = (name) => (lastConfig?.members ?? []).some((m) => m.name === name);
   const adoptLeadSessionOf = (transcriptPath) => {
-    const sessionDir = path5.basename(path5.dirname(path5.dirname(transcriptPath)));
+    const sessionDir = path6.basename(path6.dirname(path6.dirname(transcriptPath)));
     if (sessionDir === "" || chain.has(sessionDir)) return;
     chain.add(sessionDir);
     config.onLeadSession?.(sessionDir);
@@ -3698,7 +4247,10 @@ function startFileIngest(store, config) {
     const meta = await readJsonSafe(file);
     if (!meta) return;
     if (meta.taskKind !== "in_process_teammate") {
-      forget(transcriptOfSidecar(file));
+      const transcript = transcriptOfSidecar(file);
+      if (!chainKnown(chain)) unresolvedSidecars.set(file, meta);
+      else adoptSubagent(transcript, meta);
+      forget(transcript);
       return;
     }
     if (!teamName || !leadSessionId) {
@@ -3713,14 +4265,14 @@ function startFileIngest(store, config) {
     if (acceptSidecar(file, meta)) appendRoster();
   };
   const handleTaskJson = async (file) => {
-    if (teamName && path5.basename(path5.dirname(file)) !== teamName) return;
+    if (teamName && path6.basename(path6.dirname(file)) !== teamName) return;
     const task = await readJsonSafe(file);
     if (!task || typeof task.id !== "string") return;
     store.append("task", task, task.owner);
   };
   const handleSessionJson = async (file) => {
     const doc = await readJsonSafe(file);
-    const sid = typeof doc?.sessionId === "string" ? doc.sessionId : path5.basename(file, ".json");
+    const sid = typeof doc?.sessionId === "string" ? doc.sessionId : path6.basename(file, ".json");
     if (chain.size > 0 && !chain.has(sid)) return;
     const ours = chain.has(sid);
     const branch = doc?.gitBranch ?? doc?.branch;
@@ -3757,16 +4309,18 @@ function startFileIngest(store, config) {
     } else if (root === paths.tasks) await handleTaskJson(file);
     else if (root === paths.sessions) await handleSessionJson(file);
   };
-  const transcripts = watchAppendOnly(paths.projects, (file, lines, fromStart) => {
+  const transcripts = watchAppendOnly(paths.projects, (file, lines, fromStart, mtimeMs) => {
     if (isWorkflowPath(file)) {
       void handleWorkflowFile(file).catch((err) => logError(`ingest ${file}`, err));
       return;
     }
     try {
-      handleLines(file, lines, fromStart);
+      if (workflowUsage.handle(file, lines, fromStart)) return;
+      handleLines(file, lines, fromStart, mtimeMs);
     } catch (err) {
       logError(`ingest ${file}`, err);
     }
+    if (deferred.has(file)) return;
     void fs4.stat(file).then(
       (st) => marks.set(file, st.mtimeMs),
       () => void 0
@@ -3777,9 +4331,14 @@ function startFileIngest(store, config) {
       await handleWorkflowFile(file);
       return;
     }
+    if (subagentOf.has(file) || workflowAgentClaimOf(file)) {
+      await transcripts.pump(file);
+      return;
+    }
     const claim = claimOfTranscript(file, chain, leadName);
     if (!claim || disowned.has(file)) return;
     notePath(sidecars.get(file)?.name ?? claim.agent, file);
+    if (deferred.delete(file)) await transcripts.forget(file);
     await transcripts.pump(file);
   };
   const drainAgent = async (agent) => {
@@ -3793,14 +4352,14 @@ function startFileIngest(store, config) {
   const growForkChain = async (files) => {
     if (!leadSessionId) return;
     if (!leadProjectDir) {
-      const own2 = files.find((f) => path5.basename(f) === `${leadSessionId}.jsonl`);
-      if (own2) leadProjectDir = path5.dirname(own2);
+      const own2 = files.find((f) => path6.basename(f) === `${leadSessionId}.jsonl`);
+      if (own2) leadProjectDir = path6.dirname(own2);
     }
     if (!leadProjectDir) return;
     for (const file of files) {
-      if (!file.endsWith(".jsonl") || path5.dirname(file) !== leadProjectDir) continue;
-      const stem = path5.basename(file, ".jsonl");
-      if (forkChecked.has(stem) || SUBAGENT_FILE.test(path5.basename(file))) continue;
+      if (!file.endsWith(".jsonl") || path6.dirname(file) !== leadProjectDir) continue;
+      const stem = path6.basename(file, ".jsonl");
+      if (forkChecked.has(stem) || SUBAGENT_FILE.test(path6.basename(file))) continue;
       let firstLine;
       try {
         firstLine = await readFirstLine(file);
@@ -3944,10 +4503,10 @@ function createPermits() {
 var DEFAULT_PERMISSION_TIMEOUT_MS = 6e5;
 var SUBAGENT_ID = /^a(.+)-[0-9a-f]{16}$/;
 var bagOf2 = (v) => v !== null && typeof v === "object" ? v : {};
-var str2 = (v) => typeof v === "string" ? v : void 0;
+var str3 = (v) => typeof v === "string" ? v : void 0;
 var num2 = (v) => typeof v === "number" && Number.isFinite(v) ? v : void 0;
 function agentNameFrom(raw, leadName = "team-lead") {
-  const id = str2(raw);
+  const id = str3(raw);
   if (!id) return leadName;
   const at = id.indexOf("@");
   if (at > 0) return id.slice(0, at);
@@ -3962,7 +4521,7 @@ function pctOf(raw) {
 }
 function resetOf(raw) {
   const b = bagOf2(raw);
-  return str2(b.resets_at) ?? str2(b.reset_at) ?? str2(b.resetsAt);
+  return str3(b.resets_at) ?? str3(b.reset_at) ?? str3(b.resetsAt);
 }
 function createHookHandlers(deps) {
   const { store, permits } = deps;
@@ -3982,14 +4541,14 @@ function createHookHandlers(deps) {
     async hook(body) {
       try {
         const b = bagOf2(body);
-        const event = str2(b.hook_event_name) ?? "";
+        const event = str3(b.hook_event_name) ?? "";
         const agent = agentNameFrom(b.agent_id, leadName);
-        const toolName = str2(b.tool_name);
-        const text = str2(b.message) ?? str2(b.prompt);
+        const toolName = str3(b.tool_name);
+        const text = str3(b.message) ?? str3(b.prompt);
         store.append("hook", { event, agent, toolName, text }, agent);
         touched(agent);
         if (event === "SessionEnd") {
-          const ending = str2(b.session_id);
+          const ending = str3(b.session_id);
           const lead = deps.leadSessionId?.();
           if (lead && ending === lead) {
             setTimeout(shutdown, 250);
@@ -4043,7 +4602,7 @@ function createHookHandlers(deps) {
             totalCostUsd: num2(cost.total_cost_usd),
             contextTokens: num2(window.used_tokens) ?? num2(window.input_tokens),
             contextWindow: num2(window.max_tokens) ?? num2(window.context_window_size),
-            branch: str2(b.gitBranch) ?? str2(b.branch),
+            branch: str3(b.gitBranch) ?? str3(b.branch),
             fiveHourPct: pctOf(limits.five_hour),
             sevenDayPct: pctOf(limits.seven_day),
             resetsAt: resetOf(limits.five_hour)
@@ -4062,7 +4621,7 @@ function createHookHandlers(deps) {
         const tasks = Array.isArray(b.tasks) ? b.tasks : [];
         for (const raw of tasks) {
           const t = bagOf2(raw);
-          if (str2(t.type) !== "in_process_teammate") continue;
+          if (str3(t.type) !== "in_process_teammate") continue;
           const agent = agentNameFrom(t.agentId ?? t.agent_id ?? t.name, leadName);
           store.append(
             "substatus",
@@ -4070,8 +4629,8 @@ function createHookHandlers(deps) {
               agent,
               tokenCount: num2(t.tokenCount),
               contextWindowSize: num2(t.contextWindowSize),
-              status: str2(t.status),
-              model: str2(t.model)
+              status: str3(t.status),
+              model: str3(t.model)
             },
             agent
           );
@@ -4090,8 +4649,8 @@ var import_proper_lockfile = __toESM(require_proper_lockfile(), 1);
 import { promises as fs5 } from "node:fs";
 import { randomUUID as randomUUID3 } from "node:crypto";
 import os from "node:os";
-import path6 from "node:path";
-var teamsRoot = path6.join(os.homedir(), ".claude", "teams");
+import path7 from "node:path";
+var teamsRoot = path7.join(os.homedir(), ".claude", "teams");
 function setTeamsRoot(root) {
   teamsRoot = root;
 }
@@ -4101,7 +4660,7 @@ async function atomicWrite(filePath, data) {
   await fs5.rename(tmp, filePath);
 }
 async function colorOf(teamName, agent) {
-  const config = await readJsonSafe(path6.join(teamsRoot, teamName, "config.json"));
+  const config = await readJsonSafe(path7.join(teamsRoot, teamName, "config.json"));
   return config?.members.find((m) => m.name === agent)?.color;
 }
 var SAFE_NAME = /^[A-Za-z0-9_-]+$/;
@@ -4110,9 +4669,9 @@ async function sendToInbox(teamName, toAgent, body) {
     throw new Error(`refusing to write an inbox for ${JSON.stringify(`${teamName}/${toAgent}`)}`);
   }
   const from = body.from ?? "team-lead";
-  const dir = path6.join(teamsRoot, teamName, "inboxes");
-  const file = path6.join(dir, `${toAgent}.json`);
-  if (!path6.resolve(file).startsWith(path6.resolve(dir) + path6.sep)) {
+  const dir = path7.join(teamsRoot, teamName, "inboxes");
+  const file = path7.join(dir, `${toAgent}.json`);
+  if (!path7.resolve(file).startsWith(path7.resolve(dir) + path7.sep)) {
     throw new Error(`refusing to write ${file} outside ${dir}`);
   }
   await fs5.mkdir(dir, { recursive: true });
@@ -4213,7 +4772,7 @@ function createStream(snapshot, coalesceMs = COALESCE_MS) {
 // src/server/http.ts
 import http from "node:http";
 import { promises as fs6 } from "node:fs";
-import path7 from "node:path";
+import path8 from "node:path";
 var READ_ONLY_BODY = {
   error: "read-only",
   message: "the console was started with --read-only; control routes are disabled"
@@ -4234,7 +4793,7 @@ var BAD_SEGMENT_BODY = {
   error: "bad request",
   message: "name must match /^[A-Za-z0-9_-]+$/"
 };
-var DEFAULT_WEB_DIST = path7.join(PLUGIN_DIR, "dist", "web");
+var DEFAULT_WEB_DIST = path8.join(PLUGIN_DIR, "dist", "web");
 var MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
   ".js": "application/javascript; charset=utf-8",
@@ -4248,12 +4807,12 @@ var MIME_TYPES = {
   ".woff2": "font/woff2"
 };
 function contentTypeFor(file) {
-  return MIME_TYPES[path7.extname(file).toLowerCase()] ?? "application/octet-stream";
+  return MIME_TYPES[path8.extname(file).toLowerCase()] ?? "application/octet-stream";
 }
 async function serveWebBundle(res, webDist, route) {
   const isAsset = route.startsWith("/assets/");
-  const target = path7.join(webDist, isAsset ? route : "index.html");
-  if (!target.startsWith(path7.join(webDist, path7.sep))) {
+  const target = path8.join(webDist, isAsset ? route : "index.html");
+  if (!target.startsWith(path8.join(webDist, path8.sep))) {
     json(res, 404, { error: "not found", message: `no route for GET ${route}` });
     return;
   }
@@ -4323,7 +4882,7 @@ function json(res, status, body) {
   res.writeHead(status, { "content-type": "application/json", "content-length": Buffer.byteLength(payload) });
   res.end(payload);
 }
-var str3 = (v) => typeof v === "string" ? v : void 0;
+var str4 = (v) => typeof v === "string" ? v : void 0;
 function createHttpServer(deps) {
   const leadName = deps.leadName ?? "team-lead";
   const webDist = deps.webDist ?? DEFAULT_WEB_DIST;
@@ -4437,14 +4996,14 @@ function createHttpServer(deps) {
           }
           const action = agentMatch[2];
           if (action === "message") {
-            const text = str3(body.text);
+            const text = str4(body.text);
             if (!text) {
               json(res, 400, { error: "bad request", message: "text is required" });
               return;
             }
             const out2 = await sendToInbox(team(), name, {
               text,
-              summary: str3(body.summary),
+              summary: str4(body.summary),
               from: name === leadName ? CONSOLE_SENDER : leadName
             });
             deps.stream.publish();
@@ -4499,7 +5058,7 @@ function createHttpServer(deps) {
               type: "plan_approval_response",
               requestId,
               approved,
-              feedback: str3(body.feedback),
+              feedback: str4(body.feedback),
               timestamp
             }),
             summary: `plan ${approved ? "approved" : "rejected"}`,
@@ -4517,7 +5076,7 @@ function createHttpServer(deps) {
             return;
           }
           const decision = permitMatch[2] === "allow" ? "allow" : "deny";
-          const ok = deps.permits.resolve(id, decision, str3(body.reason));
+          const ok = deps.permits.resolve(id, decision, str4(body.reason));
           if (!ok) {
             json(res, 404, { error: "not found", message: `no held permit ${id}` });
             return;
@@ -4542,7 +5101,7 @@ function listen(server, port) {
 
 // src/server/setup.ts
 import { promises as fs7 } from "node:fs";
-import path8 from "node:path";
+import path9 from "node:path";
 import { execFile as execFile2 } from "node:child_process";
 import { promisify as promisify2 } from "node:util";
 var run = promisify2(execFile2);
@@ -4697,7 +5256,7 @@ function envBackup(settings) {
   );
 }
 function backupPathFor(settingsPath) {
-  return path8.join(path8.dirname(settingsPath), BACKUP_FILE);
+  return path9.join(path9.dirname(settingsPath), BACKUP_FILE);
 }
 async function runSetup(opts) {
   const block = hookBlock(opts.port);
@@ -4722,7 +5281,7 @@ async function runSetup(opts) {
     current = {};
   }
   const next = opts.uninstall ? removeHookBlock(current) : mergeHookBlock(current, opts.port);
-  await fs7.mkdir(path8.dirname(opts.settingsPath), { recursive: true });
+  await fs7.mkdir(path9.dirname(opts.settingsPath), { recursive: true });
   const backupPath = backupPathFor(opts.settingsPath);
   const saved = await readJsonSafe(backupPath);
   if (opts.uninstall) {
@@ -4762,7 +5321,7 @@ function parseArgs(argv) {
   let port = DEFAULT_PORT;
   let readOnly = false;
   let confirm = false;
-  let claudeHome = process.env.CLAUDE_CONFIG_DIR || path9.join(os2.homedir(), ".claude");
+  let claudeHome = process.env.CLAUDE_CONFIG_DIR || path10.join(os2.homedir(), ".claude");
   let team;
   let session;
   for (let i = 0; i < argv.length; i++) {
@@ -4785,8 +5344,8 @@ function parseArgs(argv) {
     readOnly,
     confirm,
     claudeHome,
-    settingsPath: path9.join(claudeHome, "settings.json"),
-    dbPath: path9.join(claudeHome, "agent-teams-console", "events.db"),
+    settingsPath: path10.join(claudeHome, "settings.json"),
+    dbPath: path10.join(claudeHome, "agent-teams-console", "events.db"),
     team,
     session
   };
@@ -4802,13 +5361,13 @@ function toDiscovered(config) {
 async function isSessionLive(sessionsRoot, sessionId) {
   if (!sessionId) return false;
   const session = await readJsonSafe(
-    path9.join(sessionsRoot, `${sessionId}.json`)
+    path10.join(sessionsRoot, `${sessionId}.json`)
   );
   return typeof session?.pid === "number" && isPidAlive(session.pid);
 }
 async function discoverTeam(teamsRoot2, sessionsRoot, explicitTeam) {
   if (explicitTeam) {
-    const config = await readJsonSafe(path9.join(teamsRoot2, explicitTeam, "config.json"));
+    const config = await readJsonSafe(path10.join(teamsRoot2, explicitTeam, "config.json"));
     return config ? toDiscovered(config) : null;
   }
   let entries;
@@ -4820,13 +5379,13 @@ async function discoverTeam(teamsRoot2, sessionsRoot, explicitTeam) {
   const dirs = [];
   for (const name of entries) {
     try {
-      if ((await fs8.stat(path9.join(teamsRoot2, name))).isDirectory()) dirs.push(name);
+      if ((await fs8.stat(path10.join(teamsRoot2, name))).isDirectory()) dirs.push(name);
     } catch {
     }
   }
   const configs = [];
   for (const name of dirs) {
-    const config = await readJsonSafe(path9.join(teamsRoot2, name, "config.json"));
+    const config = await readJsonSafe(path10.join(teamsRoot2, name, "config.json"));
     if (config) configs.push(config);
   }
   if (configs.length === 0) return null;
@@ -4855,7 +5414,7 @@ async function readSessions(sessionsRoot) {
   const docs = [];
   for (const entry of entries) {
     if (!entry.endsWith(".json")) continue;
-    const doc = await readJsonSafe(path9.join(sessionsRoot, entry));
+    const doc = await readJsonSafe(path10.join(sessionsRoot, entry));
     if (typeof doc?.sessionId !== "string") continue;
     docs.push({ sessionId: doc.sessionId, pid: doc.pid, name: doc.name, cwd: doc.cwd });
   }
@@ -4874,7 +5433,7 @@ async function readSessions(sessionsRoot) {
 async function branchOf(cwd) {
   if (!cwd) return void 0;
   try {
-    const head = await fs8.readFile(path9.join(cwd, ".git", "HEAD"), "utf8");
+    const head = await fs8.readFile(path10.join(cwd, ".git", "HEAD"), "utf8");
     const ref = /^ref:\s+refs\/heads\/(.+)$/m.exec(head.trim());
     return ref ? ref[1] : void 0;
   } catch {
@@ -4904,24 +5463,39 @@ async function lastActivityOf(teamDir, configMtimeMs) {
   let latest = configMtimeMs;
   let entries;
   try {
-    entries = await fs8.readdir(path9.join(teamDir, "inboxes"));
+    entries = await fs8.readdir(path10.join(teamDir, "inboxes"));
   } catch {
     return latest;
   }
   for (const entry of entries) {
     if (!entry.endsWith(".json")) continue;
     try {
-      const st = await fs8.stat(path9.join(teamDir, "inboxes", entry));
+      const st = await fs8.stat(path10.join(teamDir, "inboxes", entry));
       if (st.mtimeMs > latest) latest = st.mtimeMs;
     } catch {
     }
   }
   return latest;
 }
+async function subagentCountOf(projectsRoot, cwd, sessionId) {
+  if (!cwd || !sessionId) return 0;
+  const dir = path10.join(
+    projectsRoot,
+    cwd.replace(/[^a-zA-Z0-9]/g, "-"),
+    sessionId,
+    "subagents"
+  );
+  try {
+    const entries = await fs8.readdir(dir);
+    return entries.filter((e) => /^agent-.*\.jsonl$/.test(e)).length;
+  } catch {
+    return 0;
+  }
+}
 async function workflowOf(projectsRoot, cwd, sessionId, now) {
   if (!cwd || !sessionId) return void 0;
-  const sessionDir = path9.join(projectsRoot, cwd.replace(/[^a-zA-Z0-9]/g, "-"), sessionId);
-  const runsDir = path9.join(sessionDir, "subagents", "workflows");
+  const sessionDir = path10.join(projectsRoot, cwd.replace(/[^a-zA-Z0-9]/g, "-"), sessionId);
+  const runsDir = path10.join(sessionDir, "subagents", "workflows");
   let entries;
   try {
     entries = await fs8.readdir(runsDir);
@@ -4932,7 +5506,7 @@ async function workflowOf(projectsRoot, cwd, sessionId, now) {
   let journalMtimeMs = 0;
   for (const entry of entries) {
     try {
-      const st = await fs8.stat(path9.join(runsDir, entry, "journal.jsonl"));
+      const st = await fs8.stat(path10.join(runsDir, entry, "journal.jsonl"));
       if (st.mtimeMs > journalMtimeMs) {
         journalMtimeMs = st.mtimeMs;
         runId = entry;
@@ -4941,7 +5515,7 @@ async function workflowOf(projectsRoot, cwd, sessionId, now) {
     }
   }
   if (!runId) return void 0;
-  const snapshot = path9.join(sessionDir, "workflows", `${runId}.json`);
+  const snapshot = path10.join(sessionDir, "workflows", `${runId}.json`);
   let ended = false;
   try {
     ended = (await fs8.stat(snapshot)).isFile();
@@ -4967,7 +5541,7 @@ async function teamsOfLiveSessions(projectsRoot, sessions) {
   for (const sessionId of sessions.live) {
     const cwd = sessions.cwds.get(sessionId);
     if (!cwd) continue;
-    const dir = path9.join(projectsRoot, cwd.replace(/[^a-zA-Z0-9]/g, "-"), sessionId, "subagents");
+    const dir = path10.join(projectsRoot, cwd.replace(/[^a-zA-Z0-9]/g, "-"), sessionId, "subagents");
     let entries;
     try {
       entries = await fs8.readdir(dir);
@@ -4977,7 +5551,7 @@ async function teamsOfLiveSessions(projectsRoot, sessions) {
     for (const entry of entries) {
       if (!entry.endsWith(".meta.json")) continue;
       const meta = await readJsonSafe(
-        path9.join(dir, entry)
+        path10.join(dir, entry)
       );
       if (meta?.taskKind !== "in_process_teammate") continue;
       if (typeof meta.teamName === "string" && meta.teamName !== "") {
@@ -5001,16 +5575,16 @@ async function listTeamSummaries(teamsRoot2, sessionsRoot, current, projectsRoot
   const leadCwds = /* @__PURE__ */ new Map();
   const diffstats = /* @__PURE__ */ new Map();
   for (const name of entries) {
-    const teamDir = path9.join(teamsRoot2, name);
+    const teamDir = path10.join(teamsRoot2, name);
     let configMtimeMs;
     try {
-      const st = await fs8.stat(path9.join(teamDir, "config.json"));
+      const st = await fs8.stat(path10.join(teamDir, "config.json"));
       if (!st.isFile()) continue;
       configMtimeMs = st.mtimeMs;
     } catch {
       continue;
     }
-    const config = await readJsonSafe(path9.join(teamDir, "config.json"));
+    const config = await readJsonSafe(path10.join(teamDir, "config.json"));
     if (!config || typeof config.name !== "string" || !Array.isArray(config.members)) continue;
     const leadSessionId = typeof config.leadSessionId === "string" ? config.leadSessionId : "";
     const leadSession = liveTeams.get(name) ?? leadSessionId;
@@ -5020,6 +5594,7 @@ async function listTeamSummaries(teamsRoot2, sessionsRoot, current, projectsRoot
     const lead = config.members.find((m) => m.agentId === config.leadAgentId) ?? config.members[0];
     leadCwds.set(name, lead?.cwd ?? "");
     const workflow = projectsRoot ? await workflowOf(projectsRoot, sessions.cwds.get(leadSession) ?? lead?.cwd ?? "", leadSession, now) : void 0;
+    const subagents = projectsRoot ? await subagentCountOf(projectsRoot, sessions.cwds.get(leadSession) ?? lead?.cwd ?? "", leadSession) : 0;
     const leadCwd = lead?.cwd ?? "";
     if (!diffstats.has(leadCwd)) diffstats.set(leadCwd, await diffstatOf(leadCwd));
     teams.push({
@@ -5043,6 +5618,7 @@ async function listTeamSummaries(teamsRoot2, sessionsRoot, current, projectsRoot
       // recently — it can still be paged back into; `done` is finished.
       state: leadAlive ? "live" : recent ? "idle" : "done",
       ...workflow ? { workflow } : {},
+      ...subagents > 0 ? { subagents } : {},
       ...diffstats.get(leadCwd) ? { diffstat: diffstats.get(leadCwd) } : {}
     });
   }
@@ -5117,9 +5693,9 @@ async function main(argv) {
   process.on("uncaughtException", (err) => logError("uncaught exception", err));
   const guard = checkClaudeVersion(await readClaudeVersion());
   console.log(guard.ok ? guard.message : `warning: ${guard.message}`);
-  const teamsRoot2 = path9.join(cli.claudeHome, "teams");
-  const sessionsRoot = path9.join(cli.claudeHome, "sessions");
-  const projectsRoot = path9.join(cli.claudeHome, "projects");
+  const teamsRoot2 = path10.join(cli.claudeHome, "teams");
+  const sessionsRoot = path10.join(cli.claudeHome, "sessions");
+  const projectsRoot = path10.join(cli.claudeHome, "projects");
   setTeamsRoot(teamsRoot2);
   const discovered = await discoverTeam(teamsRoot2, sessionsRoot, cli.team);
   const teamName = discovered?.teamName ?? cli.team;
@@ -5155,10 +5731,10 @@ async function main(argv) {
   let currentTeam = teamName ?? "";
   const startIngest = (gen, team, lead) => startFileIngest(fencedSink(live, gen, () => generation), {
     paths: {
-      projects: path9.join(cli.claudeHome, "projects"),
+      projects: path10.join(cli.claudeHome, "projects"),
       teams: teamsRoot2,
-      tasks: path9.join(cli.claudeHome, "tasks"),
-      sessions: path9.join(cli.claudeHome, "sessions")
+      tasks: path10.join(cli.claudeHome, "tasks"),
+      sessions: path10.join(cli.claudeHome, "sessions")
     },
     teamName: team,
     leadSessionId: lead,
@@ -5200,11 +5776,11 @@ async function main(argv) {
     try {
       let exists = false;
       try {
-        exists = (await fs8.stat(path9.join(teamsRoot2, team))).isDirectory();
+        exists = (await fs8.stat(path10.join(teamsRoot2, team))).isDirectory();
       } catch {
       }
       if (!exists) return { ok: false, reason: "missing", message: `no team ${team}` };
-      const config = await readJsonSafe(path9.join(teamsRoot2, team, "config.json"));
+      const config = await readJsonSafe(path10.join(teamsRoot2, team, "config.json"));
       if (!config || typeof config.name !== "string" || !Array.isArray(config.members)) {
         logError(`select ${team}`, new Error("config.json is missing or unreadable"));
         return {
@@ -5289,7 +5865,7 @@ async function main(argv) {
   process.on("SIGTERM", stop);
   return 0;
 }
-if (process.argv[1] && import.meta.url.endsWith(path9.basename(process.argv[1]))) {
+if (process.argv[1] && import.meta.url.endsWith(path10.basename(process.argv[1]))) {
   void main(process.argv.slice(2));
 }
 export {
