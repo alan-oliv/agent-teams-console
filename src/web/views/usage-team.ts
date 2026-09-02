@@ -1,5 +1,6 @@
-import type { Agent, MailMessage, Task } from '../../shared/domain';
+import type { Agent, MailMessage, Subagent, Task } from '../../shared/domain';
 import { rateOf, usdCost, type ModelRate, type TokenSplit } from '../../shared/cost';
+import { resolveModel } from '../../shared/catalog';
 
 export const EMPTY_SPLIT: TokenSplit = { in: 0, out: 0, cacheWrite: 0, cacheWrite1h: 0, cacheRead: 0 };
 
@@ -380,4 +381,15 @@ export function serialEstimate(
     cacheWrite1h: Math.max(...known.map((s) => s.cacheWrite1h)),
     cacheRead: Math.max(...known.map((s) => s.cacheRead)),
   });
+}
+
+/**
+ * A Task call's derived spend. The Subagent contract carries one aggregate
+ * token count, no four-class split, so this prices at the cache-read rate —
+ * the dominant class in real usage (USAGE-STATE.md §6). A derived figure, and
+ * every drawing site must caption it as one. One derivation, shared with the
+ * trace view, so the two cannot disagree.
+ */
+export function subagentSpendUsd(s: Pick<Subagent, 'tokens' | 'model'>): number {
+  return (((s.tokens ?? 0) / 1_000_000) * resolveModel(s.model).pricing.cacheRead);
 }

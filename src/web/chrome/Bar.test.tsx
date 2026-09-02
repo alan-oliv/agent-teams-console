@@ -21,8 +21,8 @@ const shedOrder = (rank: Record<string, number>) =>
 // CONSOLE-DECISIONS.md. The task id is the run's identity, the way `branch` is
 // the team's, so it outlives the figures; the totals are the pure readout, so
 // they go first.
-it('sheds the workflow bar totals first and its task id last', () => {
-  expect(shedOrder(WORKFLOW_METRIC_RANK)).toEqual(['totals', 'elapsed', 'taskId']);
+it('sheds the workflow bar subagents first, then totals, and its task id last', () => {
+  expect(shedOrder(WORKFLOW_METRIC_RANK)).toEqual(['subagents', 'totals', 'elapsed', 'taskId']);
 });
 
 it('drops the highest-ranked metrics and leaves the rest in reading order', () => {

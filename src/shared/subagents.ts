@@ -469,3 +469,8 @@ export function buildSubagentTree(
   }
   return tree;
 }
+
+/** Every subagent in a tree's list, at every depth — a nested dispatch is still activity. */
+export function flattenSubagents(subagents: readonly Subagent[]): Subagent[] {
+  return subagents.flatMap((s) => [s, ...flattenSubagents(s.children)]);
+}

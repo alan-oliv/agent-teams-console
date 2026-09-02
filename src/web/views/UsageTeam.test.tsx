@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { FIXTURE_NOW, sampleTeamState } from '../test/state-fixture';
 import { formatCost, formatTokens } from '../format';
-import { dollarsAvoided, seriesColors, spendByModel } from './usage-team';
+import { dollarsAvoided, seriesColors, spendByModel, subagentSpendUsd } from './usage-team';
 import { DEFAULT_SETTINGS, SettingsContext } from '../state/useSettings';
 import { UsageTeam } from './UsageTeam';
 
@@ -483,5 +483,49 @@ describe('UsageTeam — the rev 3c ledger columns', () => {
     expect(screen.getByTestId('usage-foot-cache').textContent).toBe('—');
     // Cost never depended on the split, so it stays measured.
     expect(screen.getByTestId('usage-foot-cost').textContent).toBe(formatCost(noSplit.totalCostUsd));
+  });
+});
+
+// "Usage dashboard gains spend attributed per Task call" (rev 5). The contract
+// carries one aggregate token count per call, so the figure is derived at the
+// cache-read rate — same helper the trace view prices with, captioned as such.
+describe('spend per Task call', () => {
+  const withTree = () => {
+    const state = sampleTeamState();
+    return {
+      ...state,
+      subagents: {
+        'team-lead': [
+          {
+            toolUseId: 'toolu_u1', name: 'probe', agent: 'team-lead', parent: 'team-lead',
+            depth: 1, spawnIndex: 0, siblingGroup: 'rec-1', state: 'returned' as const,
+            queuedAt: FIXTURE_NOW - 60_000, tokens: 28_700, model: 'claude-opus-5',
+            agentType: 'general-purpose', children: [],
+          },
+        ],
+      },
+    };
+  };
+
+  it('draws one row per call, priced through the shared derivation', () => {
+    render(<UsageTeam state={withTree()} now={FIXTURE_NOW} focused={null} onFocus={vi.fn()} spendSamples={[]} />);
+    const rows = screen.getAllByTestId('usage-taskcall-row');
+    expect(rows).toHaveLength(1);
+    expect(screen.getByTestId('usage-taskcall-spend').textContent).toBe(
+      formatCost(subagentSpendUsd({ tokens: 28_700, model: 'claude-opus-5' })),
+    );
+    expect(screen.getByTestId('usage-taskcalls-total').textContent).toBe(
+      formatCost(subagentSpendUsd({ tokens: 28_700, model: 'claude-opus-5' })),
+    );
+  });
+
+  it('captions the figure as derived, not measured', () => {
+    render(<UsageTeam state={withTree()} now={FIXTURE_NOW} focused={null} onFocus={vi.fn()} spendSamples={[]} />);
+    expect(screen.getByTestId('usage-taskcalls-caption').textContent).toMatch(/derived/);
+  });
+
+  it('draws no panel at all when the session has no Task calls', () => {
+    render(<UsageTeam state={sampleTeamState()} now={FIXTURE_NOW} focused={null} onFocus={vi.fn()} spendSamples={[]} />);
+    expect(screen.queryByTestId('usage-taskcalls')).toBeNull();
   });
 });

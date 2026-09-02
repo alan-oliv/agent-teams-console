@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import type { WorkflowRun as Run } from '../../shared/domain';
+import type { SubagentTree, WorkflowRun as Run } from '../../shared/domain';
 import { Bar, METRIC } from '../chrome/Bar';
 import { RunSelect } from '../chrome/RunSelect';
 import { TeamSelect } from '../chrome/TeamSelect';
-import { formatElapsed } from '../format';
+import { formatElapsed, formatTokens } from '../format';
 import type { SettingsStore } from '../state/useSettings';
+import { flattenSubagents } from '../../shared/subagents';
 import { Usage } from './Usage';
 import { WorkflowAgents } from './WorkflowAgents';
 import { WorkflowJournal } from './WorkflowJournal';
@@ -31,6 +32,8 @@ export const WORKFLOW_METRIC_RANK: Record<string, number> = {
   taskId: 0,
   elapsed: 1,
   totals: 2,
+  // Newest addition here too — sheds before the run's own figures.
+  subagents: 3,
 };
 
 export interface WorkflowProps {
@@ -47,6 +50,8 @@ export interface WorkflowProps {
   teamsOpen: boolean;
   onTeamsOpenChange(open: boolean): void;
   appearance: SettingsStore;
+  /** The session's Task-subagent tree — the bar carries it in both modes. */
+  subagents?: SubagentTree;
 }
 
 /**
@@ -57,8 +62,10 @@ export interface WorkflowProps {
  */
 export function Workflow({
   run, runs, onSelectRun, backToTeam, now, teamName, sessionName, teamsOpen, onTeamsOpenChange,
-  appearance,
+  appearance, subagents,
 }: WorkflowProps) {
+  const allSubagents = Object.values(subagents ?? {}).flatMap(flattenSubagents);
+  const subagentTokens = allSubagents.reduce((n, s) => n + (s.tokens ?? 0), 0);
   const [view, setView] = useState<WorkflowViewId>('run');
   const totals = runTotalsText(run);
 
@@ -112,6 +119,17 @@ export function Workflow({
                   style={{ color: 'var(--color-neutral-600)', ...METRIC }}
                 >
                   {`task ${run.taskId}`}
+                </span>,
+              ]
+            : []),
+          ...(allSubagents.length > 0
+            ? [
+                <span
+                  key="subagents"
+                  data-testid="wf-subagents"
+                  style={{ color: 'var(--color-neutral-600)', ...METRIC }}
+                >
+                  {`${allSubagents.length} subagents · ${formatTokens(subagentTokens)}`}
                 </span>,
               ]
             : []),

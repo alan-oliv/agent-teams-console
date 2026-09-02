@@ -3,6 +3,7 @@ import type { Agent, TeamState } from '../../shared/domain';
 import { RATES, rateOf } from '../../shared/cost';
 import { formatCost, formatElapsed, formatPct, formatTokens } from '../format';
 import { useAppearance } from '../state/useSettings';
+import { flattenSubagents } from '../../shared/subagents';
 import {
   billedTokens,
   cacheHitRatio,
@@ -23,6 +24,7 @@ import {
   type SegmentKey,
   type SpendSample,
   type StackedSpend,
+  subagentSpendUsd,
 } from './usage-team';
 
 // Series colour is the accent ramp in order, never a categorical palette. More
@@ -649,6 +651,11 @@ export function UsageTeam({ state, now, focused, onFocus, spendSamples }: UsageT
   const hit = split ? cacheHitRatio(split) : undefined;
   const avoided = dollarsAvoided(agents);
   const tasksDone = tasks.filter((t) => t.state === 'completed').length;
+  // One row per Task call, parent kept for attribution; nested calls stay in
+  // their parent's order with a connector rather than a second grouping.
+  const taskCalls = Object.entries(state.subagents ?? {}).flatMap(([parent, list]) =>
+    flattenSubagents(list).map((s) => ({ s, parent })),
+  );
   const perTask = costPerTask(state.totalCostUsd, tasksDone);
   const perHour = costPerHour(state.totalCostUsd, state.startedAt, now);
 
@@ -858,6 +865,49 @@ export function UsageTeam({ state, now, focused, onFocus, spendSamples }: UsageT
           </span>
         </div>
       </div>
+
+      {taskCalls.length > 0 && (
+        <div data-testid="usage-taskcalls" style={{ ...PANEL, padding: 0, overflow: 'hidden' }}>
+          <div style={{ ...PANEL_HEAD, padding: '13px 16px 11px', borderBottom: '1px solid var(--color-neutral-900)' }}>
+            <span style={PANEL_TITLE}>Spend per Task call</span>
+            <span data-testid="usage-taskcalls-caption" style={PANEL_CAPTION}>
+              derived at the cache-read rate · no per-call split is recorded
+            </span>
+          </div>
+          {taskCalls.map(({ s, parent }) => (
+            <div
+              key={s.toolUseId}
+              data-testid="usage-taskcall-row"
+              style={{
+                display: 'flex', alignItems: 'baseline', gap: '10px',
+                padding: '6px 16px', borderBottom: '1px solid var(--color-neutral-900)',
+                fontSize: '11.5px',
+              }}
+            >
+              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {s.depth > 1 && <span style={{ color: 'var(--color-neutral-700)' }}>{'\u2514 '}</span>}
+                <span style={{ color: 'var(--color-text)' }}>{s.name}</span>
+                {s.agentType && (
+                  <span style={{ color: 'var(--color-neutral-500)', marginLeft: '7px', fontSize: '10px' }}>{s.agentType}</span>
+                )}
+              </span>
+              <span style={{ color: 'var(--color-neutral-600)', fontSize: '10px', flex: 'none' }}>{parent}</span>
+              <span style={{ width: '64px', textAlign: 'right', color: 'var(--color-neutral-500)', flex: 'none' }}>
+                {s.tokens === undefined ? EM_DASH : formatTokens(s.tokens)}
+              </span>
+              <span data-testid="usage-taskcall-spend" style={{ width: '64px', textAlign: 'right', color: 'var(--color-neutral-400)', flex: 'none' }}>
+                {s.tokens === undefined ? EM_DASH : formatCost(subagentSpendUsd(s))}
+              </span>
+            </div>
+          ))}
+          <div style={{ display: 'flex', gap: '10px', padding: '7px 16px', fontSize: '11.5px' }}>
+            <span style={{ flex: 1, color: 'var(--color-neutral-600)' }}>{`${taskCalls.length} calls`}</span>
+            <span data-testid="usage-taskcalls-total" style={{ width: '64px', textAlign: 'right', fontWeight: 500, color: 'var(--color-text)' }}>
+              {formatCost(taskCalls.reduce((n, { s }) => n + subagentSpendUsd(s), 0))}
+            </span>
+          </div>
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
         <DonutPanel models={models} />

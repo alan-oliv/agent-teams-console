@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 import type { Subagent } from '../../shared/domain';
 import { resolveModel } from '../../shared/catalog';
+import { subagentSpendUsd } from './usage-team';
 import { contextBar, formatCost, formatElapsed, formatTokens } from '../format';
 
 const TYPE_BADGE: CSSProperties = {
@@ -72,10 +73,7 @@ export function Trace({ agent, subagents, now, selected, onSelect }: TraceProps)
   // No per-call token split exists to price accurately — cache reads are the
   // dominant class in real usage (USAGE-STATE.md), so that rate is the closer
   // approximation of the two blunt instruments available.
-  const spend = flat.reduce((n, r) => {
-    const rate = resolveModel(r.subagent.model).pricing.cacheRead;
-    return n + ((r.subagent.tokens ?? 0) / 1_000_000) * rate;
-  }, 0);
+  const spend = flat.reduce((n, r) => n + subagentSpendUsd(r.subagent), 0);
   const ratio = shownToParent > 0 ? Math.round(tokensIn / shownToParent) : null;
 
   const starts = flat.map((r) => r.subagent.queuedAt);

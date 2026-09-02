@@ -1,8 +1,9 @@
 import type { ReactElement } from 'react';
-import type { Subagent, TeamState, ViewId } from '../../shared/domain';
+import type { TeamState, ViewId } from '../../shared/domain';
 import type { SettingsStore } from '../state/useSettings';
 import { formatCost, formatElapsed, formatTokens, meterCells } from '../format';
 import { SOLO_VIEW_IDS, VIEW_IDS } from '../state/useTeamState';
+import { flattenSubagents } from '../../shared/subagents';
 import { Bar, METRIC } from './Bar';
 import { runOrder } from './RunSelect';
 import { TeamSelect } from './TeamSelect';
@@ -35,10 +36,6 @@ export const METRIC_RANK: Record<string, number> = {
   subagents: 7,
 };
 
-/** Every subagent in the tree, at every depth — a nested dispatch is still activity. */
-function flattenSubagents(subagents: Subagent[]): Subagent[] {
-  return subagents.flatMap((s) => [s, ...flattenSubagents(s.children)]);
-}
 
 export interface StatusBarProps {
   state: TeamState;
