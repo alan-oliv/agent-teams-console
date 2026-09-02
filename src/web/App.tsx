@@ -312,6 +312,7 @@ export function App() {
           teamsOpen={teamsOpen}
           onTeamsOpenChange={setTeamsOpen}
           appearance={appearance}
+          subagents={state.subagents}
         />
       </div>
       </WatchContext.Provider>

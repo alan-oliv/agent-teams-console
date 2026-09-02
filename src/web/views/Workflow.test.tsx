@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import type { WorkflowRun } from '../../shared/domain';
+import type { SubagentTree, WorkflowRun } from '../../shared/domain';
 import { DEFAULT_SETTINGS } from '../state/useSettings';
 import { cssVarsFor, DENSITY } from '../themes';
 import { Workflow, WORKFLOW_VIEW_IDS } from './Workflow';
@@ -56,7 +56,7 @@ const APPEARANCE = {
 
 function renderWorkflow(
   run: WorkflowRun = FINISHED,
-  extra: { runs?: WorkflowRun[]; backToTeam?: string } = {},
+  extra: { runs?: WorkflowRun[]; backToTeam?: string; subagents?: SubagentTree } = {},
 ) {
   const onTeamsOpenChange = vi.fn();
   const onSelectRun = vi.fn();
@@ -72,6 +72,7 @@ function renderWorkflow(
       teamsOpen={false}
       onTeamsOpenChange={onTeamsOpenChange}
       appearance={APPEARANCE}
+      subagents={extra.subagents}
     />,
   );
   return { ...result, onTeamsOpenChange, onSelectRun };
@@ -246,5 +247,34 @@ describe('Workflow', () => {
     // controls and are exempt.
     expect(container.textContent ?? '').not.toMatch(/skip agent|stop run/i);
     expect(screen.queryByRole('button', { name: /skip|stop/i })).toBeNull();
+  });
+});
+
+// The design's one line about subagents in the bar says "in both modes" —
+// the run bar carries the same readout the team bar does, shedding first.
+describe('the subagents metric', () => {
+  const TREE: SubagentTree = {
+    'team-lead': [
+      {
+        toolUseId: 'toolu_wf1', name: 'probe', agent: 'team-lead', parent: 'team-lead',
+        depth: 1, spawnIndex: 0, siblingGroup: 'rec-1', state: 'returned',
+        queuedAt: now - 60_000, tokens: 28_700, children: [],
+      },
+      {
+        toolUseId: 'toolu_wf2', name: 'audit', agent: 'team-lead', parent: 'team-lead',
+        depth: 1, spawnIndex: 1, siblingGroup: 'rec-2', state: 'returned',
+        queuedAt: now - 50_000, tokens: 1_300, children: [],
+      },
+    ],
+  };
+
+  it('draws count and tokens when the session carries a tree', () => {
+    renderWorkflow(FINISHED, { subagents: TREE });
+    expect(screen.getByTestId('wf-subagents').textContent).toBe('2 subagents · 30.0k');
+  });
+
+  it('draws nothing at all without one — absent, not zero', () => {
+    renderWorkflow(FINISHED);
+    expect(screen.queryByTestId('wf-subagents')).toBeNull();
   });
 });
