@@ -56,6 +56,20 @@ const PANEL: CSSProperties = {
   minWidth: 0,
 };
 
+// A panel whose rows run full bleed to its edges: no padding, and `overflow`
+// clipping them to the rounded corners. `flexShrink: 0` is load-bearing: the
+// page is a flex column with a bounded height, which shrinks its children to
+// fit, and setting `overflow` makes this panel's automatic minimum size 0 — so
+// it shrank to nothing and the per-agent ledger left a live team's page
+// entirely. Panels without `overflow` are floored at their content height and
+// need no such guard.
+const TABLE_PANEL: CSSProperties = {
+  ...PANEL,
+  padding: 0,
+  overflow: 'hidden',
+  flexShrink: 0,
+};
+
 const PANEL_HEAD: CSSProperties = {
   display: 'flex',
   alignItems: 'baseline',
@@ -404,8 +418,12 @@ function RateCardPanel({ models }: { models: readonly ModelSpend[] }) {
   const rows = [...catalog, ...unknown];
 
   const CELL: CSSProperties = { width: '52px', flex: 'none', textAlign: 'right' };
+
+  // The card shares its row. On `PANEL` alone its flex basis is its max-content
+  // width — the rate note on one line — which took 1272px of a 1480px row and
+  // pushed the spend strip beside it off the page.
   return (
-    <div data-testid="usage-rate-card" style={PANEL}>
+    <div data-testid="usage-rate-card" style={{ ...PANEL, flex: 1, minWidth: 0 }}>
       <div style={PANEL_HEAD}>
         <span style={PANEL_TITLE}>Rate card</span>
         <span style={PANEL_CAPTION}>$ per Mtok, live from config</span>
@@ -676,7 +694,11 @@ export function UsageTeam({ state, now, focused, onFocus, spendSamples }: UsageT
   const serial = serialEstimate(agents, serialModel);
 
   return (
-    <div data-testid="usage" className="tscroll" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: '12px', padding: '14px 16px' }}>
+    <div
+      data-testid="usage"
+      className="tscroll"
+      style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: '12px', padding: '14px 16px' }}
+    >
       <div style={{ display: 'flex', gap: '12px' }}>
         <Tile
           testId="usage-cost"
@@ -691,7 +713,10 @@ export function UsageTeam({ state, now, focused, onFocus, spendSamples }: UsageT
           note={
             split === undefined
               ? EM_DASH
-              : `${formatTokens(split.in + split.cacheWrite)} in · ${formatTokens(split.out)} out · ${formatTokens(split.cacheRead)} cache read`
+              // All four billed classes. Folding cache writes into the figure
+              // labelled "in" printed a number that was not `in`, and writes
+              // bill at 1.25x input rather than at it.
+              : `${formatTokens(split.in)} in · ${formatTokens(split.out)} out · ${formatTokens(split.cacheWrite)} cache write · ${formatTokens(split.cacheRead)} cache read`
           }
         />
         <Tile
@@ -766,7 +791,7 @@ export function UsageTeam({ state, now, focused, onFocus, spendSamples }: UsageT
         </div>
       </div>
 
-      <div style={{ ...PANEL, padding: 0, overflow: 'hidden' }}>
+      <div style={TABLE_PANEL}>
         <div style={{ ...PANEL_HEAD, padding: '13px 16px 11px', borderBottom: '1px solid var(--color-neutral-900)' }}>
           <span style={PANEL_TITLE}>Per-agent ledger</span>
           <span data-testid="usage-ledger-caption" style={PANEL_CAPTION}>
@@ -785,7 +810,11 @@ export function UsageTeam({ state, now, focused, onFocus, spendSamples }: UsageT
           <span style={COL.tasks}>tasks</span>
           <span style={COL.cost}>cost</span>
         </div>
-        <div className="tscroll" style={{ display: 'flex', flexDirection: 'column' }}>
+        {/* No `tscroll` here. A scroll box inside the page's own scroll box
+            has `min-height: 0`, so the panel's flex column shrank it to
+            nothing and the whole table left the page. The page scrolls; a
+            per-agent list a handful of rows long does not need to as well. */}
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
           {agents.map((agent) => {
             const row = ledgerRowOf(agent, state.mail, tasks);
             const ctx = row.contextLimit > 0 ? row.contextTokens / row.contextLimit : undefined;
@@ -867,7 +896,7 @@ export function UsageTeam({ state, now, focused, onFocus, spendSamples }: UsageT
       </div>
 
       {taskCalls.length > 0 && (
-        <div data-testid="usage-taskcalls" style={{ ...PANEL, padding: 0, overflow: 'hidden' }}>
+        <div data-testid="usage-taskcalls" style={TABLE_PANEL}>
           <div style={{ ...PANEL_HEAD, padding: '13px 16px 11px', borderBottom: '1px solid var(--color-neutral-900)' }}>
             <span style={PANEL_TITLE}>Spend per Task call</span>
             <span data-testid="usage-taskcalls-caption" style={PANEL_CAPTION}>
