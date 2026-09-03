@@ -51,6 +51,8 @@ let shutdowns: number;
 let listed: TeamsResponse;
 let selectCalls: string[];
 let selectOutcome: (name: string) => SelectTeamOutcome;
+let sessionCalls: string[];
+let sessionOutcome: (sessionId: string) => SelectTeamOutcome;
 /** What `/api/line` can resolve, keyed `agent|id`. A miss is a dropped record. */
 let lineTexts: Record<string, string>;
 
@@ -76,6 +78,8 @@ async function boot(readOnly: boolean, webDist?: string): Promise<{ server: Serv
   };
   selectCalls = [];
   selectOutcome = () => ({ ok: true, changed: true });
+  sessionCalls = [];
+  sessionOutcome = () => ({ ok: true, changed: true });
   lineTexts = {};
   hub = createStream(() => state, 50);
   const server = createHttpServer({
@@ -90,6 +94,10 @@ async function boot(readOnly: boolean, webDist?: string): Promise<{ server: Serv
     selectTeam: (name: string) => {
       selectCalls.push(name);
       return Promise.resolve(selectOutcome(name));
+    },
+    selectSession: (sessionId: string) => {
+      sessionCalls.push(sessionId);
+      return Promise.resolve(sessionOutcome(sessionId));
     },
     onShutdown: () => {
       shutdowns++;
@@ -533,6 +541,59 @@ describe('the team selector', () => {
     }
   });
 
+  it('acks a session select, and a session select alone — it is not a team switch', async () => {
+    const { server, url } = await boot(false);
+    try {
+      const res = await post(`${url}/api/select-session/8f2a1c00-3206-455b-aaf6-a5a81ad1e283`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        ok: true,
+        session: '8f2a1c00-3206-455b-aaf6-a5a81ad1e283',
+        changed: true,
+      });
+      expect(sessionCalls).toEqual(['8f2a1c00-3206-455b-aaf6-a5a81ad1e283']);
+      expect(selectCalls).toEqual([]);
+    } finally {
+      await shutdown(server);
+    }
+  });
+
+  it('404s a session with nothing on disk behind it, and 409s a switch already running', async () => {
+    const { server, url } = await boot(false);
+    try {
+      sessionOutcome = () => ({ ok: false, reason: 'missing', message: 'no session nope' });
+      const missing = await post(`${url}/api/select-session/nope`);
+      expect(missing.status).toBe(404);
+      expect(await missing.json()).toEqual({ error: 'not found', message: 'no session nope' });
+
+      sessionOutcome = () => ({ ok: false, reason: 'busy', message: 'a switch is already running' });
+      const busy = await post(`${url}/api/select-session/nope`);
+      expect(busy.status).toBe(409);
+      expect(await busy.json()).toEqual({
+        error: 'switch in progress',
+        message: 'a switch is already running',
+      });
+    } finally {
+      await shutdown(server);
+    }
+  });
+
+  // The same gate the team route gets: the id is percent-decoded after the
+  // pattern, so a smuggled separator has to die before selectSession is called.
+  it('rejects a hostile session segment before calling anything', async () => {
+    const { server, url } = await boot(false);
+    try {
+      for (const hostile of ['%2e%2e%2f', '%zz', 'has%20space']) {
+        const res = await post(`${url}/api/select-session/${hostile}`);
+        expect(res.status).toBe(400);
+        expect(await res.json()).toEqual(BAD_SEGMENT_BODY);
+      }
+      expect(sessionCalls).toEqual([]);
+    } finally {
+      await shutdown(server);
+    }
+  });
+
   it('rejects a name that would smuggle a separator past the guard, before calling anything', async () => {
     const { server, url } = await boot(false);
     try {
@@ -589,6 +650,17 @@ describe('--read-only', () => {
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ ok: true, team: 'session-b5129c7b', changed: true });
       expect(selectCalls).toEqual(['session-b5129c7b']);
+    } finally {
+      await shutdown(server);
+    }
+  });
+
+  it('still retargets at a session — that is observation, not a write', async () => {
+    const { server, url } = await boot(true);
+    try {
+      const res = await post(`${url}/api/select-session/8f2a1c00-3206-455b-aaf6-a5a81ad1e283`);
+      expect(res.status).toBe(200);
+      expect(sessionCalls).toEqual(['8f2a1c00-3206-455b-aaf6-a5a81ad1e283']);
     } finally {
       await shutdown(server);
     }

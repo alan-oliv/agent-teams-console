@@ -118,6 +118,8 @@ export interface HttpDeps {
   lineText?: (agent: string, id: string) => string | undefined;
   /** Re-points the console at another team; the SSE frame carries the result. */
   selectTeam?: (name: string) => Promise<SelectTeamOutcome>;
+  /** Same, at a lone session that never formed a team. */
+  selectSession?: (sessionId: string) => Promise<SelectTeamOutcome>;
   /** Spec §5.4's shutdown action, shared with the SessionEnd hook handler. */
   onShutdown?: () => void;
   /** Directory holding the built web bundle (default: {@link DEFAULT_WEB_DIST}). */
@@ -128,6 +130,7 @@ const AGENT_ROUTE = /^\/api\/agents\/([^/]+)\/(message|interrupt|stop|respawn)$/
 const PLAN_ROUTE = /^\/api\/plans\/([^/]+)\/(approve|reject)$/;
 const PERMIT_ROUTE = /^\/api\/permits\/([^/]+)\/(allow|deny)$/;
 const TEAM_SELECT_ROUTE = /^\/api\/teams\/([^/]+)\/select$/;
+const SESSION_SELECT_ROUTE = /^\/api\/select-session\/([^/]+)$/;
 
 /**
  * The route patterns exclude a literal `/`, but every id below is
@@ -308,17 +311,24 @@ export function createHttpServer(deps: HttpDeps): Server {
         // It changes what the console OBSERVES, the one thing read-only exists
         // to preserve.
         const selectMatch = TEAM_SELECT_ROUTE.exec(route);
-        if (selectMatch && deps.selectTeam) {
-          const name = decodeSegment(selectMatch[1]);
+        const sessionMatch = SESSION_SELECT_ROUTE.exec(route);
+        const select =
+          selectMatch && deps.selectTeam
+            ? { raw: selectMatch[1], key: 'team', run: deps.selectTeam }
+            : sessionMatch && deps.selectSession
+              ? { raw: sessionMatch[1], key: 'session', run: deps.selectSession }
+              : null;
+        if (select) {
+          const name = decodeSegment(select.raw);
           if (name === null) {
             json(res, 400, BAD_SEGMENT_BODY);
             return;
           }
-          const out = await deps.selectTeam(name);
+          const out = await select.run(name);
           if (out.ok) {
             // An ack, not a TeamState: the client has /stream open and the
             // frame published by the switch already carries the new state.
-            json(res, 200, { ok: true, team: name, changed: out.changed });
+            json(res, 200, { ok: true, [select.key]: name, changed: out.changed });
           } else if (out.reason === 'busy') {
             json(res, 409, { error: 'switch in progress', message: out.message });
           } else {

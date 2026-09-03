@@ -9,6 +9,7 @@ import {
   discoverTeam,
   fencedSink,
   listTeamSummaries,
+  sessionProjectDir,
   DEFAULT_PORT,
   IDLE_GRACE_MS,
 } from './index';
@@ -736,5 +737,41 @@ describe('--session', () => {
 
   it('is absent when nothing named one', () => {
     expect(parseArgs([]).session).toBeUndefined();
+  });
+});
+
+describe('sessionProjectDir', () => {
+  const SESSION = '8f2a1c00-3206-455b-aaf6-a5a81ad1e283';
+
+  async function makeSession(slug: string): Promise<string> {
+    const target = path.join(dir, 'projects', slug, SESSION);
+    await fs.mkdir(path.join(target, 'subagents'), { recursive: true });
+    return target;
+  }
+
+  it('resolves the directory from the cwd the session record carries', async () => {
+    const target = await makeSession('-Users-alanoliv-code-agents-team-ui');
+    expect(await sessionProjectDir(path.join(dir, 'projects'), SESSION, '/Users/alanoliv/code/agents-team-ui'))
+      .toBe(target);
+  });
+
+  // The whole point of the fallback: a session that never formed a team is
+  // exactly the one whose sessions/<id>.json is most likely missing.
+  it('finds it by scanning when there is no session record to name a cwd', async () => {
+    const target = await makeSession('-Users-alanoliv-code-other');
+    expect(await sessionProjectDir(path.join(dir, 'projects'), SESSION)).toBe(target);
+  });
+
+  it('is null for a session with nothing on disk, and for no projects root at all', async () => {
+    await makeSession('-Users-alanoliv-code-agents-team-ui');
+    expect(await sessionProjectDir(path.join(dir, 'projects'), 'not-a-session')).toBeNull();
+    expect(await sessionProjectDir(path.join(dir, 'nowhere'), SESSION)).toBeNull();
+  });
+
+  // A stale cwd must not shadow the real directory — the session moved, the
+  // transcript did not.
+  it('falls back to the scan when the recorded cwd points nowhere', async () => {
+    const target = await makeSession('-Users-alanoliv-code-other');
+    expect(await sessionProjectDir(path.join(dir, 'projects'), SESSION, '/gone')).toBe(target);
   });
 });

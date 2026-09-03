@@ -460,6 +460,45 @@ async function teamsOfLiveSessions(
   return teams;
 }
 
+/**
+ * Whether a session has a project directory to ingest at all — the only thing
+ * that makes a config-less session selectable, since it has no config.json to
+ * check the way a team does.
+ *
+ * The slug comes off the session's recorded cwd when there is a record; the
+ * scan is the fallback for a session whose `sessions/<id>.json` was never
+ * written or has since been reaped, which is exactly the long-lived,
+ * team-less session this path exists for.
+ */
+export async function sessionProjectDir(
+  projectsRoot: string,
+  sessionId: string,
+  cwd?: string,
+): Promise<string | null> {
+  const isDir = async (dir: string): Promise<boolean> => {
+    try {
+      return (await fs.stat(dir)).isDirectory();
+    } catch {
+      return false;
+    }
+  };
+  if (cwd) {
+    const dir = path.join(projectsRoot, cwd.replace(/[^a-zA-Z0-9]/g, '-'), sessionId);
+    if (await isDir(dir)) return dir;
+  }
+  let slugs: string[];
+  try {
+    slugs = await fs.readdir(projectsRoot);
+  } catch {
+    return null;
+  }
+  for (const slug of slugs) {
+    const dir = path.join(projectsRoot, slug, sessionId);
+    if (await isDir(dir)) return dir;
+  }
+  return null;
+}
+
 export async function listTeamSummaries(
   teamsRoot: string,
   sessionsRoot: string,
@@ -728,6 +767,10 @@ export async function main(argv: string[]): Promise<number> {
   // The authoritative answer to "which team is showing". NOT state().teamName,
   // which is '' for the whole window between setTeam and the sweep landing.
   let currentTeam = teamName ?? '';
+  // The session the console is scoped to when there is no team at all — set at
+  // boot by `--session`, and by selectSession below. Kept apart from
+  // `currentTeam` so neither mode's no-op check can answer for the other.
+  let currentSession = teamName ? '' : (leadSessionId ?? '');
 
   const startIngest = (gen: number, team: string | undefined, lead: string | undefined) =>
     startFileIngest(fencedSink(live, gen, () => generation), {
@@ -739,6 +782,7 @@ export async function main(argv: string[]): Promise<number> {
       },
       teamName: team,
       leadSessionId: lead,
+      sessionOnly: team === undefined && lead !== undefined,
       onTeam: (info) => {
         if (gen !== generation) return;
         store.setTeam(info.teamName);
@@ -783,6 +827,7 @@ export async function main(argv: string[]): Promise<number> {
     store.setTeam(team);
     leadSessionId = lead;
     currentTeam = team;
+    currentSession = '';
     // Dropped, not left to the follower's next tick: these are the OLD team's
     // name and branch, and holding them for even one interval would show the
     // session you just left in the header of the one you switched to. Cleared
@@ -839,6 +884,53 @@ export async function main(argv: string[]): Promise<number> {
     }
   };
 
+  /**
+   * The same rebuild as `retarget`, aimed at a session with no team. The store
+   * is re-pointed at a log named for the SESSION: `setTeam` is what clears the
+   * previous target's events, and a session id passes its name gate, so the
+   * session gets the per-target log every team already gets. `currentTeam`
+   * stays empty — there is no team to highlight in the picker, and a name with
+   * no `teams/<name>` directory behind it would read as a deleted team and have
+   * the idle reaper exit the console out from under the operator.
+   */
+  const retargetSession = async (sessionId: string): Promise<void> => {
+    const gen = ++generation;
+    ingest.close();
+    store.setTeam(sessionId);
+    leadSessionId = sessionId;
+    currentTeam = '';
+    currentSession = sessionId;
+    leadFacts = {};
+    ingest = startIngest(gen, undefined, sessionId);
+    await ingest.sweep();
+    hub.publish();
+  };
+
+  const selectSession = async (sessionId: string): Promise<SelectTeamOutcome> => {
+    if (sessionId === currentSession) {
+      pinned = true;
+      return { ok: true, changed: false };
+    }
+    if (switching) {
+      return {
+        ok: false,
+        reason: 'busy',
+        message: `a team switch is already running — retry ${sessionId}`,
+      };
+    }
+    switching = true;
+    try {
+      const sessions = await readSessions(sessionsRoot);
+      const dir = await sessionProjectDir(projectsRoot, sessionId, sessions.cwds.get(sessionId));
+      if (!dir) return { ok: false, reason: 'missing', message: `no session ${sessionId}` };
+      await retargetSession(sessionId);
+      pinned = true;
+      return { ok: true, changed: true };
+    } finally {
+      switching = false;
+    }
+  };
+
   let reaper: { stop(): void } | null = null;
   let stopping = false;
   const stop = () => {
@@ -870,6 +962,7 @@ export async function main(argv: string[]): Promise<number> {
     history: (agent: string) => transcriptHistory(store.replay(), agent),
     lineText: (agent: string, id: string) => transcriptLineText(store.replay(), agent, id),
     selectTeam,
+    selectSession,
     onShutdown: stop,
   });
 

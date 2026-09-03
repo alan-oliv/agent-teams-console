@@ -86,6 +86,14 @@ export interface IngestConfig {
    * this, so without it the console never stops when its lead exits.
    */
   onLeadSession?: (sessionId: string) => void;
+  /**
+   * Scoped to one session and to nothing else. An unset `teamName` means "no
+   * team YET" — the config.json this is waiting for may still be written — so
+   * without this flag a console pointed at a session that never formed a team
+   * adopts the first team config on the machine and reseeds its lead chain to
+   * that team's lead, which drops the session's own transcript from scope.
+   */
+  sessionOnly?: boolean;
 }
 
 export interface FileIngest {
@@ -739,6 +747,7 @@ export function startFileIngest(store: Store, config: IngestConfig): FileIngest 
     const base = path.basename(file);
     const dirName = path.basename(path.dirname(file));
     if (base === 'config.json') {
+      if (config.sessionOnly) return;
       if (teamName && dirName !== teamName) return;
       const cfg = await readJsonSafe<TeamConfig>(file);
       if (!cfg) return;
