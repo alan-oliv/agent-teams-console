@@ -178,6 +178,33 @@ it('posts the switch for the row that was clicked', async () => {
   expect(fetchMock).toHaveBeenLastCalledWith(...SWITCH_TO_B5);
 });
 
+// A `sessionOnly` row's `name` is a session id, not a team `/select` knows
+// about (task #7) — the click has to reach `/api/select-session/<id>`
+// through the `/s/:sessionId` route (task #4), never the team endpoint.
+it('routes a session-only row to /s/:sessionId instead of posting the team switch', async () => {
+  const teams = [...LIST.teams, { ...LIST.teams[1], name: 'abc12345', sessionOnly: true, subagents: 2 }];
+  fetchMock = vi.fn((path: string) =>
+    path === '/api/teams'
+      ? Promise.resolve(new Response(JSON.stringify({ ...LIST, teams }), { status: 200 }))
+      : Promise.resolve(new Response('{}', { status: 200 })),
+  );
+  vi.stubGlobal('fetch', fetchMock);
+  // jsdom's `location.assign` cannot be spied on directly (not configurable),
+  // so the whole object is swapped for the duration of this test.
+  const realLocation = window.location;
+  const assign = vi.fn();
+  Object.defineProperty(window, 'location', { value: { ...realLocation, assign }, writable: true });
+
+  renderSelect();
+  const rows = await screen.findAllByRole('option');
+  fireEvent.click(rows[2]);
+
+  expect(assign).toHaveBeenCalledWith('/s/abc12345');
+  expect(fetchMock).not.toHaveBeenCalledWith('/api/teams/abc12345/select', expect.anything());
+
+  Object.defineProperty(window, 'location', { value: realLocation, writable: true });
+});
+
 it('holds the popover open until the snapshot carries the new team', async () => {
   const { onOpenChange, rerender } = renderSelect();
   const rows = await screen.findAllByRole('option');
