@@ -499,6 +499,73 @@ describe('listTeamSummaries', () => {
     ]);
   });
 
+  // The picker's only route to a session that never formed a team: no
+  // config.json exists to walk, so nothing above this can offer it.
+  describe('sessions with no team of their own', () => {
+    const CWD = '/Users/someone/code/solo';
+    const SOLO = '8f2a1c00-9d4e-4f1b-8a77-0c2e6b5d4a31';
+
+    async function liveSessionWithSubagents(sessionId: string, count: number): Promise<string> {
+      const projects = path.join(dir, 'projects');
+      await fs.mkdir(sessions(), { recursive: true });
+      await fs.writeFile(
+        path.join(sessions(), `${process.pid}.json`),
+        JSON.stringify({ pid: process.pid, sessionId, cwd: CWD, name: 'a solo session' }),
+      );
+      const subagents = path.join(sessionDirOf(projects, CWD, sessionId), 'subagents');
+      await fs.mkdir(subagents, { recursive: true });
+      for (let i = 0; i < count; i++) {
+        await fs.writeFile(path.join(subagents, `agent-a111122223333444${i}.jsonl`), '');
+      }
+      return projects;
+    }
+
+    it('lists a live session with a subagent tree and no config.json anywhere', async () => {
+      const projects = await liveSessionWithSubagents(SOLO, 2);
+
+      const listed = await listTeamSummaries(teams(), sessions(), '', projects);
+
+      expect(listed.teams).toHaveLength(1);
+      const [row] = listed.teams;
+      // The id the client hands to /api/select-session, and the flag that tells
+      // it not to send this row to /api/teams/<name>/select.
+      expect(row.name).toBe(SOLO);
+      expect(row.leadSessionId).toBe(SOLO);
+      expect(row.sessionOnly).toBe(true);
+      expect(row.members).toBe(1);
+      expect(row.subagents).toBe(2);
+      expect(row.live).toBe(true);
+      expect(row.goal).toBe('a solo session');
+    });
+
+    it('leaves out a live session that has done nothing — every idle window is one', async () => {
+      const projects = await liveSessionWithSubagents(SOLO, 0);
+
+      expect((await listTeamSummaries(teams(), sessions(), '', projects)).teams).toEqual([]);
+    });
+
+    it('does not list a session twice when a team of its own already stands for it', async () => {
+      const projects = await liveSessionWithSubagents(SOLO, 2);
+      await writeConfig(
+        'session-8f2a1c00',
+        team('session-8f2a1c00', { createdAt: 1, leadSessionId: SOLO, members: 2 }),
+      );
+
+      const listed = await listTeamSummaries(teams(), sessions(), '', projects);
+
+      expect(listed.teams.map((t) => t.name)).toEqual(['session-8f2a1c00']);
+    });
+
+    // The config-less machine: no teams directory has ever been created.
+    it('still lists the session when there is no teams directory at all', async () => {
+      const projects = await liveSessionWithSubagents(SOLO, 1);
+
+      const listed = await listTeamSummaries(path.join(dir, 'nope'), sessions(), '', projects);
+
+      expect(listed.teams.map((t) => t.name)).toEqual([SOLO]);
+    });
+  });
+
   it('reads leadAlive from the pid inside sessions/<pid>.json, not from its file name', async () => {
     await writeConfig('session-live0001', team('session-live0001', { createdAt: 10, leadSessionId: 'live0001-x', members: 2 }));
     await writeConfig('session-dead0002', team('session-dead0002', { createdAt: 20, leadSessionId: 'dead0002-x', members: 2 }));

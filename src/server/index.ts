@@ -499,17 +499,71 @@ export async function sessionProjectDir(
   return null;
 }
 
+/**
+ * Live sessions that never formed a team, as picker rows.
+ *
+ * Everything in the loop above is keyed on a `teams/<name>/config.json`, which
+ * these sessions never wrote — so without this pass an ordinary session with a
+ * subagent tree is simply absent from the picker, and `/api/select-session`
+ * has nothing to offer the operator. The subagent count is the bar: it keeps
+ * every idle window on the machine out of the list.
+ */
+async function soloSessionRows(
+  projectsRoot: string,
+  sessions: SessionFacts,
+  covered: ReadonlySet<string>,
+  diffstats: Map<string, TeamSummary['diffstat']>,
+  now: number,
+): Promise<TeamSummary[]> {
+  const rows: TeamSummary[] = [];
+  for (const sessionId of sessions.live) {
+    if (covered.has(sessionId)) continue;
+    const cwd = sessions.cwds.get(sessionId);
+    if (!cwd) continue;
+    const subagents = await subagentCountOf(projectsRoot, cwd, sessionId);
+    if (subagents === 0) continue;
+    const dir = path.join(projectsRoot, cwd.replace(/[^a-zA-Z0-9]/g, '-'), sessionId);
+    let lastActivityAt = now;
+    try {
+      lastActivityAt = (await fs.stat(path.join(dir, 'subagents'))).mtimeMs;
+    } catch {
+      // Counted above, so it was there a moment ago — `now` is close enough.
+    }
+    if (!diffstats.has(cwd)) diffstats.set(cwd, await diffstatOf(cwd));
+    rows.push({
+      // The SESSION id, not a team directory: `sessionOnly` below is what tells
+      // the client to send it to /api/select-session rather than /select.
+      name: sessionId,
+      sessionOnly: true,
+      members: 1,
+      createdAt: 0,
+      leadSessionId: sessionId,
+      leadAlive: true,
+      lastActivityAt,
+      live: true,
+      current: false,
+      branch: await branchOf(cwd),
+      goal: sessions.names.get(sessionId),
+      state: 'live',
+      subagents,
+      ...(diffstats.get(cwd) ? { diffstat: diffstats.get(cwd) } : {}),
+    });
+  }
+  return rows;
+}
+
 export async function listTeamSummaries(
   teamsRoot: string,
   sessionsRoot: string,
   current: string,
   projectsRoot?: string,
 ): Promise<TeamsResponse> {
-  let entries: string[];
+  let entries: string[] = [];
   try {
     entries = await fs.readdir(teamsRoot);
   } catch {
-    return { current, teams: [] };
+    // No teams directory at all is the config-less machine, not an empty
+    // picker: the session rows below are the only thing it has to offer.
   }
 
   const sessions = await readSessions(sessionsRoot);
@@ -587,7 +641,18 @@ export async function listTeamSummaries(
     });
   }
 
-  adoptByCwd(teams, leadCwds, sessions, now);
+  // Runs first: a session it hands a team to is represented by that team's row
+  // and must not also appear below as a bare session.
+  const adopted = adoptByCwd(teams, leadCwds, sessions, now);
+
+  if (projectsRoot) {
+    const covered = new Set([
+      ...teams.map((t) => t.leadSessionId),
+      ...liveTeams.values(),
+      ...adopted,
+    ]);
+    teams.push(...(await soloSessionRows(projectsRoot, sessions, covered, diffstats, now)));
+  }
 
   teams.sort(
     (a, b) =>
@@ -619,7 +684,8 @@ function adoptByCwd(
   leadCwds: Map<string, string>,
   sessions: SessionFacts,
   now: number,
-): void {
+): Set<string> {
+  const adopted = new Set<string>();
   const byCwd = new Map<string, string>();
   const ambiguous = new Set<string>();
   for (const sessionId of sessions.live) {
@@ -629,7 +695,7 @@ function adoptByCwd(
     else byCwd.set(cwd, sessionId);
   }
   for (const cwd of ambiguous) byCwd.delete(cwd);
-  if (byCwd.size === 0) return;
+  if (byCwd.size === 0) return adopted;
 
   const claimed = new Set(teams.filter((t) => t.leadAlive).map((t) => t.name));
   for (const [cwd, sessionId] of byCwd) {
@@ -652,11 +718,13 @@ function adoptByCwd(
       .sort((a, b) => b.lastActivityAt - a.lastActivityAt)[0];
     if (!best) continue;
     claimed.add(best.name);
+    adopted.add(sessionId);
     best.leadAlive = true;
     best.live = true;
     best.state = 'live';
     best.goal ??= sessions.names.get(sessionId);
   }
+  return adopted;
 }
 
 /**
