@@ -53,8 +53,17 @@ export function App() {
   // `trace` in the URL of any OTHER session falls back to the wall rather
   // than mounting a view its switcher never offered.
   const soloLead = state !== null && state.agents.length === 1 ? state.agents[0] : null;
+  // A `/s/:sessionId` URL (task #4) is never gated behind that agents.length
+  // check — the whole point of the route is "no team required", so its lead is
+  // whichever agent the session's own roster names lead rather than a count.
+  const routedLead =
+    state !== null && store.sessionRoute !== null
+      ? (state.agents.find((a) => a.isLead) ?? state.agents[0] ?? null)
+      : null;
+  const traceLead = soloLead ?? routedLead;
   const solo =
-    soloLead !== null && Object.values(state?.subagents ?? {}).some((list) => list.length > 0);
+    store.sessionRoute !== null ||
+    (soloLead !== null && Object.values(state?.subagents ?? {}).some((list) => list.length > 0));
   const view = store.view === 'trace' && !solo ? 'wall' : store.view;
   // Lives here, not in the view, so switching away from usage and back does
   // not restart the sampler — the same reason widths and hidden sessions live
@@ -182,6 +191,17 @@ export function App() {
     announced.current = true;
     void postJson(`/api/teams/${encodeURIComponent(target)}/select`);
   }, [state, store.announcedTeam]);
+
+  // A `/s/:sessionId` URL (task #4) announces itself the same way, but against
+  // its own endpoint and without waiting on `state` first — there is no
+  // existing team name to compare against, since a session select clears it.
+  const sessionAnnounced = useRef(false);
+  useEffect(() => {
+    const target = store.sessionRoute;
+    if (!target || sessionAnnounced.current) return;
+    sessionAnnounced.current = true;
+    void postJson(`/api/select-session/${encodeURIComponent(target)}`);
+  }, [store.sessionRoute]);
 
   // The wall pins the lead leftmost then departed last, so column navigation
   // (h/l) walks the same order — App needs only the names, not the rendered
@@ -409,11 +429,11 @@ export function App() {
           />
         )}
         {view === 'tasks' && <Tasks tasks={state.tasks} teamName={state.teamName} />}
-        {view === 'trace' && soloLead && (
+        {view === 'trace' && traceLead && (
           <Trace
-            agent={soloLead.name}
+            agent={traceLead.name}
             subagents={
-              state.subagents?.[soloLead.name] ?? Object.values(state.subagents ?? {}).flat()
+              state.subagents?.[traceLead.name] ?? Object.values(state.subagents ?? {}).flat()
             }
             now={now}
             selected={traceSelected}
