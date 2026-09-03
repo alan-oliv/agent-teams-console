@@ -29,6 +29,10 @@ const SPAWN_ID_B = `a${AGENT_B}-babf58016882bc72`;
 const TEAM_C = 'session-cccc3333';
 const LEAD_SESSION_C = 'cccc3333-2b1a-4c3d-8e7f-1a2b3c4d5e6f';
 const B_LINE = "team B's own line";
+// A session that never formed a team: no teams/<name> of its own, only a
+// project directory. Its id is deliberately unlike a team directory name.
+const SOLO_SESSION = '8f2a1c00-9d4e-4f1b-8a77-0c2e6b5d4a31';
+const SOLO_LINE = 'the solo session speaking';
 
 /**
  * How long after the hook the drained line is allowed to take. It has to stay
@@ -212,6 +216,14 @@ function postHook(url: string, body: unknown): Promise<Response> {
   });
 }
 
+function selectSession(url: string, sessionId: string): Promise<Response> {
+  return fetch(`${url}/api/select-session/${sessionId}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}',
+  });
+}
+
 function selectTeam(url: string, team: string): Promise<Response> {
   return fetch(`${url}/api/teams/${team}/select`, {
     method: 'POST',
@@ -272,6 +284,45 @@ describe('push -> pull wiring', () => {
         `the hook did not drain ${AGENT}'s transcript within ${HOOK_DEADLINE_MS}ms — ` +
           'onAgentActivity is optional on HookDeps, so an unwired drain typechecks',
       ).toBe(true);
+    },
+    20_000,
+  );
+
+  it(
+    'retargets at a session that never formed a team, dropping the team it was showing',
+    async () => {
+      home = await layout();
+      // A session with no config.json anywhere: a transcript and a subagents
+      // directory under its own project dir, and nothing in teams/.
+      const solo = path.join(home, 'projects', SLUG, SOLO_SESSION);
+      await fs.mkdir(path.join(solo, 'subagents'), { recursive: true });
+      await fs.writeFile(
+        path.join(solo, `${SOLO_SESSION}.jsonl`),
+        assistantLine('44444444-4444-4444-4444-444444444444', SOLO_LINE),
+      );
+
+      const url = await boot(home);
+      expect((await snapshot(url)).teamName).toBe(TEAM);
+
+      const res = await selectSession(url, SOLO_SESSION);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true, session: SOLO_SESSION, changed: true });
+
+      const after = await snapshot(url);
+      // No team to name, and — the point of the store re-point — nothing of the
+      // team it was showing left in the log it now reads.
+      expect(after.teamName).toBe('');
+      expect(names(after)).not.toContain(AGENT);
+
+      // Selecting it again is a no-op, not a second rebuild.
+      expect(await (await selectSession(url, SOLO_SESSION)).json()).toEqual({
+        ok: true,
+        session: SOLO_SESSION,
+        changed: false,
+      });
+      // A session with nothing on disk behind it is a 404, not a blank console.
+      expect((await selectSession(url, 'deadbeef-0000-0000-0000-000000000000')).status).toBe(404);
+      expect((await snapshot(url)).teamName).toBe('');
     },
     20_000,
   );

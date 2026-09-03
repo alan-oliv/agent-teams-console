@@ -15,6 +15,17 @@ export const SOLO_VIEW_IDS: readonly ViewId[] = ['wall', 'trace', 'tasks', 'usag
 /** Every id a URL may carry, whatever mode the session turns out to be in. */
 const URL_VIEW_IDS: readonly ViewId[] = [...VIEW_IDS, 'trace'];
 
+/**
+ * `/s/<sessionId>` — the "no team required" route (task #4), reached without
+ * any `?team=` at all. The segment shape matches what task #1's
+ * `/api/select-session/<id>` route accepts server-side.
+ */
+const SESSION_ROUTE = /^\/s\/([A-Za-z0-9_-]+)$/;
+
+export function readSessionRoute(pathname: string): string | null {
+  return SESSION_ROUTE.exec(pathname)?.[1] ?? null;
+}
+
 export interface TeamStateStore {
   state: TeamState | null;
   connected: boolean;
@@ -22,6 +33,8 @@ export interface TeamStateStore {
   agent: string | null;
   /** The team the launcher asked for, or null — see {@link isAnnouncedTeam}. */
   announcedTeam: string | null;
+  /** The session id from a `/s/:sessionId` URL (see {@link readSessionRoute}), or null. */
+  sessionRoute: string | null;
   /**
    * The workflow run the operator picked, or null for whatever the server's own
    * mode implies. A team always wins the mode, so a session running a workflow
@@ -91,7 +104,10 @@ function readWidths(): Record<string, number> {
   }
 }
 
-export function readUrlState(search: string): {
+export function readUrlState(
+  search: string,
+  defaultView: ViewId = 'wall',
+): {
   view: ViewId;
   agent: string | null;
   team: string | null;
@@ -99,7 +115,7 @@ export function readUrlState(search: string): {
 } {
   const params = new URLSearchParams(search);
   const raw = params.get('view');
-  const view = URL_VIEW_IDS.find((v) => v === raw) ?? 'wall';
+  const view = URL_VIEW_IDS.find((v) => v === raw) ?? defaultView;
   return {
     view,
     agent: params.get('agent'),
@@ -193,10 +209,14 @@ function reconcile(prev: TeamState, next: TeamState): TeamState {
 }
 
 export function useTeamState(url = '/stream'): TeamStateStore {
-  const [initial] = useState(() => ({
-    ...readUrlState(window.location.search),
-    announced: isAnnouncedTeam(window.location.search),
-  }));
+  const [initial] = useState(() => {
+    const sessionRoute = readSessionRoute(window.location.pathname);
+    return {
+      ...readUrlState(window.location.search, sessionRoute ? 'trace' : 'wall'),
+      announced: isAnnouncedTeam(window.location.search),
+      sessionRoute,
+    };
+  });
   const [state, setState] = useState<TeamState | null>(null);
   const [connected, setConnected] = useState(false);
   const [view, setView] = useState<ViewId>(initial.view);
@@ -298,6 +318,7 @@ export function useTeamState(url = '/stream'): TeamStateStore {
     view,
     agent,
     announcedTeam: initial.announced ? initial.team : null,
+    sessionRoute: initial.sessionRoute,
     run,
     setRun,
     setView,

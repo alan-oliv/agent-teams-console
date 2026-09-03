@@ -460,17 +460,110 @@ async function teamsOfLiveSessions(
   return teams;
 }
 
+/**
+ * Whether a session has a project directory to ingest at all — the only thing
+ * that makes a config-less session selectable, since it has no config.json to
+ * check the way a team does.
+ *
+ * The slug comes off the session's recorded cwd when there is a record; the
+ * scan is the fallback for a session whose `sessions/<id>.json` was never
+ * written or has since been reaped, which is exactly the long-lived,
+ * team-less session this path exists for.
+ */
+export async function sessionProjectDir(
+  projectsRoot: string,
+  sessionId: string,
+  cwd?: string,
+): Promise<string | null> {
+  const isDir = async (dir: string): Promise<boolean> => {
+    try {
+      return (await fs.stat(dir)).isDirectory();
+    } catch {
+      return false;
+    }
+  };
+  if (cwd) {
+    const dir = path.join(projectsRoot, cwd.replace(/[^a-zA-Z0-9]/g, '-'), sessionId);
+    if (await isDir(dir)) return dir;
+  }
+  let slugs: string[];
+  try {
+    slugs = await fs.readdir(projectsRoot);
+  } catch {
+    return null;
+  }
+  for (const slug of slugs) {
+    const dir = path.join(projectsRoot, slug, sessionId);
+    if (await isDir(dir)) return dir;
+  }
+  return null;
+}
+
+/**
+ * Live sessions that never formed a team, as picker rows.
+ *
+ * Everything in the loop above is keyed on a `teams/<name>/config.json`, which
+ * these sessions never wrote — so without this pass an ordinary session with a
+ * subagent tree is simply absent from the picker, and `/api/select-session`
+ * has nothing to offer the operator. The subagent count is the bar: it keeps
+ * every idle window on the machine out of the list.
+ */
+async function soloSessionRows(
+  projectsRoot: string,
+  sessions: SessionFacts,
+  covered: ReadonlySet<string>,
+  diffstats: Map<string, TeamSummary['diffstat']>,
+  now: number,
+): Promise<TeamSummary[]> {
+  const rows: TeamSummary[] = [];
+  for (const sessionId of sessions.live) {
+    if (covered.has(sessionId)) continue;
+    const cwd = sessions.cwds.get(sessionId);
+    if (!cwd) continue;
+    const subagents = await subagentCountOf(projectsRoot, cwd, sessionId);
+    if (subagents === 0) continue;
+    const dir = path.join(projectsRoot, cwd.replace(/[^a-zA-Z0-9]/g, '-'), sessionId);
+    let lastActivityAt = now;
+    try {
+      lastActivityAt = (await fs.stat(path.join(dir, 'subagents'))).mtimeMs;
+    } catch {
+      // Counted above, so it was there a moment ago — `now` is close enough.
+    }
+    if (!diffstats.has(cwd)) diffstats.set(cwd, await diffstatOf(cwd));
+    rows.push({
+      // The SESSION id, not a team directory: `sessionOnly` below is what tells
+      // the client to send it to /api/select-session rather than /select.
+      name: sessionId,
+      sessionOnly: true,
+      members: 1,
+      createdAt: 0,
+      leadSessionId: sessionId,
+      leadAlive: true,
+      lastActivityAt,
+      live: true,
+      current: false,
+      branch: await branchOf(cwd),
+      goal: sessions.names.get(sessionId),
+      state: 'live',
+      subagents,
+      ...(diffstats.get(cwd) ? { diffstat: diffstats.get(cwd) } : {}),
+    });
+  }
+  return rows;
+}
+
 export async function listTeamSummaries(
   teamsRoot: string,
   sessionsRoot: string,
   current: string,
   projectsRoot?: string,
 ): Promise<TeamsResponse> {
-  let entries: string[];
+  let entries: string[] = [];
   try {
     entries = await fs.readdir(teamsRoot);
   } catch {
-    return { current, teams: [] };
+    // No teams directory at all is the config-less machine, not an empty
+    // picker: the session rows below are the only thing it has to offer.
   }
 
   const sessions = await readSessions(sessionsRoot);
@@ -548,7 +641,18 @@ export async function listTeamSummaries(
     });
   }
 
-  adoptByCwd(teams, leadCwds, sessions, now);
+  // Runs first: a session it hands a team to is represented by that team's row
+  // and must not also appear below as a bare session.
+  const adopted = adoptByCwd(teams, leadCwds, sessions, now);
+
+  if (projectsRoot) {
+    const covered = new Set([
+      ...teams.map((t) => t.leadSessionId),
+      ...liveTeams.values(),
+      ...adopted,
+    ]);
+    teams.push(...(await soloSessionRows(projectsRoot, sessions, covered, diffstats, now)));
+  }
 
   teams.sort(
     (a, b) =>
@@ -580,7 +684,8 @@ function adoptByCwd(
   leadCwds: Map<string, string>,
   sessions: SessionFacts,
   now: number,
-): void {
+): Set<string> {
+  const adopted = new Set<string>();
   const byCwd = new Map<string, string>();
   const ambiguous = new Set<string>();
   for (const sessionId of sessions.live) {
@@ -590,7 +695,7 @@ function adoptByCwd(
     else byCwd.set(cwd, sessionId);
   }
   for (const cwd of ambiguous) byCwd.delete(cwd);
-  if (byCwd.size === 0) return;
+  if (byCwd.size === 0) return adopted;
 
   const claimed = new Set(teams.filter((t) => t.leadAlive).map((t) => t.name));
   for (const [cwd, sessionId] of byCwd) {
@@ -613,11 +718,13 @@ function adoptByCwd(
       .sort((a, b) => b.lastActivityAt - a.lastActivityAt)[0];
     if (!best) continue;
     claimed.add(best.name);
+    adopted.add(sessionId);
     best.leadAlive = true;
     best.live = true;
     best.state = 'live';
     best.goal ??= sessions.names.get(sessionId);
   }
+  return adopted;
 }
 
 /**
@@ -728,6 +835,10 @@ export async function main(argv: string[]): Promise<number> {
   // The authoritative answer to "which team is showing". NOT state().teamName,
   // which is '' for the whole window between setTeam and the sweep landing.
   let currentTeam = teamName ?? '';
+  // The session the console is scoped to when there is no team at all — set at
+  // boot by `--session`, and by selectSession below. Kept apart from
+  // `currentTeam` so neither mode's no-op check can answer for the other.
+  let currentSession = teamName ? '' : (leadSessionId ?? '');
 
   const startIngest = (gen: number, team: string | undefined, lead: string | undefined) =>
     startFileIngest(fencedSink(live, gen, () => generation), {
@@ -739,6 +850,7 @@ export async function main(argv: string[]): Promise<number> {
       },
       teamName: team,
       leadSessionId: lead,
+      sessionOnly: team === undefined && lead !== undefined,
       onTeam: (info) => {
         if (gen !== generation) return;
         store.setTeam(info.teamName);
@@ -783,6 +895,7 @@ export async function main(argv: string[]): Promise<number> {
     store.setTeam(team);
     leadSessionId = lead;
     currentTeam = team;
+    currentSession = '';
     // Dropped, not left to the follower's next tick: these are the OLD team's
     // name and branch, and holding them for even one interval would show the
     // session you just left in the header of the one you switched to. Cleared
@@ -839,6 +952,53 @@ export async function main(argv: string[]): Promise<number> {
     }
   };
 
+  /**
+   * The same rebuild as `retarget`, aimed at a session with no team. The store
+   * is re-pointed at a log named for the SESSION: `setTeam` is what clears the
+   * previous target's events, and a session id passes its name gate, so the
+   * session gets the per-target log every team already gets. `currentTeam`
+   * stays empty — there is no team to highlight in the picker, and a name with
+   * no `teams/<name>` directory behind it would read as a deleted team and have
+   * the idle reaper exit the console out from under the operator.
+   */
+  const retargetSession = async (sessionId: string): Promise<void> => {
+    const gen = ++generation;
+    ingest.close();
+    store.setTeam(sessionId);
+    leadSessionId = sessionId;
+    currentTeam = '';
+    currentSession = sessionId;
+    leadFacts = {};
+    ingest = startIngest(gen, undefined, sessionId);
+    await ingest.sweep();
+    hub.publish();
+  };
+
+  const selectSession = async (sessionId: string): Promise<SelectTeamOutcome> => {
+    if (sessionId === currentSession) {
+      pinned = true;
+      return { ok: true, changed: false };
+    }
+    if (switching) {
+      return {
+        ok: false,
+        reason: 'busy',
+        message: `a team switch is already running — retry ${sessionId}`,
+      };
+    }
+    switching = true;
+    try {
+      const sessions = await readSessions(sessionsRoot);
+      const dir = await sessionProjectDir(projectsRoot, sessionId, sessions.cwds.get(sessionId));
+      if (!dir) return { ok: false, reason: 'missing', message: `no session ${sessionId}` };
+      await retargetSession(sessionId);
+      pinned = true;
+      return { ok: true, changed: true };
+    } finally {
+      switching = false;
+    }
+  };
+
   let reaper: { stop(): void } | null = null;
   let stopping = false;
   const stop = () => {
@@ -870,6 +1030,7 @@ export async function main(argv: string[]): Promise<number> {
     history: (agent: string) => transcriptHistory(store.replay(), agent),
     lineText: (agent: string, id: string) => transcriptLineText(store.replay(), agent, id),
     selectTeam,
+    selectSession,
     onShutdown: stop,
   });
 

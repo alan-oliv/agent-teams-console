@@ -923,6 +923,55 @@ it('mounts the trace view over the session’s own tree when its pill is picked'
   );
 });
 
+// ————— the /s/:sessionId route (task #4) —————
+
+it('defaults to trace and the four-pill switcher for a /s/:sessionId URL, independent of roster size', async () => {
+  window.history.replaceState(null, '', '/s/abc12345');
+  const fetchMock = stubTeamsFetch();
+  render(<App />);
+  // A team-mode fixture on purpose: several agents, not the one-agent roster
+  // soloState() builds, to prove the route doesn't gate on agents.length === 1.
+  const state = sampleTeamState();
+  const lead = state.agents.find((a) => a.isLead)!;
+  act(() =>
+    MockEventSource.last().emit('snapshot', {
+      ...state,
+      subagents: {
+        [lead.name]: [
+          {
+            toolUseId: 'toolu_route1',
+            name: 'probe',
+            agent: lead.name,
+            parent: lead.name,
+            depth: 1,
+            spawnIndex: 0,
+            siblingGroup: 'rec-1',
+            state: 'returned' as const,
+            queuedAt: FIXTURE_NOW - 60_000,
+            startedAt: FIXTURE_NOW - 59_000,
+            returnedAt: FIXTURE_NOW - 10_000,
+            durationMs: 49_000,
+            tokens: 28_700,
+            returnedSummary: 'probe finished',
+            children: [],
+          },
+        ],
+      },
+    }),
+  );
+
+  expect(fetchMock).toHaveBeenCalledWith('/api/select-session/abc12345', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}',
+  });
+
+  const tabs = await screen.findAllByRole('tab');
+  expect(tabs.map((t) => t.textContent)).toEqual(['stream', 'trace', 'tasks', 'usage']);
+  expect(screen.getByRole('tab', { name: 'trace' }).getAttribute('aria-selected')).toBe('true');
+  expect(await screen.findByTestId('trace-view')).toBeTruthy();
+});
+
 // A team session keeps its seven pills, and a URL-forced 'trace' on one falls
 // back to the wall rather than mounting a view its switcher never offered.
 it('keeps the team switcher at seven views on a real team', async () => {

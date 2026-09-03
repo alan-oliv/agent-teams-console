@@ -316,6 +316,13 @@ export interface TeamSummary {
   goal?: string;             // the lead session's name (`/branch` sets it)
   state: 'live' | 'idle' | 'done';
   /**
+   * A live session with no team of its own — a row the picker can still offer,
+   * but one that `/api/teams/<name>/select` knows nothing about: `name` is a
+   * session id, so it is selected through `/api/select-session/<id>`. Absent,
+   * never false, on a real team.
+   */
+  sessionOnly?: boolean;
+  /**
    * The newest dynamic-workflow run in this session, when there is one.
    *
    * A workflow's agents never enter `members[]`, so a session running one looks

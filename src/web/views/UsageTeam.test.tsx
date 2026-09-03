@@ -529,3 +529,38 @@ describe('spend per Task call', () => {
     expect(screen.queryByTestId('usage-taskcalls')).toBeNull();
   });
 });
+
+// The page scrolls as one column, and a flex column with a bounded height
+// shrinks its children. A panel with `overflow` set has an automatic minimum
+// size of 0, so the ledger shrank to nothing and the table was simply not on
+// the page for a live team.
+describe('UsageTeam — the scrolling column cannot collapse a panel', () => {
+  it('floors the ledger panel at its own height instead of letting the column shrink it away', () => {
+    renderUsage();
+    const panel = screen.getAllByTestId('usage-ledger-row')[0].closest('div[style*="overflow"]');
+    expect(panel).not.toBeNull();
+    expect((panel as HTMLElement).style.flexShrink).toBe('0');
+  });
+
+  it('does not nest a second scroll box around the ledger rows', () => {
+    renderUsage();
+    const list = screen.getAllByTestId('usage-ledger-row')[0].parentElement!;
+    expect(list.className).not.toContain('tscroll');
+  });
+
+  it('lets the rate card share its row instead of claiming its max-content width', () => {
+    renderUsage();
+    const card = screen.getByTestId('usage-rate-card');
+    expect(card.style.flex).not.toBe('');
+    expect(card.style.minWidth).toBe('0');
+  });
+});
+
+describe('UsageTeam — the tokens tile names all four billed classes', () => {
+  it('never folds cache writes into the figure it labels "in"', () => {
+    renderUsage();
+    const note = screen.getByTestId('usage-tokens-note').textContent ?? '';
+    expect(note).toContain('cache write');
+    expect(note).toContain('cache read');
+  });
+});

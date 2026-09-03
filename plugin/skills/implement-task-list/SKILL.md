@@ -17,7 +17,9 @@ of hands, not an owner — and the lead becomes the bottleneck it was trying to 
 ## The Pipeline
 
 1. **Name the work.** List the items from session context. Show the list.
-2. **Settle the terminal deliverable — once, before dispatching.** See below.
+2. **Settle the branch shape and the terminal deliverable — once, before
+   dispatching.** The branch shape you derive; only the push is the user's call.
+   See below.
 3. **`TaskCreate` one task per item**, before any teammate exists.
    **REQUIRED SUB-SKILL:** `agent-teams-console:to-agents-task-list` — what each
    task has to carry, and the model each one is worth.
@@ -31,19 +33,49 @@ of hands, not an owner — and the lead becomes the bottleneck it was trying to 
    once six agents have edited files.
 7. **Stay free.** Review diffs, answer questions, relay results.
 
-## Step 2: Settle the Terminal Deliverable
+## Step 2a: Derive the Branch Shape — Don't Ask
+
+The task graph already answers this. Read it off the blockers, state your decision
+in one line, and move on. Asking the user to pick a branching strategy pushes a
+question at them that only you have the dependency graph to answer.
+
+| What the graph says | Branch shape |
+|---|---|
+| Any two tracks run at the same time | **One shared branch, one PR for the batch.** The only option |
+| Every task is blocked by the previous one — one track, one teammate | One branch per task, stacked, a PR each, IF you want reviewable slices |
+| Sequential tasks inside a track, parallel tracks beside it | Still one shared branch. The concurrency decides it |
+
+**Why concurrency forecloses the choice:** teammates share one checkout, so they
+share HEAD. Two teammates cannot sit on two branches — a `git checkout -b` moves
+everyone. Per-task PRs need per-task branches, and per-task branches need no
+concurrency, so the moment two tracks overlap the stacked-branch option is gone.
+Do not discover this by trying it.
+
+**Cut the branch yourself before dispatching**, and tell every teammate it is
+already checked out and not to run `git checkout -b`. Sequential tasks in one track
+land as successive commits on it; parallel tracks stay apart by file ownership, not
+by branch.
+
+**One PR, opened by whoever finishes first.** Every dispatch prompt says: open a PR
+against `main` if none exists for the branch yet and report its URL, otherwise your
+push lands in the existing one — just report that. Without that sentence, either
+everyone tries to open a PR or nobody does.
+
+## Step 2b: Settle the Terminal Deliverable
 
 Opening a PR is outward-facing, so an agent will correctly refuse it by default and
 end at "committed on your branch." That default is right, and it is also the single
 most common way this workflow ends up half-finished.
 
-So ask once, before dispatching, in one line:
+This half you do ask, because pushing is outward-facing and the branch shape is not.
+Ask once, before dispatching, in one line:
 
-> That's <N> tasks across <M> teammates. Each opens a PR against `main` when its
-> task is green — ok, or would you rather they stop at a commit on the branch?
+> That's <N> tasks across <M> teammates on one shared branch. First one green opens
+> a PR against `main` and the rest push into it — ok, or would you rather they stop
+> at commits and you open it?
 
-Fill in your own counts from step 4; the numbers above are placeholders, not a
-default shape.
+Fill in your own counts from step 4, and your own branch shape from step 2a; the
+numbers above are placeholders, not a default shape.
 
 Whatever comes back is the answer **for the whole batch**, and every dispatch prompt
 must state it explicitly. Do not ask per teammate, and do not leave it unstated and
@@ -75,9 +107,9 @@ file ownership**, and the dispatch prompt is where you create it:
 - Name the files each teammate owns, and name the ones it must not touch.
 - Each stages its own paths **by name**. Never `git add -A` or `git add .` — it
   sweeps up a neighbour's half-finished edit.
-- One shared branch for the batch. They share a checkout, so they share HEAD: a
-  teammate running `git checkout -b` moves everyone. Create the branch yourself
-  before dispatching.
+- One shared branch for the batch, unless step 2a derived otherwise. They share a
+  checkout, so they share HEAD: a teammate running `git checkout -b` moves
+  everyone. Create the branch yourself before dispatching.
 - A test failure in a file a teammate does not own means a neighbour was
   mid-edit. Re-run once, then report it — never fix another teammate's file.
 - A commit can fail on an index lock. Wait, retry.
@@ -97,9 +129,13 @@ ones that get dropped.
    `superpowers:verification-before-completion`."
 4. **Scope.** Files you own, files that are off limits, who else is live where.
 5. **Verification.** The exact commands, and paste the output.
-6. **The terminal deliverable.** The answer from step 2, stated in full — for the
-   PR case: "Branch off `main`, commit, push, and open a PR. Report its URL."
-   For the commit case: "Commit on your branch. Do not push."
+6. **The terminal deliverable.** The answers from steps 2a and 2b, stated in full.
+   Name the branch and say it is already checked out — never "branch off `main`",
+   which invites the `git checkout -b` that moves everyone. For the PR case:
+   "Commit on `<branch>`, staging your paths by name, then push. If no PR against
+   `main` exists for this branch yet, open one and report its URL; if one already
+   exists, your push lands in it and you just report that."
+   For the commit case: "Commit on `<branch>`. Do not push."
    Add: "No AI attribution or 'generated with' footer in the commit or the PR body."
 7. **Close out.** "`TaskUpdate` your task to `completed`, then report: what you did,
    the verification output, and anything you deliberately left alone."
@@ -108,7 +144,9 @@ ones that get dropped.
 
 | Mistake | Fix |
 |---|---|
-| "Pushing is the user's call, so I'll stop at a commit" | You asked in step 2. Carry that answer into part 6 |
+| "Pushing is the user's call, so I'll stop at a commit" | You asked in step 2b. Carry that answer into part 6 |
+| Asking the user to choose a branching strategy | Step 2a derives it from the blockers. Only you have the graph |
+| Per-task branches or PRs while tracks run in parallel | One checkout, one HEAD. Concurrency already foreclosed it |
 | Keeping the small task for yourself | Delegate it. A busy lead can't review or unblock |
 | Calling `TaskUpdate` on a teammate's behalf | Part 1 makes it theirs. Yours is the owner assignment |
 | One teammate per task, mechanically | Count tracks. Two teammates in one file is a merge conflict |
