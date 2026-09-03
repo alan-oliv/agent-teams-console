@@ -1290,3 +1290,74 @@ describe('transcriptLineText', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// A plain Claude Code session was never a team: no config.json, no teammate
+// sidecars — just its own transcript and whatever Task subagents it ran. The
+// trace view keys off that one agent existing, so the fold has to produce it.
+// ---------------------------------------------------------------------------
+describe('config-less session', () => {
+  interface TreeFixture {
+    parent: { agent: string; records: TranscriptRecord[] };
+    subagents: Array<{
+      agentId: string;
+      meta: { name: string; agentType: string; model: string; description: string; toolUseId: string };
+      records: TranscriptRecord[];
+    }>;
+  }
+  const tree = readJson<TreeFixture>('subagent-tree.json');
+
+  const soloLog = (): StoredEvent[] => {
+    const events: StoredEvent[] = [
+      { seq: 1, ts: 0, kind: 'roster', payload: { config: null, sidecars: [] } },
+      {
+        seq: 2,
+        ts: 0,
+        kind: 'transcript',
+        agent: tree.parent.agent,
+        payload: { agent: tree.parent.agent, records: tree.parent.records },
+      },
+    ];
+    let seq = 2;
+    for (const sub of tree.subagents) {
+      events.push({
+        seq: ++seq,
+        ts: 0,
+        kind: 'subagent',
+        payload: {
+          toolUseId: sub.meta.toolUseId,
+          agentId: sub.agentId,
+          meta: sub.meta,
+          digest: { records: sub.records.length, tokens: 0, toolCalls: 0, contextTokens: 0 },
+        },
+      });
+    }
+    return events;
+  };
+
+  it('stands the lead up as the only agent, with its subagent tree intact', () => {
+    const state = project(soloLog(), false);
+    expect(state.agents).toHaveLength(1);
+    const lead = state.agents[0];
+    expect(lead.name).toBe(tree.parent.agent);
+    expect(lead.isLead).toBe(true);
+    expect(lead.status).not.toBe('departed');
+    expect(lead.transcript.length).toBeGreaterThan(0);
+    expect(state.subagents?.[tree.parent.agent]?.length).toBeGreaterThan(0);
+  });
+
+  it('takes the model from the transcript rather than inventing metadata', () => {
+    expect(project(soloLog(), false).agents[0].model).toBe('claude-opus-5');
+  });
+
+  it('leaves the team-mode roster alone', () => {
+    const team = project(buildLog(), false);
+    expect(team.agents).toHaveLength(4);
+    expect(team.agents.map((a) => a.name).sort()).toEqual([
+      'probe-alpha',
+      'probe-bravo',
+      'probe-charlie',
+      'team-lead',
+    ]);
+  });
+});

@@ -493,7 +493,26 @@ export function project(events: StoredEvent[], readOnly: boolean, now = Date.now
   // exited, team dir gone) means nobody is live.
   const liveMembers = config ? new Set(config.members.map((m) => m.name)) : null;
 
-  const agents: Agent[] = buildRoster(config, sidecars).map((id) => {
+  // An ordinary session that was never a team has no config.json and no
+  // teammate sidecars, so buildRoster finds nobody — yet its own transcript is
+  // right there, and the whole trace view keys off that one agent existing.
+  // The transcript's own agent name is the key everything else (records,
+  // spawns, substatus) is already filed under, so the synthetic lead must
+  // borrow it rather than invent one.
+  const roster = buildRoster(config, sidecars);
+  const soloLead = roster.length === 0 ? [...records.keys()][0] : undefined;
+  if (soloLead !== undefined) {
+    roster.push({
+      name: soloLead,
+      agentId: soloLead,
+      isLead: true,
+      agentType: '',
+      role: '',
+      joinedAt: 0,
+    });
+  }
+
+  const agents: Agent[] = roster.map((id) => {
     const recs = records.get(id.name) ?? [];
     const sub = substatus.get(id.name);
     const resolved = resolveModel(lastAssistantModel(recs) ?? sub?.model ?? id.rawModel);
@@ -520,7 +539,10 @@ export function project(events: StoredEvent[], readOnly: boolean, now = Date.now
     for (let i = tail.length - 1; i >= 0; i--) for (const line of tail[i]) lines.push(line);
 
     let status: AgentStatus = 'working';
-    if (!liveMembers || !liveMembers.has(id.name)) status = 'departed';
+    // The synthetic lead has no membership to be missing from — its transcript
+    // is the only evidence either way, so it goes through the activity ladder
+    // below instead of being declared dead on arrival.
+    if (id.name !== soloLead && (!liveMembers || !liveMembers.has(id.name))) status = 'departed';
     else if (errors.has(id.name)) status = 'failed';
     else if (cards.some((c) => c.agent === id.name && c.kind === 'plan')) status = 'plan_pending';
     else {
