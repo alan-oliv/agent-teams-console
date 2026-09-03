@@ -3263,7 +3263,19 @@ function project(events, readOnly, now = Date.now()) {
   );
   let totalTokens = 0;
   const liveMembers = config ? new Set(config.members.map((m) => m.name)) : null;
-  const agents = buildRoster(config, sidecars).map((id) => {
+  const roster = buildRoster(config, sidecars);
+  const soloLead = roster.length === 0 ? [...records.keys()][0] : void 0;
+  if (soloLead !== void 0) {
+    roster.push({
+      name: soloLead,
+      agentId: soloLead,
+      isLead: true,
+      agentType: "",
+      role: "",
+      joinedAt: 0
+    });
+  }
+  const agents = roster.map((id) => {
     const recs = records.get(id.name) ?? [];
     const sub = substatus.get(id.name);
     const resolved = resolveModel(lastAssistantModel(recs) ?? sub?.model ?? id.rawModel);
@@ -3281,7 +3293,7 @@ function project(events, readOnly, now = Date.now()) {
     const lines = [];
     for (let i = tail.length - 1; i >= 0; i--) for (const line of tail[i]) lines.push(line);
     let status = "working";
-    if (!liveMembers || !liveMembers.has(id.name)) status = "departed";
+    if (id.name !== soloLead && (!liveMembers || !liveMembers.has(id.name))) status = "departed";
     else if (errors.has(id.name)) status = "failed";
     else if (cards.some((c) => c.agent === id.name && c.kind === "plan")) status = "plan_pending";
     else {
@@ -4181,6 +4193,7 @@ function startFileIngest(store, config) {
     const base = path6.basename(file);
     const dirName = path6.basename(path6.dirname(file));
     if (base === "config.json") {
+      if (config.sessionOnly) return;
       if (teamName && dirName !== teamName) return;
       const cfg = await readJsonSafe(file);
       if (!cfg) return;
@@ -4835,6 +4848,7 @@ var AGENT_ROUTE = /^\/api\/agents\/([^/]+)\/(message|interrupt|stop|respawn)$/;
 var PLAN_ROUTE = /^\/api\/plans\/([^/]+)\/(approve|reject)$/;
 var PERMIT_ROUTE = /^\/api\/permits\/([^/]+)\/(allow|deny)$/;
 var TEAM_SELECT_ROUTE = /^\/api\/teams\/([^/]+)\/select$/;
+var SESSION_SELECT_ROUTE = /^\/api\/select-session\/([^/]+)$/;
 var SAFE_SEGMENT = /^[A-Za-z0-9_-]+$/;
 function decodeSegment(raw) {
   let decoded;
@@ -4960,15 +4974,17 @@ function createHttpServer(deps) {
           return;
         }
         const selectMatch = TEAM_SELECT_ROUTE.exec(route);
-        if (selectMatch && deps.selectTeam) {
-          const name = decodeSegment(selectMatch[1]);
+        const sessionMatch = SESSION_SELECT_ROUTE.exec(route);
+        const select = selectMatch && deps.selectTeam ? { raw: selectMatch[1], key: "team", run: deps.selectTeam } : sessionMatch && deps.selectSession ? { raw: sessionMatch[1], key: "session", run: deps.selectSession } : null;
+        if (select) {
+          const name = decodeSegment(select.raw);
           if (name === null) {
             json(res, 400, BAD_SEGMENT_BODY);
             return;
           }
-          const out = await deps.selectTeam(name);
+          const out = await select.run(name);
           if (out.ok) {
-            json(res, 200, { ok: true, team: name, changed: out.changed });
+            json(res, 200, { ok: true, [select.key]: name, changed: out.changed });
           } else if (out.reason === "busy") {
             json(res, 409, { error: "switch in progress", message: out.message });
           } else {
@@ -5561,12 +5577,71 @@ async function teamsOfLiveSessions(projectsRoot, sessions) {
   }
   return teams;
 }
+async function sessionProjectDir(projectsRoot, sessionId, cwd) {
+  const isDir = async (dir) => {
+    try {
+      return (await fs8.stat(dir)).isDirectory();
+    } catch {
+      return false;
+    }
+  };
+  if (cwd) {
+    const dir = path10.join(projectsRoot, cwd.replace(/[^a-zA-Z0-9]/g, "-"), sessionId);
+    if (await isDir(dir)) return dir;
+  }
+  let slugs;
+  try {
+    slugs = await fs8.readdir(projectsRoot);
+  } catch {
+    return null;
+  }
+  for (const slug of slugs) {
+    const dir = path10.join(projectsRoot, slug, sessionId);
+    if (await isDir(dir)) return dir;
+  }
+  return null;
+}
+async function soloSessionRows(projectsRoot, sessions, covered, diffstats, now) {
+  const rows = [];
+  for (const sessionId of sessions.live) {
+    if (covered.has(sessionId)) continue;
+    const cwd = sessions.cwds.get(sessionId);
+    if (!cwd) continue;
+    const subagents = await subagentCountOf(projectsRoot, cwd, sessionId);
+    if (subagents === 0) continue;
+    const dir = path10.join(projectsRoot, cwd.replace(/[^a-zA-Z0-9]/g, "-"), sessionId);
+    let lastActivityAt = now;
+    try {
+      lastActivityAt = (await fs8.stat(path10.join(dir, "subagents"))).mtimeMs;
+    } catch {
+    }
+    if (!diffstats.has(cwd)) diffstats.set(cwd, await diffstatOf(cwd));
+    rows.push({
+      // The SESSION id, not a team directory: `sessionOnly` below is what tells
+      // the client to send it to /api/select-session rather than /select.
+      name: sessionId,
+      sessionOnly: true,
+      members: 1,
+      createdAt: 0,
+      leadSessionId: sessionId,
+      leadAlive: true,
+      lastActivityAt,
+      live: true,
+      current: false,
+      branch: await branchOf(cwd),
+      goal: sessions.names.get(sessionId),
+      state: "live",
+      subagents,
+      ...diffstats.get(cwd) ? { diffstat: diffstats.get(cwd) } : {}
+    });
+  }
+  return rows;
+}
 async function listTeamSummaries(teamsRoot2, sessionsRoot, current, projectsRoot) {
-  let entries;
+  let entries = [];
   try {
     entries = await fs8.readdir(teamsRoot2);
   } catch {
-    return { current, teams: [] };
   }
   const sessions = await readSessions(sessionsRoot);
   const liveTeams = projectsRoot ? await teamsOfLiveSessions(projectsRoot, sessions) : /* @__PURE__ */ new Map();
@@ -5622,13 +5697,22 @@ async function listTeamSummaries(teamsRoot2, sessionsRoot, current, projectsRoot
       ...diffstats.get(leadCwd) ? { diffstat: diffstats.get(leadCwd) } : {}
     });
   }
-  adoptByCwd(teams, leadCwds, sessions, now);
+  const adopted = adoptByCwd(teams, leadCwds, sessions, now);
+  if (projectsRoot) {
+    const covered = /* @__PURE__ */ new Set([
+      ...teams.map((t) => t.leadSessionId),
+      ...liveTeams.values(),
+      ...adopted
+    ]);
+    teams.push(...await soloSessionRows(projectsRoot, sessions, covered, diffstats, now));
+  }
   teams.sort(
     (a, b) => Number(b.current) - Number(a.current) || Number(b.live) - Number(a.live) || b.lastActivityAt - a.lastActivityAt || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
   );
   return { current, teams };
 }
 function adoptByCwd(teams, leadCwds, sessions, now) {
+  const adopted = /* @__PURE__ */ new Set();
   const byCwd = /* @__PURE__ */ new Map();
   const ambiguous = /* @__PURE__ */ new Set();
   for (const sessionId of sessions.live) {
@@ -5638,7 +5722,7 @@ function adoptByCwd(teams, leadCwds, sessions, now) {
     else byCwd.set(cwd, sessionId);
   }
   for (const cwd of ambiguous) byCwd.delete(cwd);
-  if (byCwd.size === 0) return;
+  if (byCwd.size === 0) return adopted;
   const claimed = new Set(teams.filter((t) => t.leadAlive).map((t) => t.name));
   for (const [cwd, sessionId] of byCwd) {
     const best = teams.filter(
@@ -5655,11 +5739,13 @@ function adoptByCwd(teams, leadCwds, sessions, now) {
     ).sort((a, b) => b.lastActivityAt - a.lastActivityAt)[0];
     if (!best) continue;
     claimed.add(best.name);
+    adopted.add(sessionId);
     best.leadAlive = true;
     best.live = true;
     best.state = "live";
     best.goal ??= sessions.names.get(sessionId);
   }
+  return adopted;
 }
 function fencedSink(live, generation, current) {
   const mine = () => generation === current();
@@ -5729,6 +5815,7 @@ async function main(argv) {
   };
   let generation = 0;
   let currentTeam = teamName ?? "";
+  let currentSession = teamName ? "" : leadSessionId ?? "";
   const startIngest = (gen, team, lead) => startFileIngest(fencedSink(live, gen, () => generation), {
     paths: {
       projects: path10.join(cli.claudeHome, "projects"),
@@ -5738,6 +5825,7 @@ async function main(argv) {
     },
     teamName: team,
     leadSessionId: lead,
+    sessionOnly: team === void 0 && lead !== void 0,
     onTeam: (info) => {
       if (gen !== generation) return;
       store.setTeam(info.teamName);
@@ -5759,6 +5847,7 @@ async function main(argv) {
     store.setTeam(team);
     leadSessionId = lead;
     currentTeam = team;
+    currentSession = "";
     leadFacts = {};
     ingest = startIngest(gen, team, lead);
     await ingest.sweep();
@@ -5796,6 +5885,42 @@ async function main(argv) {
       switching = false;
     }
   };
+  const retargetSession = async (sessionId) => {
+    const gen = ++generation;
+    ingest.close();
+    store.setTeam(sessionId);
+    leadSessionId = sessionId;
+    currentTeam = "";
+    currentSession = sessionId;
+    leadFacts = {};
+    ingest = startIngest(gen, void 0, sessionId);
+    await ingest.sweep();
+    hub.publish();
+  };
+  const selectSession = async (sessionId) => {
+    if (sessionId === currentSession) {
+      pinned = true;
+      return { ok: true, changed: false };
+    }
+    if (switching) {
+      return {
+        ok: false,
+        reason: "busy",
+        message: `a team switch is already running \u2014 retry ${sessionId}`
+      };
+    }
+    switching = true;
+    try {
+      const sessions = await readSessions(sessionsRoot);
+      const dir = await sessionProjectDir(projectsRoot, sessionId, sessions.cwds.get(sessionId));
+      if (!dir) return { ok: false, reason: "missing", message: `no session ${sessionId}` };
+      await retargetSession(sessionId);
+      pinned = true;
+      return { ok: true, changed: true };
+    } finally {
+      switching = false;
+    }
+  };
   let reaper = null;
   let stopping = false;
   const stop = () => {
@@ -5826,6 +5951,7 @@ async function main(argv) {
     history: (agent) => transcriptHistory(store.replay(), agent),
     lineText: (agent, id) => transcriptLineText(store.replay(), agent, id),
     selectTeam,
+    selectSession,
     onShutdown: stop
   });
   const port = await listen(server, cli.port);
@@ -5877,5 +6003,6 @@ export {
   listTeamSummaries,
   main,
   parseArgs,
-  parseShortstat
+  parseShortstat,
+  sessionProjectDir
 };
