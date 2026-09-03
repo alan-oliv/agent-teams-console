@@ -182,7 +182,10 @@ it('posts the switch for the row that was clicked', async () => {
 // about (task #7) — the click has to reach `/api/select-session/<id>`
 // through the `/s/:sessionId` route (task #4), never the team endpoint.
 it('routes a session-only row to /s/:sessionId instead of posting the team switch', async () => {
-  const teams = [...LIST.teams, { ...LIST.teams[1], name: 'abc12345', sessionOnly: true, subagents: 2 }];
+  const teams = [
+    ...LIST.teams,
+    { ...LIST.teams[1], name: 'abc12345', leadSessionId: 'abc12345', sessionOnly: true, subagents: 2 },
+  ];
   fetchMock = vi.fn((path: string) =>
     path === '/api/teams'
       ? Promise.resolve(new Response(JSON.stringify({ ...LIST, teams }), { status: 200 }))
@@ -201,6 +204,36 @@ it('routes a session-only row to /s/:sessionId instead of posting the team switc
 
   expect(assign).toHaveBeenCalledWith('/s/abc12345');
   expect(fetchMock).not.toHaveBeenCalledWith('/api/teams/abc12345/select', expect.anything());
+
+  Object.defineProperty(window, 'location', { value: realLocation, writable: true });
+});
+
+it('routes a flag-on solo row to the full session uuid, not its team directory name', async () => {
+  const teams = [
+    ...LIST.teams,
+    {
+      ...LIST.teams[1],
+      name: 'session-51a30a6b',
+      leadSessionId: '51a30a6b-52a6-4c56-8fbd-7e69cb671667',
+      sessionOnly: true,
+      subagents: 2,
+    },
+  ];
+  fetchMock = vi.fn((path: string) =>
+    path === '/api/teams'
+      ? Promise.resolve(new Response(JSON.stringify({ ...LIST, teams }), { status: 200 }))
+      : Promise.resolve(new Response('{}', { status: 200 })),
+  );
+  vi.stubGlobal('fetch', fetchMock);
+  const realLocation = window.location;
+  const assign = vi.fn();
+  Object.defineProperty(window, 'location', { value: { ...realLocation, assign }, writable: true });
+
+  renderSelect();
+  const rows = await screen.findAllByRole('option');
+  fireEvent.click(rows[2]);
+
+  expect(assign).toHaveBeenCalledWith('/s/51a30a6b-52a6-4c56-8fbd-7e69cb671667');
 
   Object.defineProperty(window, 'location', { value: realLocation, writable: true });
 });

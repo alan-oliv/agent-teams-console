@@ -146,7 +146,7 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [open, onOpenChange]);
 
-  function select(name: string, sessionOnly?: boolean) {
+  function select(name: string, sessionOnly?: boolean, leadSessionId?: string) {
     if (mark?.kind === 'switching') return;
     if (name === current) {
       // Reselecting the session you dismissed is how you resume watching it —
@@ -156,10 +156,13 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
       return;
     }
     if (sessionOnly) {
-      // `name` is a session id, not a team `/select` knows about — task #4's
-      // route is what carries it, and its own mount effect fires the
-      // `/api/select-session/<id>` POST once the URL lands there.
-      window.location.assign(`/s/${encodeURIComponent(name)}`);
+      // Flag-off rows have `name` as the session id itself; flag-on solo rows
+      // have `name` as the team directory name, so `leadSessionId` — the
+      // actual session uuid `/api/select-session` and `/s/:id` need — is the
+      // one to navigate with, falling back to `name` when it's absent.
+      // Task #4's route is what carries it, and its own mount effect fires
+      // the `/api/select-session/<id>` POST once the URL lands there.
+      window.location.assign(`/s/${encodeURIComponent(leadSessionId ?? name)}`);
       return;
     }
     setMark({ kind: 'switching', team: name });
@@ -226,7 +229,7 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
       setCursor((c) => Math.max(0, c - 1));
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      if (cursorTeam) select(cursorTeam.name, cursorTeam.sessionOnly);
+      if (cursorTeam) select(cursorTeam.name, cursorTeam.sessionOnly, cursorTeam.leadSessionId);
     } else if (e.key === 'Escape') {
       // preventDefault is what stops the global handler interrupting an agent.
       e.preventDefault();
@@ -408,7 +411,7 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
                   data-solo={soloOnly ? 'true' : undefined}
                   onClick={() => {
                     if (soloOnly) return;
-                    select(team.name, team.sessionOnly);
+                    select(team.name, team.sessionOnly, team.leadSessionId);
                   }}
                   style={{
                     padding: '8px 10px',
