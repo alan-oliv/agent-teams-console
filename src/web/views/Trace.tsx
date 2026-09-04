@@ -90,9 +90,9 @@ export function Trace({ agent, subagents, now, selected, onSelect }: TraceProps)
         data-testid="trace-header"
         style={{
           display: 'flex',
-          gap: '18px',
-          alignItems: 'center',
-          padding: '10px 14px',
+          gap: '26px',
+          alignItems: 'baseline',
+          padding: '13px 14px 11px',
           borderBottom: '1px solid var(--color-neutral-900)',
           flex: 'none',
         }}
@@ -100,11 +100,27 @@ export function Trace({ agent, subagents, now, selected, onSelect }: TraceProps)
         <Stat testid="trace-subagents" label="SUBAGENTS" value={String(flat.length)} />
         <Stat testid="trace-max-depth" label="MAX DEPTH" value={String(maxDepth)} />
         <Stat testid="trace-tokens-in" label="TOKENS IN SUBAGENTS" value={formatTokens(tokensIn)} />
-        <Stat testid="trace-shown-to-parent" label="SHOWN TO PARENT" value={formatTokens(shownToParent)} />
+        {/* The one figure the canvas puts in accent: it is the number the whole
+            view exists to contrast against the one before it. */}
+        <Stat
+          testid="trace-shown-to-parent"
+          label="SHOWN TO PARENT"
+          value={formatTokens(shownToParent)}
+          accent
+        />
         <Stat testid="trace-spend" label="SPEND" value={formatCost(spend)} />
         <span style={{ flex: 1 }} />
         {ratio !== null && (
-          <span data-testid="trace-ratio" style={{ color: 'var(--color-neutral-600)', fontSize: '10.5px' }}>
+          <span
+            data-testid="trace-ratio"
+            style={{
+              color: 'var(--color-neutral-600)',
+              fontSize: '10.5px',
+              maxWidth: '250px',
+              textWrap: 'pretty',
+              lineHeight: 1.45,
+            }}
+          >
             {`${formatTokens(tokensIn)} spent inside subagents against ${formatTokens(shownToParent)} that reached the parent — ${ratio}:1`}
           </span>
         )}
@@ -230,13 +246,18 @@ export function Trace({ agent, subagents, now, selected, onSelect }: TraceProps)
   );
 }
 
-function Stat({ testid, label, value }: { testid: string; label: string; value: string }) {
+function Stat({
+  testid, label, value, accent = false,
+}: { testid: string; label: string; value: string; accent?: boolean }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-      <span style={{ color: 'var(--color-neutral-600)', fontSize: '9.5px', letterSpacing: '.08em' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
+      <span style={{ color: 'var(--color-neutral-600)', fontSize: '9.5px', letterSpacing: '.06em' }}>
         {label}
       </span>
-      <span data-testid={testid} style={{ color: 'var(--color-text)', fontSize: '12.5px' }}>
+      <span
+        data-testid={testid}
+        style={{ color: accent ? 'var(--color-accent-300)' : 'var(--color-text)', fontSize: '15px' }}
+      >
         {value}
       </span>
     </div>

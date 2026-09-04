@@ -4,7 +4,7 @@
   "version": "0.7.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/server/index.ts & vite",
+    "dev": "tsx watch src/server/index.ts --port ${CONSOLE_PORT:-4823} & vite",
     "build": "vite build && npm run build:server",
     "prepare": "npm run build",
     "build:server": "esbuild src/server/index.ts --bundle --platform=node --format=esm --target=node22 --outfile=plugin/dist/server/index.js --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",

@@ -253,6 +253,35 @@ function deliveryDrafts(content: string): Draft[] {
   return drafts;
 }
 
+/**
+ * Whether this record is one of the operator's own prompts — a `❯` line, and so
+ * one TURN of the session.
+ *
+ * Deliberately structural rather than `toTranscriptLines(rec).some(...)`: the
+ * fold derives lines only for the records it actually projects, and forcing a
+ * full derivation over every stored record to count turns would undo that. The
+ * two agree by construction — both route the user text through
+ * {@link markerForUserText} — and a test pins them together.
+ */
+export function isPromptTurn(rec: TranscriptRecord): boolean {
+  // No `isSidechain` guard: the fold's record sets are already per-agent, so a
+  // subagent's records are filed under the subagent and never reach a lead's
+  // count. Adding one here would only make this disagree with the derivation.
+  if (rec.type !== 'user') return false;
+  const content = rec.message?.content;
+  if (typeof content === 'string') {
+    return splitTeammateDelivery(content).some(
+      (part) => part.from === undefined && tidy(part.text) !== '' && markerForUserText(part.text) === '\u276f',
+    );
+  }
+  if (!Array.isArray(content)) return false;
+  return content.some((block) => {
+    if (!block || typeof block !== 'object') return false;
+    const b = block as { type?: string; text?: string };
+    return b.type === 'text' && typeof b.text === 'string' && tidy(b.text) !== '';
+  });
+}
+
 function markerForUserText(body: string): Marker {
   const trimmed = body.trim();
   if (trimmed.startsWith('{')) {

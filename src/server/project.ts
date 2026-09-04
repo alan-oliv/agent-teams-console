@@ -35,6 +35,7 @@ import {
   currentToolOf,
   fullLineText,
   toTranscriptLines,
+  isPromptTurn,
   type TranscriptRecord,
 } from '../shared/transcript';
 import {
@@ -499,6 +500,15 @@ export function project(events: StoredEvent[], readOnly: boolean, now = Date.now
   // The transcript's own agent name is the key everything else (records,
   // spawns, substatus) is already filed under, so the synthetic lead must
   // borrow it rather than invent one.
+  /** The earliest usable timestamp in a transcript — a session's own start. */
+  const firstRecordAt = (recs?: TranscriptRecord[]): number | undefined => {
+    for (const rec of recs ?? []) {
+      const at = rec.timestamp ? Date.parse(rec.timestamp) : NaN;
+      if (Number.isFinite(at)) return at;
+    }
+    return undefined;
+  };
+
   const roster = buildRoster(config, sidecars);
   const soloLead = roster.length === 0 ? [...records.keys()][0] : undefined;
   if (soloLead !== undefined) {
@@ -508,7 +518,10 @@ export function project(events: StoredEvent[], readOnly: boolean, now = Date.now
       isLead: true,
       agentType: '',
       role: '',
-      joinedAt: 0,
+      // Its own first record, not 0: there is no config.json to carry a
+      // createdAt here, and an epoch joinedAt rendered as `496798h 13m` in
+      // both the column header and the bar.
+      joinedAt: firstRecordAt(records.get(soloLead)) ?? 0,
     });
   }
 
@@ -576,6 +589,12 @@ export function project(events: StoredEvent[], readOnly: boolean, now = Date.now
       color: id.color,
       status,
       currentTool: currentTool.get(id.name),
+      turns: recs.reduce((n, rec) => n + (isPromptTurn(rec) ? 1 : 0), 0),
+      turnStartedAt: recs.reduce<number | undefined>((at, rec) => {
+        if (!isPromptTurn(rec)) return at;
+        const t = rec.timestamp ? Date.parse(rec.timestamp) : NaN;
+        return Number.isFinite(t) ? t : at;
+      }, undefined),
       contextTokens: sub?.tokenCount ?? contextOccupancy(recs),
       contextLimit: resolved.window,
       compactAt: resolved.compactAt,
@@ -631,7 +650,9 @@ export function project(events: StoredEvent[], readOnly: boolean, now = Date.now
     sessionName,
     leadSessionId: config?.leadSessionId ?? '',
     branch,
-    startedAt: config?.createdAt ?? 0,
+    // A config-less session has no createdAt, so the lead's own start stands in
+    // — the alternative is an elapsed measured from the epoch.
+    startedAt: config?.createdAt ?? agents.find((a) => a.isLead)?.startedAt ?? 0,
     totalTokens,
     totalCostUsd: agents.reduce((sum, a) => sum + a.costUsd, 0),
     rateLimits,

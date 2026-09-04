@@ -90,6 +90,22 @@ export interface Agent {
   color?: string;
   status: AgentStatus;
   currentTool?: string;
+  /**
+   * Prompts the operator has sent this agent — the `❯` lines, counted over the
+   * agent's WHOLE record set rather than the capped transcript on the frame, so
+   * a long session does not under-report. The sub-agents bar reads `turn N of
+   * M` off it (canvas `8a`).
+   */
+  turns?: number;
+  /**
+   * When the CURRENT turn began — the last prompt's timestamp.
+   *
+   * `8a` pairs it with the turn counter as `working · 4m 08s`, and four minutes
+   * beside `turn 12 of 12` is this turn, not the session. It also has to be
+   * this: a resumed session's transcript carries its ancestor's records, so
+   * measuring from the first one reported `188h 55m` on a session minutes old.
+   */
+  turnStartedAt?: number;
   contextTokens: number;
   contextLimit: number;
   compactAt: number;

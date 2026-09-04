@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { TeamSummary } from '../../shared/domain';
-import { isEmptySession, isNotShown, parseHidden } from './useHiddenSessions';
+import { parseHidden } from './useHiddenSessions';
 
 describe('parseHidden', () => {
   it('reads back the names it stored', () => {
@@ -26,57 +25,5 @@ describe('parseHidden', () => {
       'session-a',
       'session-b',
     ]);
-  });
-});
-
-describe('the one rule for what a screen may offer', () => {
-  const summary = (over: Partial<TeamSummary>): TeamSummary => ({
-    name: 'session-a',
-    members: 3,
-    createdAt: 0,
-    leadSessionId: '',
-    leadAlive: true,
-    lastActivityAt: 0,
-    live: true,
-    current: false,
-    state: 'live',
-    ...over,
-  });
-
-  it('calls a lead-only session with nothing running in it an empty one', () => {
-    expect(isEmptySession(summary({ members: 1 }))).toBe(true);
-    expect(isEmptySession(summary({ members: 3 }))).toBe(false);
-  });
-
-  // A workflow's agents never enter members[], so the roster is one and the run
-  // is the only thing saying the session is somewhere to go.
-  it('does not call a session running a workflow empty', () => {
-    expect(isEmptySession(summary({ members: 1, workflow: { runId: 'wf_a', live: true } }))).toBe(
-      false,
-    );
-  });
-
-  // The second exception, on the same argument (decision 23): a Task subagent
-  // never enters members[] either, and a session with a 13-transcript tree has
-  // more agent activity in it than some teams the picker does show.
-  it('does not call a solo session with a subagent tree empty', () => {
-    expect(isEmptySession(summary({ members: 1, subagents: 13 }))).toBe(false);
-  });
-
-  // Emitted absent-never-zero by the server; a zero that slipped through must
-  // not admit a bare window.
-  it('still calls a bare window empty when the count is zero or absent', () => {
-    expect(isEmptySession(summary({ members: 1, subagents: 0 }))).toBe(true);
-    expect(isEmptySession(summary({ members: 1 }))).toBe(true);
-  });
-
-  it('counts a hidden session as not shown however many members it has', () => {
-    expect(isNotShown(summary({}), new Set(['session-a']), true)).toBe(true);
-  });
-
-  it('stops counting a lead-only session as not shown once it is revealed', () => {
-    const solo = summary({ members: 1 });
-    expect(isNotShown(solo, new Set(), false)).toBe(true);
-    expect(isNotShown(solo, new Set(), true)).toBe(false);
   });
 });

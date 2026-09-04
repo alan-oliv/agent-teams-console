@@ -24,12 +24,6 @@ export interface WatchState {
   hideSession(name: string): void;
   /** Puts every hidden session back — the way out of an empty picker. */
   showHidden(): void;
-  /**
-   * Whether lead-only sessions are being shown. App's state, not the picker's:
-   * the empty screen has to count and offer the same reveal, and it cannot
-   * reach into a flag the picker keeps to itself.
-   */
-  revealed: boolean;
 }
 
 // A safe no-op default so a component reading it outside a Provider — most
@@ -42,7 +36,6 @@ export const WatchContext = createContext<WatchState>({
   hidden: new Set(),
   hideSession: () => {},
   showHidden: () => {},
-  revealed: false,
 });
 
 export function useWatch(): WatchState {

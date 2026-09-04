@@ -4,7 +4,8 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { FIXTURE_NOW, fixtureAgents } from '../agents.fixture';
 import { buildCast } from '../../shared/cast';
 import { CastContext } from '../state/useCast';
-import { Wall } from './Wall';
+import type { Task } from '../../shared/domain';
+import { Wall, taskListSummary } from './Wall';
 
 afterEach(cleanup);
 
@@ -25,10 +26,21 @@ vi.mock('../components/TranscriptFeed', async (importOriginal) => {
 
 const agents = fixtureAgents();
 
-function renderWall(onFocus = vi.fn()) {
-  render(<Wall agents={agents} focused="probe-alpha" onFocus={onFocus} now={FIXTURE_NOW} />);
+function renderWall(onFocus = vi.fn(), tasks?: Task[]) {
+  render(
+    <Wall agents={agents} focused="probe-alpha" onFocus={onFocus} now={FIXTURE_NOW} tasks={tasks} />,
+  );
   return onFocus;
 }
+
+const TASK: Task = {
+  id: 'T-00',
+  subject: 'a task',
+  description: '',
+  state: 'pending',
+  blocks: [],
+  blockedBy: [],
+};
 
 describe('Wall', () => {
   it('renders one 366px column per team member', () => {
@@ -890,4 +902,25 @@ it('renders a Task row when TeamState carries a subagent matching the transcript
     />,
   );
   expect(screen.getByTestId('subagent-summary')).toBeTruthy();
+});
+
+// Canvas `4a`: the lead's bottom strip says what the shared list is doing. The
+// other columns keep that slot for the tool the agent is running right now.
+it('summarises the task list under the lead column, and only there', () => {
+  const tasks = [
+    { ...TASK, id: 'T-01', state: 'completed' as const },
+    { ...TASK, id: 'T-02', state: 'blocked' as const },
+    { ...TASK, id: 'T-03', state: 'pending' as const, blockedBy: ['T-02'], openBlockedBy: ['T-02'] },
+  ];
+  renderWall(vi.fn(), tasks);
+  expect(screen.getByTestId('wall-tasklist').textContent).toBe('TaskList — 3 tasks, 2 blocked');
+  expect(screen.getAllByTestId('wall-tasklist')).toHaveLength(1);
+});
+
+it('does not count a completed task as blocked by its own resolved history', () => {
+  expect(
+    taskListSummary([
+      { ...TASK, id: 'T-01', state: 'completed', blockedBy: ['T-00'], openBlockedBy: ['T-00'] },
+    ]),
+  ).toBe('TaskList — 1 task');
 });

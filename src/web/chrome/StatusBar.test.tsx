@@ -82,12 +82,15 @@ it('fires the view change when a tab is clicked', () => {
 
 it('renders the wordmark and the team name', () => {
   renderBar();
-  const wordmark = screen.getByText('TEAM');
+  const wordmark = screen.getByText('OCTO');
   expect(wordmark.style.color).toBe('var(--color-accent)');
   expect(wordmark.style.letterSpacing).toBe('.14em');
   expect(wordmark.style.fontWeight).toBe('700');
   expect(wordmark.style.fontSize).toBe('11px');
   expect(screen.getByText('session-98b0b4a7')).toBeTruthy();
+  // The wordmark is the same word in every shell now, so the badge beside it is
+  // what says which of the four this is (canvas 4a).
+  expect(screen.getByTestId('team-mode').textContent).toBe('teammates');
   // The pill is gone: agent teams are not experimental any more, and this bar
   // is the one place where every pixel has to be paid for.
   expect(screen.queryByText('experimental')).toBeNull();
@@ -239,7 +242,7 @@ it('makes the team name the control that opens the team list', () => {
       appearance={APPEARANCE}
     />,
   );
-  const trigger = screen.getByRole('button', { name: 'TEAM session-98b0b4a7' });
+  const trigger = screen.getByRole('button', { name: 'OCTO session-98b0b4a7' });
   expect(trigger.getAttribute('aria-haspopup')).toBe('listbox');
   expect(trigger.getAttribute('aria-expanded')).toBe('false');
 
@@ -248,8 +251,10 @@ it('makes the team name the control that opens the team list', () => {
 });
 
 it('pins the trigger wide enough that switching teams cannot move the switcher', () => {
-  // The tabs' x already depends on the team name's length; a fluid trigger would
-  // shove them sideways as a result of the operator's own click.
+  // Ruling 14's 146px is a CAP on the goal, which is how the canvas writes it
+  // (`max-width:146px`): a long goal ellipsises rather than shoving the tabs
+  // sideways on the operator's own click. The badge and in-world chip sit
+  // outside it.
   const short = sampleTeamState();
   render(
     <StatusBar
@@ -263,7 +268,8 @@ it('pins the trigger wide enough that switching teams cannot move the switcher',
       appearance={APPEARANCE}
     />,
   );
-  expect(screen.getByTestId('team-trigger').style.width).toBe('146px');
+  expect(screen.getByTestId('team-trigger-name').style.maxWidth).toBe('146px');
+  expect(screen.getByTestId('team-trigger').style.flex).toBe('0 0 auto');
   cleanup();
 
   const long = sampleTeamState();
@@ -280,7 +286,8 @@ it('pins the trigger wide enough that switching teams cannot move the switcher',
       appearance={APPEARANCE}
     />,
   );
-  expect(screen.getByTestId('team-trigger').style.width).toBe('146px');
+  expect(screen.getByTestId('team-trigger-name').style.maxWidth).toBe('146px');
+  expect(screen.getByTestId('team-trigger').style.flex).toBe('0 0 auto');
   expect(screen.getByText('session-b5129c7b-with-a-very-long-name').style.textOverflow).toBe(
     'ellipsis',
   );
@@ -349,7 +356,7 @@ it('spends no bar width on runs the session never had', () => {
 // the one way this layout breaks, so the invariant is pinned rather than eyeballed.
 it('never wraps, and every child but the spacer is unshrinkable', () => {
   renderBar();
-  const bar = screen.getByText('TEAM').parentElement!;
+  const bar = screen.getByTestId('bar-wordmark').parentElement!;
   expect(bar.style.flexWrap).toBe('nowrap');
 
   // jsdom normalises the shorthand: `flex: 1` -> `1 1 0%`, `flex: none` -> `0 0 auto`.
@@ -385,7 +392,7 @@ it('carries elapsed and spend as one unshrinkable chip', () => {
 // The design took it out of the bar for the room; the session rows carry it.
 it('spends no bar width on a diffstat', () => {
   renderBar();
-  const bar = screen.getByText('TEAM').parentElement!;
+  const bar = screen.getByTestId('bar-wordmark').parentElement!;
   expect(bar.textContent).not.toMatch(/[+−-]\d+\s*[−-]\d+/);
 });
 
@@ -413,13 +420,39 @@ it('carries the longest in-world team name without letting the bar wrap', () => 
     </CastContext.Provider>,
   );
 
-  const bar = screen.getByText('TEAM').parentElement!;
+  const bar = screen.getByTestId('bar-wordmark').parentElement!;
   expect(bar.style.flexWrap).toBe('nowrap');
   const chip = screen.getByTestId('team-chip');
   expect(chip.textContent).toBe('the fellowship');
   expect(chip.style.whiteSpace).toBe('nowrap');
   expect(chip.style.flex).toBe('0 0 auto');
   // The chip widens the trigger instead of evicting the session id from it.
-  expect(screen.getByTestId('team-trigger').style.minWidth).toBe('146px');
+  expect(screen.getByTestId('team-trigger-name').style.maxWidth).toBe('146px');
   expect(screen.getByTestId('team-trigger-name').style.textOverflow).toBe('ellipsis');
+});
+
+// Canvas `8a`: a sub-agents bar carries two figures, not the team's six. The
+// trace strip underneath already reports tokens and spend.
+it('gives a solo session the two figures the canvas draws, and no team ones', () => {
+  const state = sampleTeamState();
+  const lead = state.agents.find((a) => a.isLead)!;
+  render(
+    <StatusBar
+      state={{ ...state, agents: [{ ...lead, turns: 12, status: 'working' }] }}
+      view="wall"
+      onViewChange={vi.fn()}
+      now={FIXTURE_NOW}
+      teamsOpen={false}
+      onTeamsOpenChange={vi.fn()}
+      onSelectRun={vi.fn()}
+      appearance={APPEARANCE}
+      solo
+    />,
+  );
+
+  expect(screen.getByText('turn 12 of 12')).toBeTruthy();
+  expect(screen.getByText(/^working · /)).toBeTruthy();
+  expect(screen.queryByTestId('aggregate-meter')).toBeNull();
+  expect(screen.queryByText(/tasks$/)).toBeNull();
+  expect(screen.queryByText(/ctx$/)).toBeNull();
 });

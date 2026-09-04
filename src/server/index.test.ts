@@ -829,6 +829,18 @@ describe('sessionProjectDir', () => {
     expect(await sessionProjectDir(path.join(dir, 'projects'), SESSION)).toBe(target);
   });
 
+  // A bare solo window — no subagents, no spilled tool results — has only its
+  // transcript beside the slug, never a directory. Requiring the directory made
+  // `/api/select-session` 404 for exactly the sessions the route serves.
+  it('accepts a session that has only its transcript file, with no directory yet', async () => {
+    const slug = '-Users-alanoliv-code-agents-team-ui';
+    await fs.mkdir(path.join(dir, 'projects', slug), { recursive: true });
+    await fs.writeFile(path.join(dir, 'projects', slug, `${SESSION}.jsonl`), '{}\n');
+    expect(await sessionProjectDir(path.join(dir, 'projects'), SESSION)).toBe(
+      path.join(dir, 'projects', slug, SESSION),
+    );
+  });
+
   it('is null for a session with nothing on disk, and for no projects root at all', async () => {
     await makeSession('-Users-alanoliv-code-agents-team-ui');
     expect(await sessionProjectDir(path.join(dir, 'projects'), 'not-a-session')).toBeNull();

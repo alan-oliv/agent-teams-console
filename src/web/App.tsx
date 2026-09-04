@@ -11,7 +11,7 @@ import { StopConfirm, WatchConfirm } from './chrome/StopConfirm';
 import { DiffModal } from './components/DiffModal';
 import { StopContext } from './components/StopButton';
 import { CastContext } from './state/useCast';
-import { isEmptySession, isNotShown, useHiddenSessions } from './state/useHiddenSessions';
+import { useHiddenSessions } from './state/useHiddenSessions';
 import { useKeyboard } from './state/useKeyboard';
 import { SettingsContext, useSettings } from './state/useSettings';
 import { useSpendSamples } from './state/useSpendSamples';
@@ -61,10 +61,13 @@ export function App() {
       ? (state.agents.find((a) => a.isLead) ?? state.agents[0] ?? null)
       : null;
   const traceLead = soloLead ?? routedLead;
-  const solo =
-    store.sessionRoute !== null ||
-    (soloLead !== null && Object.values(state?.subagents ?? {}).some((list) => list.length > 0));
-  const view = store.view === 'trace' && !solo ? 'wall' : store.view;
+  const solo = store.sessionRoute !== null || soloLead !== null;
+  // `trace` is offered when its subject exists (decision 24's rule), and on a
+  // bare session it does not: no subagents, nothing to draw lifelines for. A
+  // `trace` left in the URL from a session that had them falls back to the
+  // stream rather than mounting an empty view.
+  const hasSubagents = Object.values(state?.subagents ?? {}).some((list) => list.length > 0);
+  const view = store.view === 'trace' && !hasSubagents ? 'wall' : store.view;
   // Lives here, not in the view, so switching away from usage and back does
   // not restart the sampler — the same reason widths and hidden sessions live
   // above the views that read them.
@@ -103,48 +106,31 @@ export function App() {
     setDismissed(false);
   }, [state?.teamName]);
 
-  const { hidden, hide, showAll, revealed } = useHiddenSessions();
+  const { hidden, hide, showAll } = useHiddenSessions();
   /**
-   * Nothing worth drawing in the body. Two ways to get here:
-   *
-   * - the session on screen was hidden with the picker's `✕`;
-   * - or NO session on this machine is actually a team. Claude Code writes a
-   *   `teams/<session>/config.json` for every session, holding just that
-   *   session's own lead, so a machine with three windows open and no teammates
-   *   anywhere still has three of them. Drawing a wall for one is a column with
-   *   a lead in it and nothing to watch.
-   *
-   * The second condition deliberately asks about EVERY session, not just this
-   * one: a real team elsewhere means the console has somewhere to be, and a
-   * team that is mid-spawn — lead present, first teammate not yet — must not
-   * flash the empty screen on its way to becoming real.
+   * Nothing worth drawing in the body: the session on screen was hidden with
+   * the picker's `✕`. That is the only way to get here now — a session with no
+   * team in it draws its own stream (supersedes decision 23), so "no team
+   * anywhere" is no longer a reason to draw nothing.
    */
   const currentHidden = state ? hidden.has(state.teamName) : false;
-  // `!solo`: a lead-only session WITH a subagent tree is somewhere to be
-  // (decision 23) — the empty screen is for the bare window, not for it.
-  const leadOnlyHere = state ? state.mode !== 'workflow' && state.agents.length < 2 && !solo : false;
-  // A team that has ENDED is not somewhere the console has to be, so it does not
-  // hold the empty screen off — even though the lists below keep it, because
-  // paging back into a finished session is what they are for.
-  const noTeamsAnywhere =
-    leadOnlyHere && elsewhere.every((t) => t.state === 'done' || isEmptySession(t));
-  const bodyEmpty = currentHidden || noTeamsAnywhere;
+  const bodyEmpty = currentHidden;
 
   // ONE rule for both empty screens. They disagreed: LeftSession got the raw
-  // list, so hidden and lead-only sessions were one-click destinations there and
-  // absent from NoSessions. What is offered is what the picker would let you
-  // switch to, nothing more.
-  const switchable = elsewhere.filter((t) => !hidden.has(t.name) && !isEmptySession(t));
+  // list, so hidden sessions were one-click destinations there and absent from
+  // NoSessions. What is offered is what the picker would let you switch to,
+  // nothing more.
+  const switchable = elsewhere.filter((t) => !hidden.has(t.name));
   // Everything the picker is dropping, plus the session on screen when hiding it
   // is how we got here — `elsewhere` excludes it, and without it the way back
   // disappears exactly when it is needed.
   const notShownCount =
-    elsewhere.filter((t) => isNotShown(t, hidden, revealed)).length + (currentHidden ? 1 : 0);
+    elsewhere.filter((t) => hidden.has(t.name)).length + (currentHidden ? 1 : 0);
 
   // Fetched only once there's something to show — the same "on open" rule the
   // picker's own listing follows.
   useEffect(() => {
-    if ((!dismissed && !currentHidden && !leadOnlyHere) || !state) return;
+    if ((!dismissed && !currentHidden) || !state) return;
     let live = true;
     fetch('/api/teams')
       .then((res) => (res.ok ? (res.json() as Promise<TeamsResponse>) : Promise.reject(res.status)))
@@ -161,7 +147,7 @@ export function App() {
     return () => {
       live = false;
     };
-  }, [dismissed, currentHidden, leadOnlyHere, state?.teamName, state?.agents.length]);
+  }, [dismissed, currentHidden, state?.teamName, state?.agents.length]);
 
   const watchAgain = useCallback(() => {
     setDismissed(false);
@@ -176,9 +162,8 @@ export function App() {
       hidden,
       hideSession: hide,
       showHidden: showAll,
-      revealed,
     }),
-    [dismissed, watchAgain, hidden, hide, showAll, revealed],
+    [dismissed, watchAgain, hidden, hide, showAll],
   );
 
   // The launcher announces a new team at a console that is already running for
@@ -361,6 +346,7 @@ export function App() {
         onSelectRun={store.setRun}
         appearance={appearance}
         solo={solo}
+        hasSubagents={hasSubagents}
       />
       <main className="console-body">
         {/* Hiding wins over dismissal: a session taken out of the picker has no
@@ -395,6 +381,7 @@ export function App() {
             readOnly={state.readOnly}
             widths={store.widths}
             onWidthChange={store.setWidth}
+            tasks={state.tasks}
             onOpenMail={(name) => {
               setMailFor(name);
               store.setAgent(name);

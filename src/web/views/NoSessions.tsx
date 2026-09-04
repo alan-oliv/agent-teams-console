@@ -19,10 +19,7 @@ const DOT_COLOR = {
 export interface NoSessionsProps {
   /** Sessions still in the picker — empty when every one has been hidden. */
   remaining: TeamSummary[];
-  /**
-   * Rows the picker is not showing — the ✕-hidden ones AND the lead-only
-   * sessions it drops. One total, because one `show them` puts both back.
-   */
+  /** Rows the picker is not showing — the ✕-hidden ones. */
   notShownCount: number;
   onShowHidden(): void;
   onSwitchTo(name: string): void;
@@ -39,8 +36,8 @@ export interface NoSessionsProps {
  * be a one-way door: an empty picker, an empty body, and no control anywhere
  * that puts them back. So the count and `show them` are stated whenever
  * anything is missing from the picker, not tucked behind a menu — and the count
- * is the picker's own total, lead-only rows included, or the two would disagree
- * about how much this machine is holding.
+ * is the picker's own total, or the two would disagree about how much this
+ * machine is holding.
  */
 export function NoSessions({ remaining, notShownCount, onShowHidden, onSwitchTo }: NoSessionsProps) {
   return (

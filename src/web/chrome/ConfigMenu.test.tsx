@@ -360,7 +360,7 @@ describe('persistence', () => {
 describe('the gear is chrome, not a metric', () => {
   it('sits in the bar as an unshrinkable child', () => {
     mount();
-    const bar = screen.getByText('TEAM').parentElement!;
+    const bar = screen.getByTestId('bar-wordmark').parentElement!;
     const wrapper = screen.getByTestId('config-trigger').parentElement!;
     expect(wrapper.parentElement).toBe(bar);
     expect(wrapper.style.flex).toBe('0 0 auto');

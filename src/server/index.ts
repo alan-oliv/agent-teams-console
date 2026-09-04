@@ -461,14 +461,21 @@ async function teamsOfLiveSessions(
 }
 
 /**
- * Whether a session has a project directory to ingest at all — the only thing
- * that makes a config-less session selectable, since it has no config.json to
- * check the way a team does.
+ * Where a session's records live — the only thing that makes a config-less
+ * session selectable, since it has no config.json to check the way a team does.
  *
  * The slug comes off the session's recorded cwd when there is a record; the
  * scan is the fallback for a session whose `sessions/<id>.json` was never
  * written or has since been reaped, which is exactly the long-lived,
  * team-less session this path exists for.
+ *
+ * **The transcript counts, not just the directory.** Claude Code writes
+ * `<slug>/<sessionId>.jsonl` for every session, but only creates the sibling
+ * `<slug>/<sessionId>/` directory once that session spills a tool result or
+ * spawns a subagent. A bare solo window has the file and no directory — so
+ * requiring the directory 404'd `/api/select-session` for precisely the
+ * sessions the route was widened to serve. Returns the DIRECTORY either way,
+ * since that is what the caller ingests; it just no longer has to exist yet.
  */
 export async function sessionProjectDir(
   projectsRoot: string,
@@ -482,9 +489,21 @@ export async function sessionProjectDir(
       return false;
     }
   };
-  if (cwd) {
-    const dir = path.join(projectsRoot, cwd.replace(/[^a-zA-Z0-9]/g, '-'), sessionId);
+  const isFile = async (file: string): Promise<boolean> => {
+    try {
+      return (await fs.stat(file)).isFile();
+    } catch {
+      return false;
+    }
+  };
+  const found = async (slug: string): Promise<string | null> => {
+    const dir = path.join(projectsRoot, slug, sessionId);
     if (await isDir(dir)) return dir;
+    return (await isFile(`${dir}.jsonl`)) ? dir : null;
+  };
+  if (cwd) {
+    const hit = await found(cwd.replace(/[^a-zA-Z0-9]/g, '-'));
+    if (hit) return hit;
   }
   let slugs: string[];
   try {
@@ -493,8 +512,8 @@ export async function sessionProjectDir(
     return null;
   }
   for (const slug of slugs) {
-    const dir = path.join(projectsRoot, slug, sessionId);
-    if (await isDir(dir)) return dir;
+    const hit = await found(slug);
+    if (hit) return hit;
   }
   return null;
 }

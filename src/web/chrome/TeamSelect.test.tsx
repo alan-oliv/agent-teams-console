@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 import { cleanup, createEvent, fireEvent, render, screen, within } from '@testing-library/react';
-import { useState } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { FIXTURE_NOW, sampleTeams } from '../test/state-fixture';
 import { WatchContext, type WatchState } from '../state/useWatch';
@@ -14,9 +13,8 @@ import type { TeamSummary } from '../../shared/domain';
 // matching more than one element.
 afterEach(cleanup);
 
-// The second fixture team is `done` and lead-only, both of which the picker now
-// filters out; these tests are about rows and switching, so it stands in as an
-// idle REAL team. The two filtering rules have their own tests at the bottom.
+// The second fixture team is `done`; these tests are about rows and switching,
+// so it stands in as an idle REAL team.
 const LIST = {
   current: 'session-98b0b4a7',
   teams: sampleTeams().map((t, i) =>
@@ -55,25 +53,11 @@ function renderSelect(props: Partial<Parameters<typeof TeamSelect>[0]> = {}, wat
     hidden: new Set(),
     hideSession: vi.fn(),
     showHidden: vi.fn(),
-    revealed: false,
     ...watch,
   };
-  // The reveal is App's state, not the picker's — `show them` un-hides and
-  // reveals in one action, and the empty screen offers the same control. The
-  // harness stands in for App so the picker is exercised as it is really wired.
   function Harness({ extra }: { extra: Partial<typeof all> }) {
-    const [revealed, setRevealed] = useState(watchValue.revealed);
     return (
-      <WatchContext.Provider
-        value={{
-          ...watchValue,
-          revealed,
-          showHidden: () => {
-            setRevealed(true);
-            watchValue.showHidden();
-          },
-        }}
-      >
+      <WatchContext.Provider value={watchValue}>
         <TeamSelect {...all} {...extra} />
       </WatchContext.Provider>
     );
@@ -90,7 +74,6 @@ const WATCH: WatchState = {
   hidden: new Set(),
   hideSession: vi.fn(),
   showHidden: vi.fn(),
-  revealed: false,
 };
 
 const SWITCH_TO_B5 = [
@@ -303,7 +286,7 @@ it('says it is reading while the listing is in flight', () => {
 it('says so when the machine has no teams', async () => {
   fetchMock.mockResolvedValue(new Response(JSON.stringify({ current: '', teams: [] }), { status: 200 }));
   renderSelect();
-  expect(await screen.findByText('no live teams')).toBeTruthy();
+  expect(await screen.findByText('no sessions')).toBeTruthy();
 });
 
 it('says so when the listing cannot be read', async () => {
@@ -387,16 +370,18 @@ it('clicking the dismissed current row resumes watching it, instead of a no-op c
   expect(onOpenChange).toHaveBeenCalledWith(false);
 });
 
-it('hides a team whose session has ended — it is history, not a session on this machine', async () => {
+// Paging back into a finished session is what the picker is FOR, so it lists
+// them like anything else and says how long ago they ended.
+it('lists a team whose session has ended, and says when', async () => {
   const done = { current: 'session-98b0b4a7', teams: sampleTeams() };
   fetchMock = vi.fn(() => Promise.resolve(new Response(JSON.stringify(done), { status: 200 })));
   vi.stubGlobal('fetch', fetchMock);
 
   renderSelect();
   const rows = await screen.findAllByRole('option');
-  expect(rows).toHaveLength(1);
-  expect(within(rows[0]).getByText('session-98b0b4a7')).toBeTruthy();
-  expect(screen.getByText('SESSIONS ON THIS MACHINE · 1')).toBeTruthy();
+  expect(rows).toHaveLength(2);
+  expect(within(rows[1]).getByTestId('team-meta').textContent).toContain('ended');
+  expect(screen.getByText('SESSIONS ON THIS MACHINE · 2')).toBeTruthy();
 });
 
 it('opens the sessions menu on ⌘K when it is closed', () => {
@@ -476,7 +461,7 @@ it('clears the filter on escape before closing the menu', async () => {
   expect(onOpenChange).toHaveBeenCalledWith(false);
 });
 
-// A TEAM that ended, not a lead-only session: those are dropped even when
+// A TEAM that ended: those list even when
 // current, since the picker lists teams and the body says so.
 it('keeps the ended team that is being VIEWED, so the picker cannot contradict the wall', async () => {
   const teams = sampleTeams().map((t, i) => ({ ...t, current: i === 1, members: 2 }));
@@ -529,63 +514,15 @@ it('keeps a way back in the menu once anything is hidden', async () => {
   expect(showHidden).toHaveBeenCalled();
 });
 
-it('says why the list is empty rather than claiming there are no teams', async () => {
+it('says the list is empty when every row has been hidden', async () => {
   renderSelect({}, { hidden: new Set(['session-98b0b4a7', 'session-b5129c7b']) });
-  expect(
-    await screen.findByText('no teams — every session here is a lead on its own'),
-  ).toBeTruthy();
+  expect(await screen.findByText('no sessions')).toBeTruthy();
 });
 
 // Claude Code writes a teams/<session>/config.json for EVERY session, holding
-// just that session's own lead, so without this every open window shows up as a
-// switchable "session" with no team in it.
-it('keeps lead-only sessions out of the list and counts them as not shown', async () => {
-  renderSelect({}, {});
-  const rows = await screen.findAllByRole('option');
-  // Both fixture rows are real teams here, so nothing is filtered yet.
-  expect(rows).toHaveLength(2);
-});
-
-it('reveals the lead-only rows on demand, without needing them un-hidden', async () => {
-  const solo = {
-    current: 'session-98b0b4a7',
-    teams: sampleTeams().map((t, i) => (i === 1 ? { ...t, state: 'idle' as const, members: 1 } : t)),
-  };
-  fetchMock = routed(() => Promise.resolve(new Response('{}', { status: 200 })));
-  vi.stubGlobal('fetch', vi.fn((path: string) =>
-    path === '/api/teams'
-      ? Promise.resolve(new Response(JSON.stringify(solo), { status: 200 }))
-      : Promise.resolve(new Response('{}', { status: 200 })),
-  ));
-  renderSelect();
-
-  expect(await screen.findAllByRole('option')).toHaveLength(1);
-  const back = screen.getByTestId('show-hidden-rows');
-  expect(back.textContent).toContain('1 not shown');
-  fireEvent.click(back);
-  expect(await screen.findAllByRole('option')).toHaveLength(2);
-});
-
-// The picker lists TEAMS. A lead-only session is dropped even when it is the one
-// on screen — there is no wall to contradict, because the body is the empty
-// state, and the trigger still names where you are.
-it('drops a lead-only session even when it is the current one', async () => {
-  const solo = {
-    current: 'session-98b0b4a7',
-    teams: sampleTeams().map((t) => ({ ...t, members: 1, state: 'live' as const })),
-  };
-  vi.stubGlobal('fetch', vi.fn((path: string) =>
-    path === '/api/teams'
-      ? Promise.resolve(new Response(JSON.stringify(solo), { status: 200 }))
-      : Promise.resolve(new Response('{}', { status: 200 })),
-  ));
-  renderSelect();
-
-  expect(await screen.findByTestId('show-hidden-rows')).toBeTruthy();
-  expect(screen.queryAllByRole('option')).toHaveLength(0);
-  expect(screen.getByText('no teams — every session here is a lead on its own')).toBeTruthy();
-});
-
+// just that session's own lead. Those bare windows used to be dropped as rows
+// with nowhere to go; they each render their own stream now, so they list and
+// switch like anything else.
 function soloList() {
   const solo = {
     current: 'session-98b0b4a7',
@@ -598,47 +535,42 @@ function soloList() {
   ));
 }
 
-// Revealing them explains why the console is empty. Switching to one would put
-// it right back on a session with no team — the thing being explained.
-it('reveals lead-only rows but refuses to switch to them', async () => {
+it('lists bare sessions as ordinary rows and switches to them', async () => {
   soloList();
   renderSelect();
-  fireEvent.click(await screen.findByTestId('show-hidden-rows'));
 
   const rows = await screen.findAllByRole('option');
   expect(rows).toHaveLength(2);
-  expect(rows.every((r) => r.getAttribute('aria-disabled') === 'true')).toBe(true);
-  expect(within(rows[0]).getByTestId('team-meta').textContent).toContain('no team · not selectable');
+  expect(rows.every((r) => r.getAttribute('aria-disabled') === null)).toBe(true);
+  expect(within(rows[0]).getByTestId('team-meta').textContent).toContain('live');
 
   fireEvent.click(rows[1]);
   const posts = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
     .map((c) => c[0] as string)
     .filter((p) => p.includes('/select'));
-  expect(posts).toEqual([]);
+  expect(posts).toEqual(['/api/teams/session-b5129c7b/select']);
 });
 
-it('keeps the keyboard cursor off lead-only rows, so enter cannot land on one', async () => {
+it('lets the keyboard cursor land on a bare session', async () => {
   soloList();
   renderSelect();
-  fireEvent.click(await screen.findByTestId('show-hidden-rows'));
   await screen.findAllByRole('option');
 
   const list = screen.getByRole('listbox', { name: 'teams' });
-  expect(list.getAttribute('aria-activedescendant')).toBeNull();
   fireEvent.keyDown(list, { key: 'ArrowDown' });
+  expect(list.getAttribute('aria-activedescendant')).toBe('team-option-session-b5129c7b');
   fireEvent.keyDown(list, { key: 'Enter' });
   const posts = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
     .map((c) => c[0] as string)
     .filter((p) => p.includes('/select'));
-  expect(posts).toEqual([]);
+  expect(posts).toEqual(['/api/teams/session-b5129c7b/select']);
 });
 
-it('counts teams in the header, not revealed lead-only rows', async () => {
+it('counts every listed session in the header', async () => {
   soloList();
   renderSelect();
-  fireEvent.click(await screen.findByTestId('show-hidden-rows'));
   await screen.findAllByRole('option');
-  expect(screen.getByText('SESSIONS ON THIS MACHINE · 0')).toBeTruthy();
+  expect(screen.getByText('SESSIONS ON THIS MACHINE · 2')).toBeTruthy();
 });
 
 function listOf(teams: TeamSummary[]) {
@@ -671,11 +603,10 @@ it('offers a lead-only session running a workflow as an ordinary row', async () 
   );
   renderSelect();
 
-  // Listed without revealing anything: these are not the rows reveal is for.
   const rows = await screen.findAllByRole('option');
   expect(rows).toHaveLength(2);
   expect(rows[0].getAttribute('aria-disabled')).toBeNull();
-  expect(within(rows[0]).getByTestId('team-meta').textContent).toContain('workflow · running');
+  expect(within(rows[0]).getByTestId('team-meta').textContent).toContain('running');
   // No snapshot yet, so the run has no name and its id is what there is.
   expect(within(rows[0]).getByTestId('team-run').textContent).toBe('wf_abc123');
 
@@ -683,10 +614,9 @@ it('offers a lead-only session running a workflow as an ordinary row', async () 
   expect(selectPosts()).toEqual(['/api/teams/session-b5129c7b/select']);
 });
 
-// The second exception on the same argument (decision 23): a Task subagent
-// never enters members[] either, so a solo session with a tree is an ordinary
-// listed, selectable row whose activity cell says what is in it.
-it('offers a solo session with a subagent tree as an ordinary row', async () => {
+// A Task subagent never enters members[], so the activity cell is the only
+// place a solo session says what is actually in it.
+it('says how many subagents a solo session is running', async () => {
   listOf(
     sampleTeams().map((t, i) => ({
       ...t,
@@ -698,9 +628,24 @@ it('offers a solo session with a subagent tree as an ordinary row', async () => 
   renderSelect();
 
   const rows = await screen.findAllByRole('option');
-  expect(rows).toHaveLength(1);
-  expect(rows[0].getAttribute('aria-disabled')).toBeNull();
-  expect(within(rows[0]).getByTestId('team-meta').textContent).toContain('solo · 13 subagents');
+  expect(rows).toHaveLength(2);
+  expect(within(rows[0]).getByTestId('team-meta').textContent).toContain('13 subagents');
+  expect(within(rows[1]).getByTestId('team-meta').textContent).toContain('live');
+});
+
+// A team that also spawned subagents is still a team: `solo` is about the
+// roster, and reading `5 agents solo · 4 subagents` on a five-member wall is
+// the picker contradicting the view it switches to.
+it('never calls a multi-member session solo, however many subagents it spawned', async () => {
+  listOf(
+    sampleTeams().map((t) => ({ ...t, members: 5, state: 'live' as const, subagents: 4 })),
+  );
+  renderSelect();
+
+  const rows = await screen.findAllByRole('option');
+  for (const row of rows) {
+    expect(within(row).getByTestId('team-meta').textContent).not.toContain('solo');
+  }
 });
 
 it('names the run and calls it ended once its snapshot has landed', async () => {
@@ -716,12 +661,13 @@ it('names the run and calls it ended once its snapshot has landed', async () => 
 
   const [row] = await screen.findAllByRole('option');
   expect(within(row).getByTestId('team-run').textContent).toBe('agents-team-ui-plan');
-  expect(within(row).getByTestId('team-meta').textContent).toContain('workflow · ended');
+  expect(within(row).getByTestId('team-meta').textContent).toContain('ended');
 });
 
-// The two kinds of lead-only row side by side: the one with a run is somewhere
-// to go, the one without is the empty window reveal exists to explain.
-it('keeps a lead-only session with no run inert while the one with a run is not', async () => {
+// Two rosters of one side by side. The KIND pill is what tells them apart now;
+// the activity cell says what each is doing, which for a bare live window is
+// just `live`.
+it('tells a workflow session apart from a bare one by its kind pill', async () => {
   const [team, other] = sampleTeams();
   listOf([
     { ...team, members: 1, state: 'live' as const, workflow: { runId: 'wf_abc123', live: true } },
@@ -729,14 +675,13 @@ it('keeps a lead-only session with no run inert while the one with a run is not'
   ]);
   renderSelect();
 
-  expect(await screen.findAllByRole('option')).toHaveLength(1);
-  expect(screen.getByText('SESSIONS ON THIS MACHINE · 1')).toBeTruthy();
-  fireEvent.click(screen.getByTestId('show-hidden-rows'));
-
   const rows = await screen.findAllByRole('option');
-  expect(rows[0].getAttribute('aria-disabled')).toBeNull();
-  expect(rows[1].getAttribute('aria-disabled')).toBe('true');
-  expect(within(rows[1]).getByTestId('team-meta').textContent).toContain('no team · not selectable');
+  expect(rows).toHaveLength(2);
+  expect(screen.getByText('SESSIONS ON THIS MACHINE · 2')).toBeTruthy();
+  expect(within(rows[0]).getByTestId('team-kind').textContent).toBe('workflow');
+  expect(within(rows[1]).getByTestId('team-kind').textContent).toBe('solo');
+  expect(within(rows[0]).getByTestId('team-meta').textContent).toContain('running');
+  expect(within(rows[1]).getByTestId('team-meta').textContent).toContain('live');
 });
 
 it('lets the keyboard land on a workflow row', async () => {
@@ -749,17 +694,10 @@ it('lets the keyboard land on a workflow row', async () => {
   await screen.findAllByRole('option');
 
   const list = screen.getByRole('listbox', { name: 'teams' });
+  fireEvent.keyDown(list, { key: 'ArrowDown' });
   expect(list.getAttribute('aria-activedescendant')).toBe('team-option-session-b5129c7b');
   fireEvent.keyDown(list, { key: 'Enter' });
   expect(selectPosts()).toEqual(['/api/teams/session-b5129c7b/select']);
-});
-
-// The reveal lives at App level now: the empty screen has to be able to turn it
-// on as well, and it cannot reach a flag the picker keeps to itself.
-it('shows lead-only rows when the lifted state says they are revealed', async () => {
-  soloList();
-  renderSelect({}, { revealed: true });
-  expect(await screen.findAllByRole('option')).toHaveLength(2);
 });
 
 // The design pairs a diffstat with the branch on every row. It says how much is
@@ -818,10 +756,10 @@ it('wears the film\'s team name as a chip on the trigger, and only there', () =>
   expect(chip.style.flex).toBe('0 0 auto'); // jsdom's serialisation of `none`
   expect(chip.style.whiteSpace).toBe('nowrap');
   expect(screen.getByTestId('team-trigger-name').textContent).toBe('agents-team-console');
-  expect(screen.getByTestId('team-trigger').style.minWidth).toBe('146px');
+  expect(screen.getByTestId('team-trigger-name').style.maxWidth).toBe('146px');
 });
 
-it('wears no chip with no theme, and keeps the trigger at its fixed width', () => {
+it('wears no chip with no theme, and keeps the goal capped', () => {
   render(
     <WatchContext.Provider value={WATCH}>
       <TeamSelect
@@ -834,5 +772,37 @@ it('wears no chip with no theme, and keeps the trigger at its fixed width', () =
     </WatchContext.Provider>,
   );
   expect(screen.queryByTestId('team-chip')).toBeNull();
-  expect(screen.getByTestId('team-trigger').style.width).toBe('146px');
+  expect(screen.getByTestId('team-trigger-name').style.maxWidth).toBe('146px');
+});
+
+// The canvas leads every picker row with its kind, in its own colour, so the
+// list tells the four shapes apart without reading the counts on the line below.
+it('leads each row with its kind, coloured per the canvas KIND table', async () => {
+  const [team, other] = sampleTeams();
+  listOf([
+    { ...team, members: 5, state: 'live' as const },
+    { ...other, members: 1, state: 'live' as const, workflow: { runId: 'wf_a', live: true } },
+  ]);
+  renderSelect();
+
+  const rows = await screen.findAllByRole('option');
+  const kinds = rows.map((r) => within(r).getByTestId('team-kind'));
+  expect(kinds.map((k) => k.textContent)).toEqual(['teammates', 'workflow']);
+  expect(kinds[0].style.color).toBe('var(--color-accent-300)');
+  expect(kinds[1].style.color).toBe('var(--warn)');
+});
+
+it('calls a roster of one with a tree subagents, and a bare one solo', async () => {
+  const [team, other] = sampleTeams();
+  listOf([
+    { ...team, members: 1, state: 'live' as const, subagents: 6 },
+    { ...other, members: 1, state: 'live' as const },
+  ]);
+  renderSelect();
+
+  const rows = await screen.findAllByRole('option');
+  expect(rows.map((r) => within(r).getByTestId('team-kind').textContent)).toEqual([
+    'subagents',
+    'solo',
+  ]);
 });

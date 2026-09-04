@@ -3,7 +3,6 @@ import type { TeamSummary, TeamsResponse } from '../../shared/domain';
 import { postJson } from '../api';
 import { diffStat, formatElapsed } from '../format';
 import { useCast } from '../state/useCast';
-import { isEmptySession, isNotShown } from '../state/useHiddenSessions';
 import { useWatch } from '../state/useWatch';
 
 // Derived, not chosen: 2 border + 12 padding + 120.03 ("session-" + 8 hex at the
@@ -14,6 +13,28 @@ const TRIGGER_WIDTH = '146px';
 // Ruling 14. The reconcile turned each row into two lines — name over id,
 // branch and diffstat — and that anatomy was sized for 520; 432 predates it.
 const PANEL_WIDTH = '520px';
+
+/**
+ * The three session kinds the canvas knows, with the colours it gives them —
+ * its own `KIND` table, transcribed. `subagents` is deliberately the quiet one:
+ * a session with a subagent tree is still one operator's window, not a team.
+ *
+ * `solo` is ours. The canvas has no artboard for a window with nothing in it,
+ * so it borrows the quietest pair rather than inventing a colour.
+ */
+export const KIND_STYLE: Record<string, { color: string; edge: string }> = {
+  teammates: { color: 'var(--color-accent-300)', edge: 'var(--color-accent-700)' },
+  subagents: { color: 'var(--color-neutral-400)', edge: 'var(--color-neutral-700)' },
+  workflow: { color: 'var(--warn)', edge: 'var(--warn-edge)' },
+  solo: { color: 'var(--color-neutral-400)', edge: 'var(--color-neutral-700)' },
+};
+
+/** What KIND a picker row is, by the same bar the console classifies on. */
+export function kindOf(team: TeamSummary): string {
+  if (team.members >= 2) return 'teammates';
+  if (team.workflow) return 'workflow';
+  return team.subagents ? 'subagents' : 'solo';
+}
 
 // `●` live / `○` idle / `✓` ended, per the handoff.
 const STATE_GLYPH = { live: '\u25cf', idle: '\u25cb', done: '\u2713' } as const;
@@ -59,12 +80,20 @@ export interface TeamSelectProps {
   current: string;
   /** What the operator called this session. Falls back to `current` when unnamed. */
   sessionName?: string;
+  /**
+   * What KIND of session this is — `teammates`, `subagents`, `solo`, `workflow`.
+   * Canvas `4a`/`6a`/`8a` all draw it as an outlined pill inside the trigger,
+   * ahead of the goal, and it is the only thing in the chrome that says which
+   * of the four shapes you are looking at. The wordmark used to carry it by
+   * reading `TEAM` or `RUN`, which could not name the other two.
+   */
+  mode?: string;
   open: boolean;
   onOpenChange(open: boolean): void;
   now: number;
 }
 
-export function TeamSelect({ current, sessionName, open, onOpenChange, now }: TeamSelectProps) {
+export function TeamSelect({ current, sessionName, mode, open, onOpenChange, now }: TeamSelectProps) {
   // The in-world team name, and the only place it appears: the session id below
   // it, the listing, the URL and every select call stay real.
   const inWorld = useCast().theme.team;
@@ -174,56 +203,26 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
       .catch(() => setMark({ kind: 'failed', team: name }));
   }
 
-  // A finished team is history, not a session on this machine: listing one kept
-  // offering a conversation that had ended hours earlier under a heading that
-  // claims otherwise. The team being VIEWED stays listed even once it ends —
-  // dropping the row you are looking at would leave the picker contradicting
-  // the wall behind it.
-  // Two kinds of row come out before anything else counts them, so the header
-  // total, the search results and the cursor all agree with what is drawn.
+  // The picker filters nothing. Every session type has a view of its own now —
+  // a bare window renders its own stream, a finished one is history you page
+  // back into, which is what the picker is FOR — so there is no longer such a
+  // thing as a row with nowhere to go. That was the only thing the lead-only
+  // filter, its `reveal` escape hatch and the `done` drop were ever
+  // compensating for (supersedes decision 23's bare-window carve-out).
   //
-  // LEAD-ONLY sessions are the second kind, and they are the noisy one: Claude
-  // Code writes a `teams/<session>/config.json` for every session it starts,
-  // carrying just that session's own lead. So every open window shows up here
-  // as a switchable "session" that has no team in it. Two or more members is
-  // what makes a team — the same bar the launcher uses to decide whether to
-  // start at all — so anything under it is listed as not-shown rather than
-  // offered as somewhere to switch to.
-  //
-  // Except when a workflow is what that session is doing. A workflow's agents
-  // never enter members[], so the session running one has a roster of one and
-  // is indistinguishable from an empty window on every other field — and
-  // switching to it is exactly how the console gets into workflow mode. Only
-  // the run makes the difference, so only `isEmptySession` filters.
+  // The `✕` stays: taking a row out is an operator's choice, not a rule.
   const runOf = (t: TeamSummary) => (t.members < 2 ? t.workflow : undefined);
-  const listed = (teams ?? []).filter((t) => t.state !== 'done' || t.current);
-  // No `|| t.current` exception here, unlike the `done` filter above: this is a
-  // TEAM picker, so a lead-only session is not a row in it even when it is the
-  // one on screen. There is no wall to contradict in that case — the body is the
-  // empty state — and the trigger still names where you are.
-  const filteredOut = (t: TeamSummary) => isNotShown(t, watch.hidden, watch.revealed);
-  const rows = listed.filter((t) => !filteredOut(t));
-  const notShown = listed.filter(filteredOut);
-  const hiddenCount = notShown.length;
+  const listed = teams ?? [];
+  const rows = listed.filter((t) => !watch.hidden.has(t.name));
+  const hiddenCount = listed.length - rows.length;
   const filteredRows = rows.filter((t) => matchesQuery(t, query));
-
-  /**
-   * A revealed lead-only row is shown, not offered. Switching to one puts the
-   * console on a session with no team in it — the empty state — which is the
-   * thing revealing them was meant to explain, not to hand you a way back into.
-   * So they render, and the keyboard cursor and Enter skip them entirely.
-   *
-   * The header count follows the same line: it says TEAMS, so it counts teams
-   * — and a workflow session, being somewhere you can go, counts with them.
-   */
-  const selectable = filteredRows.filter((t) => !isEmptySession(t));
-  const teamCount = rows.filter((t) => !isEmptySession(t)).length;
-  const cursorTeam = selectable[Math.min(cursor, selectable.length - 1)];
+  const teamCount = rows.length;
+  const cursorTeam = filteredRows[Math.min(cursor, filteredRows.length - 1)];
 
   function onListKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setCursor((c) => Math.min(selectable.length - 1, c + 1));
+      setCursor((c) => Math.min(filteredRows.length - 1, c + 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setCursor((c) => Math.max(0, c - 1));
@@ -267,11 +266,12 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
           display: 'flex',
           alignItems: 'baseline',
           gap: 7,
-          // The chip is added width, so the trigger grows by it and the bar
-          // sheds a metric to pay — measured in the longest team-name state,
-          // because the alternative is the session id being squeezed out by
-          // decoration.
-          ...(inWorld ? { minWidth: TRIGGER_WIDTH } : { width: TRIGGER_WIDTH }),
+          // Ruling 14 measured 146px for the GOAL, so that is what carries it
+          // (below) rather than the whole trigger: the badge and the in-world
+          // chip are decoration either side of it, and pinning the trigger
+          // instead would let a long badge eat the goal it was sized for. The
+          // tabs still cannot move when the operator switches session, which is
+          // what the pin is for — only a change of session KIND shifts them.
           flex: 'none',
           whiteSpace: 'nowrap',
           padding: '3px 8px',
@@ -280,10 +280,27 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
           borderRadius: 'var(--radius-sm)',
         }}
       >
+        {mode && (
+          <span
+            data-testid="team-mode"
+            style={{
+              color: (KIND_STYLE[mode] ?? KIND_STYLE.solo).color,
+              fontSize: 9.5,
+              border: `1px solid ${(KIND_STYLE[mode] ?? KIND_STYLE.solo).edge}`,
+              borderRadius: 8,
+              padding: '0 7px',
+              whiteSpace: 'nowrap',
+              flex: 'none',
+            }}
+          >
+            {mode}
+          </span>
+        )}
         <span
           id="team-trigger-name"
           data-testid="team-trigger-name"
           style={{
+            maxWidth: TRIGGER_WIDTH,
             color: watch.dismissed ? 'var(--color-neutral-500)' : 'var(--color-text)',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
@@ -396,8 +413,6 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
               // not rendered — so its checkmark would contradict the "not
               // watching" text sitting right below it. Drop the mark instead.
               const notWatching = isCurrent && watch.dismissed;
-              // Revealed for awareness, not offered as a destination.
-              const soloOnly = isEmptySession(team);
               const run = runOf(team);
               const rowMark = mark?.team === team.name ? mark.kind : isCurrent && !notWatching ? 'current' : null;
               const state = team.state ?? (team.live ? 'live' : 'done');
@@ -407,17 +422,11 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
                   id={`team-option-${team.name}`}
                   role="option"
                   aria-selected={isCurrent}
-                  aria-disabled={soloOnly || undefined}
-                  data-solo={soloOnly ? 'true' : undefined}
-                  onClick={() => {
-                    if (soloOnly) return;
-                    select(team.name, team.sessionOnly, team.leadSessionId);
-                  }}
+                  onClick={() => select(team.name, team.sessionOnly, team.leadSessionId)}
                   style={{
                     padding: '8px 10px',
                     borderRadius: 'var(--radius-sm)',
-                    cursor: soloOnly ? 'default' : 'pointer',
-                    opacity: soloOnly ? 0.55 : 1,
+                    cursor: 'pointer',
                     display: 'flex',
                     flexDirection: 'column',
                     gap: '3px',
@@ -431,6 +440,25 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
                       style={{ fontSize: '10px', color: STATE_COLOR[state] }}
                     >
                       {STATE_GLYPH[state]}
+                    </span>
+                    {/* Canvas: every row leads with its kind, then the goal —
+                        it is how the list tells the four shapes apart without
+                        the operator having to read the counts on the line
+                        below. Smaller than the trigger's badge (9px / 0 6px),
+                        which is the canvas's own pair of sizes. */}
+                    <span
+                      data-testid="team-kind"
+                      style={{
+                        color: KIND_STYLE[kindOf(team)].color,
+                        fontSize: '9px',
+                        border: `1px solid ${KIND_STYLE[kindOf(team)].edge}`,
+                        borderRadius: 8,
+                        padding: '0 6px',
+                        whiteSpace: 'nowrap',
+                        flex: 'none',
+                      }}
+                    >
+                      {kindOf(team)}
                     </span>
                     {/* The name the operator gave the session, not the id the
                         directory happens to carry. Falls back to the id when a
@@ -601,14 +629,23 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
                         flex: 'none',
                       }}
                     >
-                      {soloOnly
-                        ? 'no team · not selectable'
-                        : notWatching
-                          ? 'running · not watching'
+                      {/* The kind pill above says WHAT this is, so this cell
+                          says what it is DOING — the canvas's own split, whose
+                          state column reads `4 working` / `6 subagents` /
+                          `9 of 10 slots`. It used to repeat the kind here
+                          (`solo · 4 subagents`) because nothing else carried
+                          it. A finished session's age wins over either: `ended
+                          6h ago` is what the operator picks between rows on. */}
+                      {notWatching
+                        ? 'running · not watching'
+                        : state === 'done'
+                          ? stateText(team, now)
                           : run
-                            ? `workflow · ${run.live ? 'running' : 'ended'}`
+                            ? run.live
+                              ? 'running'
+                              : 'ended'
                             : team.members < 2 && team.subagents
-                              ? `solo · ${team.subagents} subagent${team.subagents === 1 ? '' : 's'}`
+                              ? `${team.subagents} subagent${team.subagents === 1 ? '' : 's'}`
                               : stateText(team, now)}
                     </span>
                   </div>
@@ -629,9 +666,7 @@ export function TeamSelect({ current, sessionName, open, onOpenChange, now }: Te
                   : unreadable
                     ? 'could not read teams'
                     : rows.length === 0
-                      ? hiddenCount > 0
-                        ? 'no teams — every session here is a lead on its own'
-                        : 'no live teams'
+                      ? 'no sessions'
                       : 'no matches'}
               </div>
             )}

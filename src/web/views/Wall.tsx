@@ -8,7 +8,7 @@ import {
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from 'react';
-import type { Agent, Subagent, SubagentTree } from '../../shared/domain';
+import type { Agent, Subagent, SubagentTree, Task } from '../../shared/domain';
 import { wallOrder } from '../../shared/roster';
 import { AGENT_STATUS, DORMANT_OPACITY, isDormant } from '../../shared/status';
 import { Composer, RosterContext } from '../components/Composer';
@@ -85,7 +85,7 @@ function InFlight({ agent, onOpen }: { agent: Agent; onOpen?: (name: string) => 
 
 const Column = memo(function Column({
   agent, isFocused, isTinted, isDragging, width, readOnly, teamLive, routed,
-  onFocus, onHoverEnter, onHoverLeave, onGrip, onGripReset, onOpenMail, subagents,
+  onFocus, onHoverEnter, onHoverLeave, onGrip, onGripReset, onOpenMail, subagents, tasks,
 }: {
   agent: Agent;
   isFocused: boolean;
@@ -104,7 +104,8 @@ const Column = memo(function Column({
    * passed and overwrite a width that is persisted per agent. Focus already
    * reads three ways — the accent inset, the tint, and aria-current.
    */
-  width: number;
+  /** `null` on a roster of one: the stream takes the frame — see `soloStream`. */
+  width: number | null;
   readOnly: boolean;
   teamLive: boolean;
   /**
@@ -123,6 +124,8 @@ const Column = memo(function Column({
   onOpenMail?: (name: string) => void;
   /** This agent's own Task/Agent dispatches, in spawn order. */
   subagents?: Subagent[];
+  /** The shared list. Only the lead's column draws it — see {@link taskListSummary}. */
+  tasks?: readonly Task[];
 }) {
   const status = AGENT_STATUS[agent.status];
   const isLeadColumn = agent.isLead;
@@ -137,8 +140,7 @@ const Column = memo(function Column({
   if (isFocused) shadows.push('inset 0 2px 0 var(--color-accent-600)');
 
   const column: CSSProperties = {
-    flex: 'none',
-    width: `${width}px`,
+    ...(width === null ? { flex: 1, minWidth: 0 } : { flex: 'none', width: `${width}px` }),
     position: 'relative',
     background: isTinted ? 'var(--color-bg)' : GROUND,
     display: 'flex',
@@ -325,8 +327,12 @@ const Column = memo(function Column({
         subagents={subagents}
       />
 
+      {/* One slot, two readings (canvas `4a`): the lead's says what the shared
+          list is doing, since its own current tool is the last line of the
+          transcript directly above it; every other column says what that agent
+          is running right now. */}
       <div
-        data-testid="wall-current-tool"
+        data-testid={routed ? 'wall-tasklist' : 'wall-current-tool'}
         style={{
           borderTop: '1px solid var(--color-neutral-900)',
           padding: '7px 12px',
@@ -337,7 +343,7 @@ const Column = memo(function Column({
           textOverflow: 'ellipsis',
         }}
       >
-        {agent.currentTool ?? ''}
+        {routed ? (tasks && tasks.length > 0 ? taskListSummary(tasks) : '') : (agent.currentTool ?? '')}
       </div>
 
       {/* The console has one composer and it is the lead's, so every other
@@ -400,9 +406,29 @@ const Column = memo(function Column({
   );
 });
 
+/**
+ * The lead column's strip, canvas `4a`: `TaskList — 11 tasks, 3 blocked`.
+ *
+ * Blocked means "cannot be picked up", which is two things on this frame — a
+ * task the lead marked `blocked`, and one still waiting on a dependency — so it
+ * counts both without double-counting either. A completed task's leftover
+ * blockers do not count: they are history.
+ */
+export function taskListSummary(tasks: readonly Task[]): string {
+  const blocked = tasks.filter(
+    (t) =>
+      t.state === 'blocked' ||
+      (t.state !== 'completed' && (t.openBlockedBy ?? t.blockedBy).length > 0),
+  ).length;
+  const plural = tasks.length === 1 ? '' : 's';
+  return blocked > 0
+    ? `TaskList — ${tasks.length} task${plural}, ${blocked} blocked`
+    : `TaskList — ${tasks.length} task${plural}`;
+}
+
 export function Wall({
   agents, focused, revealAlso = null, onFocus, now, readOnly = false, widths = {}, onWidthChange,
-  onOpenMail, subagents,
+  onOpenMail, subagents, tasks,
 }: {
   agents: Agent[];
   focused: string | null;
@@ -417,6 +443,8 @@ export function Wall({
   onWidthChange?: (name: string, px: number | null) => void;
   /** Every roster agent's Task/Agent dispatches, keyed by dispatcher name. */
   subagents?: SubagentTree;
+  /** The shared list, summarised in the lead column's strip. */
+  tasks?: readonly Task[];
 }) {
   const [hovered, setHovered] = useState<string | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
@@ -478,6 +506,17 @@ export function Wall({
   // queueing in silence.
   const teamLive = agents.some((a) => !a.isLead && a.status !== 'departed');
 
+  /**
+   * A roster of one IS the parent's stream (canvas `8b`), and the stream is a
+   * full-width column — not a 366px one with two thirds of the frame empty
+   * beside it. Ruling 24 called this "a prop, not a view" and was right about
+   * the content: the Task row and its drawer below are the same components
+   * either way. It only never delivered the prop.
+   *
+   * An operator-dragged width still wins, so the grip keeps working.
+   */
+  const soloStream = agents.length === 1;
+
   const scroller = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!focused) return;
@@ -518,10 +557,11 @@ export function Wall({
             isFocused={agent.name === focused}
             isTinted={agent.name === focused || hovered === agent.name}
             isDragging={dragging === agent.name}
-            width={widths[agent.name] ?? COLUMN_WIDTH}
+            width={widths[agent.name] ?? (soloStream ? null : COLUMN_WIDTH)}
             readOnly={readOnly}
             teamLive={teamLive}
             routed={agent.isLead}
+            tasks={tasks}
             onFocus={onFocus}
             onOpenMail={onOpenMail}
             onHoverEnter={onHoverEnter}

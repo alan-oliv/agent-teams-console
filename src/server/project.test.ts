@@ -1361,3 +1361,67 @@ describe('config-less session', () => {
     ]);
   });
 });
+
+// A session that was never a team has no config.json to carry a createdAt, and
+// an epoch fallback rendered as `496798h 13m` in the bar and the column header.
+it('starts a config-less session from its own first record, not the epoch', () => {
+  const at = Date.parse('2026-09-03T17:00:00.000Z');
+  const state = project(
+    [
+      {
+        seq: 1,
+        ts: 0,
+        kind: 'transcript' as EventKind,
+        agent: 'solo-lead',
+        payload: {
+          agent: 'solo-lead',
+          records: [
+            { type: 'user', uuid: 'u1', timestamp: '2026-09-03T17:00:00.000Z' },
+            { type: 'assistant', uuid: 'u2', timestamp: '2026-09-03T17:05:00.000Z' },
+          ] as TranscriptRecord[],
+        },
+      } as StoredEvent,
+    ],
+    false,
+  );
+  const lead = state.agents.find((a) => a.isLead)!;
+  expect(lead.startedAt).toBe(at);
+  expect(state.startedAt).toBe(at);
+});
+
+// Canvas 8a pairs `turn N of M` with `working · 4m 08s`, and four minutes beside
+// a turn counter is THIS turn. It also has to be: a resumed session carries its
+// ancestor's records, so measuring from the first reported 188h on a new one.
+it('counts turns and dates the current one from the last prompt', () => {
+  const rec = (uuid: string, ts: string, content: unknown, type = 'user') => ({
+    type,
+    uuid,
+    timestamp: ts,
+    message: { role: type, content },
+  });
+  const state = project(
+    [
+      {
+        seq: 1,
+        ts: 0,
+        kind: 'transcript' as EventKind,
+        agent: 'solo',
+        payload: {
+          agent: 'solo',
+          records: [
+            rec('a', '2026-08-26T10:00:00.000Z', 'first prompt, days ago'),
+            rec('b', '2026-08-26T10:00:05.000Z', [{ type: 'text', text: 'reply' }], 'assistant'),
+            rec('c', '2026-09-03T17:00:00.000Z', 'second prompt'),
+            rec('d', '2026-09-03T17:00:01.000Z', [{ type: 'tool_result', content: 'out' }]),
+          ] as TranscriptRecord[],
+        },
+      } as StoredEvent,
+    ],
+    false,
+  );
+  const lead = state.agents.find((a) => a.isLead)!;
+  expect(lead.turns).toBe(2);
+  expect(lead.turnStartedAt).toBe(Date.parse('2026-09-03T17:00:00.000Z'));
+  // The session still starts at its first record — only the BAR reads the turn.
+  expect(lead.startedAt).toBe(Date.parse('2026-08-26T10:00:00.000Z'));
+});

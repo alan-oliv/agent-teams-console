@@ -4,6 +4,7 @@ import { segments } from './code';
 import { DIFF_LINES_CAP, DIFF_LINE_TEXT_CAP } from './domain';
 import {
   currentToolOf,
+  isPromptTurn,
   parseLine,
   toTranscriptLines,
   TRANSCRIPT_TEXT_CAP,
@@ -627,4 +628,35 @@ describe('diff', () => {
     expect(lines[9].text.endsWith('…')).toBe(true);
     expect(lines[9].text).toHaveLength(DIFF_LINE_TEXT_CAP);
   });
+});
+
+// isPromptTurn is a structural shortcut for "this record would draw a ❯", taken
+// so the fold can count turns without deriving lines for every stored record.
+// The two must not drift, so the shortcut is checked AGAINST the derivation.
+describe('isPromptTurn', () => {
+  // A record with no timestamp draws no lines at all, so every case carries one
+  // — otherwise the comparison below passes by drawing nothing on both sides.
+  const TS = '2026-09-03T17:00:00.000Z';
+  const user = (uuid: string, content: unknown): TranscriptRecord => ({
+    type: 'user',
+    uuid,
+    timestamp: TS,
+    message: { role: 'user', content },
+  });
+  const cases: TranscriptRecord[] = [
+    user('a', 'do the thing'),
+    user('b', '{"type":"idle_notification"}'),
+    user('c', '{"type":"shutdown_request"}'),
+    user('d', [{ type: 'text', text: 'a prompt' }]),
+    user('e', [{ type: 'tool_result', content: 'output' }]),
+    { type: 'assistant', uuid: 'f', timestamp: TS, message: { role: 'assistant', content: [] } },
+    user('g', '   '),
+  ];
+
+  for (const rec of cases) {
+    it(`agrees with the ❯ derivation for ${rec.uuid}`, () => {
+      const drawsPrompt = toTranscriptLines(rec, 'lead').some((l) => l.marker === '\u276f');
+      expect(isPromptTurn(rec)).toBe(drawsPrompt);
+    });
+  }
 });

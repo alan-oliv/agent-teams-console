@@ -2,7 +2,7 @@ import type { ReactElement } from 'react';
 import type { TeamState, ViewId } from '../../shared/domain';
 import type { SettingsStore } from '../state/useSettings';
 import { formatCost, formatElapsed, formatTokens, meterCells } from '../format';
-import { SOLO_VIEW_IDS, VIEW_IDS } from '../state/useTeamState';
+import { soloViews, VIEW_IDS } from '../state/useTeamState';
 import { flattenSubagents } from '../../shared/subagents';
 import { Bar, METRIC } from './Bar';
 import { runOrder } from './RunSelect';
@@ -36,6 +36,17 @@ export const METRIC_RANK: Record<string, number> = {
   subagents: 7,
 };
 
+/**
+ * The sub-agents bar's own shed order, kept apart from the team's the way the
+ * workflow bar keeps its own: it is a different bar with two figures, and
+ * folding them into METRIC_RANK would put them in the team bar's measured
+ * order without ever appearing there.
+ *
+ * The status outlives the turn counter — "is it still working" survives a
+ * narrow window better than "which turn".
+ */
+export const SOLO_METRIC_RANK: Record<string, number> = { status: 0, turns: 1 };
+
 
 export interface StatusBarProps {
   state: TeamState;
@@ -48,15 +59,18 @@ export interface StatusBarProps {
   onSelectRun(runId: string): void;
   appearance: SettingsStore;
   /**
-   * A lead-only session with a subagent tree (decision 24): the switcher
+   * A session with a roster of one (decision 24): the switcher
    * offers stream · trace · tasks · usage, where `stream` is the wall's own
    * pill wearing the word a single column deserves.
    */
   solo?: boolean;
+  /** Whether `trace` has anything to draw — see {@link soloViews}. */
+  hasSubagents?: boolean;
 }
 
 export function StatusBar({
   state, view, onViewChange, now, teamsOpen, onTeamsOpenChange, onSelectRun, appearance, solo,
+  hasSubagents = false,
 }: StatusBarProps) {
   const done = state.tasks.filter((t) => t.state === 'completed').length;
   // Team context occupancy — what the meter has always looked like it meant.
@@ -69,6 +83,30 @@ export function StatusBar({
   // Absent means not-yet-landed, not zero — summing only what has landed
   // avoids reporting a total lower than what the tree actually spent.
   const subagentTokens = allSubagents.reduce((n, s) => n + (s.tokens ?? 0), 0);
+
+  /**
+   * A sub-agents session's bar, straight off canvas `8a`: two figures, not the
+   * team's six. `turn N of M` then `working · 4m 08s`, and nothing else — no
+   * task count, no ctx, no meter, no spend. The trace strip below already
+   * carries tokens and spend, which is why the bar does not repeat them.
+   *
+   * N and M are the same number: the console always shows the live head of the
+   * transcript, so the turn you are on IS the last one. The canvas hard-codes
+   * `12 of 12` for the same reason.
+   */
+  const lead = state.agents.find((a) => a.isLead) ?? state.agents[0];
+  const soloMetrics: ReactElement[] = [
+    ...(lead?.turns
+      ? [
+          <span key="turns" style={{ color: 'var(--color-neutral-600)', fontSize: 11, ...METRIC }}>
+            {`turn ${lead.turns} of ${lead.turns}`}
+          </span>,
+        ]
+      : []),
+    <span key="status" style={{ color: 'var(--color-accent-400)', fontSize: 11, ...METRIC }}>
+      {`${lead?.status ?? 'idle'} · ${formatElapsed(now - (lead?.turnStartedAt ?? state.startedAt))}`}
+    </span>,
+  ];
 
   // Reading order — the handoff's arrangement. What goes when the bar runs out
   // of room is METRIC_RANK's business, not this list's.
@@ -130,12 +168,13 @@ export function StatusBar({
 
   return (
     <Bar
-      wordmark="TEAM"
+      wordmark="OCTO"
       picker={
         <>
           <TeamSelect
             current={state.teamName}
             sessionName={state.sessionName}
+            mode={solo ? (hasSubagents ? 'subagents' : 'solo') : 'teammates'}
             open={teamsOpen}
             onOpenChange={onTeamsOpenChange}
             now={now}
@@ -160,12 +199,12 @@ export function StatusBar({
           )}
         </>
       }
-      views={solo ? SOLO_VIEW_IDS : VIEW_IDS}
+      views={solo ? soloViews(hasSubagents) : VIEW_IDS}
       view={view}
       onViewChange={onViewChange}
       labelOf={solo ? (id) => (id === 'wall' ? 'stream' : id) : undefined}
-      metrics={metrics}
-      metricRank={METRIC_RANK}
+      metrics={solo ? soloMetrics : metrics}
+      metricRank={solo ? SOLO_METRIC_RANK : METRIC_RANK}
       appearance={appearance}
     />
   );

@@ -609,7 +609,7 @@ it('lists the other live sessions on the machine and switches to one on click', 
               teams: [
                 sampleTeams()[0],
                 // A real team: the ELSEWHERE list offers only what the picker
-                // would let you switch to, and a lead-only session is not that.
+                // would let you switch to, and a hidden session is not that.
                 { ...sampleTeams()[1], members: 3, state: 'idle' as const, current: false },
               ],
             }),
@@ -659,7 +659,7 @@ it('draws workflow mode instead of the team shell when the frame says so', () =>
     }),
   );
 
-  expect(screen.getByTestId('bar-wordmark').textContent).toBe('RUN');
+  expect(screen.getByTestId('team-mode').textContent).toBe('workflow');
   expect(screen.getByTestId('workflow-run')).toBeTruthy();
   expect(screen.queryByText('NEEDS YOU · 0')).toBeNull();
   // The shell is the shared one, so the way out of a run and the way to the
@@ -675,7 +675,7 @@ it('stays in the team shell when a roster exists, runs or not', () => {
     MockEventSource.last().emit('snapshot', { ...sampleTeamState(), mode: 'team', workflows: [] }),
   );
 
-  expect(screen.getByTestId('bar-wordmark').textContent).toBe('TEAM');
+  expect(screen.getByTestId('team-mode').textContent).toBe('teammates');
   expect(screen.getByText('NEEDS YOU · 0')).toBeTruthy();
 });
 
@@ -718,7 +718,7 @@ it('draws the run named in the URL even when the frame says team', () => {
     }),
   );
 
-  expect(screen.getByTestId('bar-wordmark').textContent).toBe('RUN');
+  expect(screen.getByTestId('team-mode').textContent).toBe('workflow');
   expect(screen.getByTestId('wf-identity').textContent).toContain('first-pass');
 });
 
@@ -735,7 +735,7 @@ it('goes back to the team the run was running beside', () => {
 
   fireEvent.click(screen.getByTestId('run-trigger'));
   fireEvent.click(screen.getByTestId('run-back-to-team'));
-  expect(screen.getByTestId('bar-wordmark').textContent).toBe('TEAM');
+  expect(screen.getByTestId('team-mode').textContent).toBe('teammates');
   expect(window.location.search).not.toContain('run=');
 });
 
@@ -812,7 +812,7 @@ it('remembers hidden sessions across a reload, per browser', async () => {
   expect(screen.getByTestId('no-sessions')).toBeTruthy();
 });
 
-/** current + one real team, one lead-only session, one finished team. */
+/** current + one real team, one bare session, one finished team. */
 function stubMixedFetch() {
   const [current, other] = sampleTeams();
   const teams = [
@@ -832,21 +832,20 @@ function stubMixedFetch() {
   return fetchMock;
 }
 
-// The reveal used to live inside the picker, so this screen could only count
-// the ✕-hidden rows — and hiding the last one was a one-way door.
-it('counts the lead-only sessions the picker drops as well as the hidden one', async () => {
+// Hiding the last row must never be a one-way door, so the count is the way
+// back and it counts the only rows there are to drop: the ✕-hidden ones.
+it('counts the hidden session as not shown', async () => {
   stubTeamsFetch();
   render(<App />);
   act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
   await openAndHideCurrent();
 
-  // The session just hidden, plus the lead-only one the picker never offers.
-  expect(await screen.findByText('2 not shown')).toBeTruthy();
+  expect(await screen.findByText('1 not shown')).toBeTruthy();
 });
 
-// One filter, or the two screens contradict each other: hidden and lead-only
-// sessions were one-click destinations on one and absent on the other.
-it('offers the same sessions on both empty screens — no hidden, no lead-only', async () => {
+// One rule, or the two screens contradict each other: a hidden session was a
+// one-click destination on one and absent on the other.
+it('offers the same sessions on both empty screens, bare ones included', async () => {
   stubMixedFetch();
   render(<App />);
   act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
@@ -854,7 +853,7 @@ it('offers the same sessions on both empty screens — no hidden, no lead-only',
 
   const rows = await screen.findAllByTestId('left-session-elsewhere-row');
   const named = rows.map((r) => r.textContent ?? '');
-  expect(named.some((t) => t.includes('session-solo0003'))).toBe(false);
+  expect(named.some((t) => t.includes('session-solo0003'))).toBe(true);
   expect(named.some((t) => t.includes('session-real0002'))).toBe(true);
 });
 
@@ -876,7 +875,7 @@ it('keeps a finished session in the list you can page back into', async () => {
 
 function soloState() {
   const state = sampleTeamState();
-  const lead = state.agents[0];
+  const lead = { ...state.agents[0], turns: 12 };
   return {
     ...state,
     agents: [lead],
@@ -904,12 +903,51 @@ function soloState() {
   };
 }
 
-it('offers a solo session the four-pill switcher, with the wall labelled stream', async () => {
+// A bare window — no team, no subagents, no run — used to draw the empty
+// screen, because the picker had nowhere to send it. It is its own stream now.
+function bareState() {
+  const { subagents: _dropped, ...rest } = soloState();
+  return { ...rest, subagents: {} };
+}
+
+it('draws a bare session as its own stream rather than the empty screen', async () => {
+  stubTeamsFetch();
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', bareState()));
+
+  expect(await screen.findByTestId('wall-column')).toBeTruthy();
+  expect(screen.queryByTestId('no-sessions')).toBeNull();
+});
+
+// The same rule the other three pills follow: a view is offered when its
+// subject exists, and a bare session has no tree to draw lifelines for.
+it('drops the trace pill when a solo session has no subagents', async () => {
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', bareState()));
+
+  const tabs = await screen.findAllByRole('tab');
+  expect(tabs.map((t) => t.textContent)).toEqual(['stream']);
+});
+
+// …and a `trace` left in the URL from a session that HAD one falls back to the
+// stream rather than mounting a view with nothing in it.
+it('falls back to the stream when a URL asks for trace on a bare session', async () => {
+  window.history.replaceState(null, '', '/?view=trace');
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', bareState()));
+
+  expect(await screen.findByTestId('wall-column')).toBeTruthy();
+  expect(screen.queryByTestId('trace-view')).toBeNull();
+});
+
+// The canvas builds this switcher as `saViews: [['stream'], ['trace']]` — two
+// pills, not the seven a team gets. Supersedes decision 24's four.
+it('offers a sub-agents session two pills, with the wall labelled stream', async () => {
   render(<App />);
   act(() => MockEventSource.last().emit('snapshot', soloState()));
 
   const tabs = await screen.findAllByRole('tab');
-  expect(tabs.map((t) => t.textContent)).toEqual(['stream', 'trace', 'tasks', 'usage']);
+  expect(tabs.map((t) => t.textContent)).toEqual(['stream', 'trace']);
 });
 
 it('mounts the trace view over the session’s own tree when its pill is picked', async () => {
@@ -925,7 +963,7 @@ it('mounts the trace view over the session’s own tree when its pill is picked'
 
 // ————— the /s/:sessionId route (task #4) —————
 
-it('defaults to trace and the four-pill switcher for a /s/:sessionId URL, independent of roster size', async () => {
+it('defaults to trace and the two-pill switcher for a /s/:sessionId URL, independent of roster size', async () => {
   window.history.replaceState(null, '', '/s/abc12345');
   const fetchMock = stubTeamsFetch();
   render(<App />);
@@ -967,7 +1005,7 @@ it('defaults to trace and the four-pill switcher for a /s/:sessionId URL, indepe
   });
 
   const tabs = await screen.findAllByRole('tab');
-  expect(tabs.map((t) => t.textContent)).toEqual(['stream', 'trace', 'tasks', 'usage']);
+  expect(tabs.map((t) => t.textContent)).toEqual(['stream', 'trace']);
   expect(screen.getByRole('tab', { name: 'trace' }).getAttribute('aria-selected')).toBe('true');
   expect(await screen.findByTestId('trace-view')).toBeTruthy();
 });
@@ -982,4 +1020,28 @@ it('keeps the team switcher at seven views on a real team', async () => {
   expect(tabs.map((t) => t.textContent)).toEqual([
     'wall', 'overview', 'comms', 'tasks', 'rail', 'grid', 'usage',
   ]);
+});
+
+// Canvas 8a: two figures on a sub-agents bar, not the team's six — the trace
+// strip below already carries tokens and spend.
+it('gives a solo session the canvas two-figure bar, not the team figures', async () => {
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', soloState()));
+
+  const bar = await screen.findByTestId('bar');
+  expect(bar.textContent).toContain('turn 12 of 12');
+  expect(bar.textContent).not.toContain('tasks');
+  expect(bar.textContent).not.toContain('ctx');
+});
+
+it('badges a session with a tree subagents, and a bare one solo', async () => {
+  const { rerender } = render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', soloState()));
+  expect(screen.getByTestId('team-mode').textContent).toBe('subagents');
+  cleanup();
+
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', bareState()));
+  expect(screen.getByTestId('team-mode').textContent).toBe('solo');
+  void rerender;
 });

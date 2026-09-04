@@ -81,12 +81,13 @@ export function Workflow({
   return (
     <>
       <Bar
-        wordmark="RUN"
+        wordmark="OCTO"
         picker={
           <>
             <TeamSelect
               current={teamName}
               sessionName={sessionName}
+              mode="workflow"
               open={teamsOpen}
               onOpenChange={onTeamsOpenChange}
               now={now}
