@@ -5,7 +5,7 @@ import { FIXTURE_NOW, sampleTeams } from '../test/state-fixture';
 import { WatchContext, type WatchState } from '../state/useWatch';
 import { buildCast } from '../../shared/cast';
 import { CastContext } from '../state/useCast';
-import { TeamSelect } from './TeamSelect';
+import { SessionPicker } from './SessionPicker';
 import type { TeamSummary } from '../../shared/domain';
 
 // This suite renders once per `it`; without explicit cleanup the un-unmounted
@@ -43,7 +43,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function renderSelect(props: Partial<Parameters<typeof TeamSelect>[0]> = {}, watch: Partial<WatchState> = {}) {
+function renderSelect(props: Partial<Parameters<typeof SessionPicker>[0]> = {}, watch: Partial<WatchState> = {}) {
   const onOpenChange = vi.fn();
   const all = { current: 'session-98b0b4a7', open: true, onOpenChange, now: FIXTURE_NOW, ...props };
   const watchValue: WatchState = {
@@ -58,7 +58,7 @@ function renderSelect(props: Partial<Parameters<typeof TeamSelect>[0]> = {}, wat
   function Harness({ extra }: { extra: Partial<typeof all> }) {
     return (
       <WatchContext.Provider value={watchValue}>
-        <TeamSelect {...all} {...extra} />
+        <SessionPicker {...all} {...extra} />
       </WatchContext.Provider>
     );
   }
@@ -740,7 +740,7 @@ it('wears the film\'s team name as a chip on the trigger, and only there', () =>
   render(
     <CastContext.Provider value={buildCast([], 'lotr')}>
       <WatchContext.Provider value={WATCH}>
-        <TeamSelect
+        <SessionPicker
           current="session-98b0b4a7"
           sessionName="agents-team-console"
           open={false}
@@ -762,7 +762,7 @@ it('wears the film\'s team name as a chip on the trigger, and only there', () =>
 it('wears no chip with no theme, and keeps the goal capped', () => {
   render(
     <WatchContext.Provider value={WATCH}>
-      <TeamSelect
+      <SessionPicker
         current="session-98b0b4a7"
         sessionName="agents-team-console"
         open={false}

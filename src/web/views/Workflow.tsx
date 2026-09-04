@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { SubagentTree, WorkflowRun as Run } from '../../shared/domain';
 import { Bar, METRIC } from '../chrome/Bar';
 import { RunSelect } from '../chrome/RunSelect';
-import { TeamSelect } from '../chrome/TeamSelect';
+import { SessionPicker } from '../chrome/SessionPicker';
 import { formatElapsed, formatTokens } from '../format';
 import type { SettingsStore } from '../state/useSettings';
 import { flattenSubagents } from '../../shared/subagents';
@@ -84,7 +84,7 @@ export function Workflow({
         wordmark="OCTO"
         picker={
           <>
-            <TeamSelect
+            <SessionPicker
               current={teamName}
               sessionName={sessionName}
               mode="workflow"

@@ -75,7 +75,7 @@ function matchesQuery(team: TeamSummary, query: string): boolean {
   return [team.name, team.goal, team.branch].some((field) => field?.toLowerCase().includes(q));
 }
 
-export interface TeamSelectProps {
+export interface SessionPickerProps {
   /** The team the snapshot says is on screen — the only honest `current`. */
   current: string;
   /** What the operator called this session. Falls back to `current` when unnamed. */
@@ -93,7 +93,7 @@ export interface TeamSelectProps {
   now: number;
 }
 
-export function TeamSelect({ current, sessionName, mode, open, onOpenChange, now }: TeamSelectProps) {
+export function SessionPicker({ current, sessionName, mode, open, onOpenChange, now }: SessionPickerProps) {
   // The in-world team name, and the only place it appears: the session id below
   // it, the listing, the URL and every select call stay real.
   const inWorld = useCast().theme.team;
