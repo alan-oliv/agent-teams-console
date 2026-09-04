@@ -145,9 +145,16 @@ async function soloHome(): Promise<string> {
 // No --team and no --session: the console boots knowing nothing, exactly as it
 // does when the launcher has no team to announce.
 async function boot(claudeHome: string): Promise<string> {
-  const proc = spawn(process.execPath, [TSX, ENTRY, '--claude-home', claudeHome, '--port', '0'], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  // `--cwd` is the picker's scope, and the real launcher supplies it by simply
+  // starting the server inside the session's own working copy. This fixture's
+  // session lives in a made-up directory, so it has to be named explicitly.
+  const proc = spawn(
+    process.execPath,
+    [TSX, ENTRY, '--claude-home', claudeHome, '--port', '0', '--cwd', CWD],
+    {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  );
   child = proc;
   let out = '';
   let err = '';

@@ -442,3 +442,60 @@ describe('buildSubagentTree', () => {
     expect(auditorNode.tokens).toBe(digest(auditor.records).tokens);
   });
 });
+
+// The real notification a RESUMED session emits for agents it inherited. Four
+// ids in one record, named by <task-id> with no <tool-use-id> at all — reading
+// only the head left three of them `running`, with trace lifelines that ran to
+// `now` for as long as the console stayed open. On a week-old session that is a
+// week-long bar, four times over.
+it('ends every agent a resumed session sweeps, not just the first', () => {
+  const dispatch = (toolUseId: string, agentId: string): TranscriptRecord => ({
+    type: 'assistant',
+    uuid: `d-${toolUseId}`,
+    timestamp: '2026-08-27T01:50:00.000Z',
+    message: {
+      role: 'assistant',
+      content: [
+        { type: 'tool_use', id: toolUseId, name: 'Agent', input: { description: agentId } },
+      ],
+    },
+  });
+  const launched = (toolUseId: string, agentId: string): TranscriptRecord => ({
+    type: 'user',
+    uuid: `l-${toolUseId}`,
+    timestamp: '2026-08-27T01:50:01.000Z',
+    message: {
+      role: 'user',
+      content: [{ type: 'tool_result', tool_use_id: toolUseId, content: 'launched' }],
+    },
+    toolUseResult: { status: 'async_launched', agentId },
+  });
+  const sweep: TranscriptRecord = {
+    type: 'user',
+    uuid: 'sweep',
+    timestamp: '2026-09-03T22:47:39.075Z',
+    message: {
+      role: 'user',
+      content:
+        '<task-notification><task-id>aAAA</task-id><task-id>aBBB</task-id>' +
+        '<status>stopped</status><summary>No completion record found</summary>' +
+        '</task-notification>',
+    },
+  };
+
+  const spawns = spawnsOf([
+    dispatch('toolu_a', 'aAAA'),
+    launched('toolu_a', 'aAAA'),
+    dispatch('toolu_b', 'aBBB'),
+    launched('toolu_b', 'aBBB'),
+    sweep,
+  ]);
+
+  expect(spawns).toHaveLength(2);
+  const stoppedAt = Date.parse('2026-09-03T22:47:39.075Z');
+  for (const spawn of spawns) {
+    expect(spawn.returnedAt).toBe(stoppedAt);
+    // `stopped` is not `completed`, so it is reported rather than smoothed.
+    expect(spawn.failed).toBe(true);
+  }
+});

@@ -538,10 +538,18 @@ describe('listTeamSummaries', () => {
       expect(row.goal).toBe('a solo session');
     });
 
-    it('leaves out a live session that has done nothing — every idle window is one', async () => {
+    // The old rule was "no subagents, no row", which kept idle windows out of a
+    // MACHINE-wide list. Scoping to one folder is what replaced it: a bare
+    // session in the folder you are working in is a destination — it draws its
+    // own stream — and one in another folder is not listed at all.
+    it('lists a live session that has done nothing, as a bare row', async () => {
       const projects = await liveSessionWithSubagents(SOLO, 0);
 
-      expect((await listTeamSummaries(teams(), sessions(), '', projects)).teams).toEqual([]);
+      const [row] = (await listTeamSummaries(teams(), sessions(), '', projects)).teams;
+      expect(row.name).toBe(SOLO);
+      expect(row.members).toBe(1);
+      expect(row.subagents).toBeUndefined();
+      expect(row.live).toBe(true);
     });
 
     it('does not list a session twice when a team of its own already stands for it', async () => {

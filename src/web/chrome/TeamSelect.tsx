@@ -368,12 +368,15 @@ export function TeamSelect({ current, sessionName, mode, open, onOpenChange, now
               letterSpacing: '.12em',
             }}
           >
-            {/* Back to the design's "SESSIONS" (decision 23): the ruling that
+            {/* "IN THIS FOLDER", not the canvas's "ON THIS MACHINE": the list
+                is scoped to the working copy the console was started in, so the
+                canvas's word is no longer true of it. The noun is still
+                "SESSIONS" (decision 23): the ruling that
                 chose "TEAMS" was compensating for a filter that listed bare
                 windows. With the filter fixed, the list holds teams, workflow
                 sessions and solo sessions \u2014 only SESSIONS is true of all
                 three, and bare windows still never list. */}
-            <span>{`SESSIONS ON THIS MACHINE \u00b7 ${teamCount}`}</span>
+            <span>{`SESSIONS IN THIS FOLDER \u00b7 ${teamCount}`}</span>
             <input
               ref={search}
               data-testid="team-search"

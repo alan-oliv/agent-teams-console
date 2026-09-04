@@ -980,3 +980,36 @@ describe('Task rows and fan-out', () => {
     expect(screen.getByTestId('fanout-pending').textContent).toContain('1 of 2 still running');
   });
 });
+
+// Canvas 8b reads `Task(explore-auth)`. The dispatch line's own text comes from
+// the tool's first argument — for a Task or Agent call, the whole prompt — so
+// labelling from it put a paragraph across the row.
+it('labels a dispatch row with the subagent name, not the prompt it was given', () => {
+  const prompt =
+    'You are auditing GIT HYGIENE for a set of local git repos. STRICTLY READ-ONLY.';
+  render(
+    <TranscriptFeed
+      lines={[
+        { id: 'rec-1#0', marker: '\u23fa', text: `Agent(${prompt})`, ts: 1787843382976 },
+      ]}
+      size="wall"
+      subagents={[
+        {
+          toolUseId: 'toolu_1',
+          name: 'Git hygiene: hatch core repos',
+          agent: 'lead',
+          parent: 'lead',
+          depth: 1,
+          spawnIndex: 0,
+          siblingGroup: 'rec-1',
+          state: 'running',
+          queuedAt: 1787843382976,
+          children: [],
+        },
+      ]}
+    />,
+  );
+  const row = screen.getByTestId('transcript-text');
+  expect(row.textContent).toBe('Task(Git hygiene: hatch core repos)');
+  expect(row.textContent).not.toContain('STRICTLY READ-ONLY');
+});

@@ -419,6 +419,7 @@ export function App() {
         {view === 'trace' && traceLead && (
           <Trace
             agent={traceLead.name}
+            model={traceLead.model}
             subagents={
               state.subagents?.[traceLead.name] ?? Object.values(state.subagents ?? {}).flat()
             }

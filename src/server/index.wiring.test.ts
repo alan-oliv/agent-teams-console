@@ -96,6 +96,11 @@ async function layout(): Promise<string> {
   await writeTeamConfig(dir, TEAM_B, LEAD_SESSION_B, AGENT_B);
   await writeTeamConfig(dir, TEAM_C, LEAD_SESSION_C, 'probe-echo');
 
+  // All three teams run in ONE working copy, which is what the picker is now
+  // scoped to. C spawns nothing, so its transcript is the only thing that puts
+  // it in the folder — exactly as it would be on disk.
+  await fs.writeFile(path.join(dir, 'projects', SLUG, `${LEAD_SESSION_C}.jsonl`), '');
+
   const subagentsB = path.join(dir, 'projects', SLUG, LEAD_SESSION_B, 'subagents');
   await fs.mkdir(subagentsB, { recursive: true });
   await fs.writeFile(
@@ -495,7 +500,7 @@ describe('push -> pull wiring', () => {
   );
 
   it(
-    'lists every team on the machine, and moves the current flag on a switch',
+    'lists every team in this folder, and moves the current flag on a switch',
     async () => {
       home = await layout();
       const url = await boot(home);

@@ -52,10 +52,64 @@ function estimatedTokens(text: string | undefined): number {
 export interface TraceProps {
   /** The roster agent whose subtree this draws — a solo session's own lead. */
   agent: string;
+  /** The parent lane's model, beside its `parent turn` badge (canvas `8a`). */
+  model?: string;
   subagents: Subagent[];
   now: number;
   selected: string | null;
   onSelect(toolUseId: string): void;
+}
+
+const MIN = 60_000;
+const HOUR = 60 * MIN;
+const DAY = 24 * HOUR;
+const TICK_STEPS_MS = [
+  1_000, 5_000, 10_000, 30_000,
+  MIN, 5 * MIN, 10 * MIN, 30 * MIN,
+  HOUR, 3 * HOUR, 6 * HOUR, 12 * HOUR,
+  DAY, 7 * DAY, 30 * DAY,
+];
+
+/**
+ * A tick's label, in the largest unit the SPAN needs — `4:08` reads as minutes
+ * on the canvas's four-minute turn, and would read as 8160:00 on a turn whose
+ * subagents were stopped days ago without ever being marked returned. That is
+ * not hypothetical: it is what this view drew the first time it met one.
+ */
+function tickLabel(ms: number, span: number): string {
+  if (span < HOUR) {
+    const total = Math.round(ms / 1000);
+    return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+  }
+  if (span < DAY) {
+    const total = Math.round(ms / MIN);
+    return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+  }
+  const days = Math.floor(ms / DAY);
+  const hours = Math.round((ms % DAY) / HOUR);
+  return days > 0 ? `${days}d ${hours}h` : `${hours}h`;
+}
+
+/**
+ * The ruler above the lanes — `0:00 · 1:00 · 2:00 …` in canvas `8a`, which is
+ * minute ticks because its own span is 4m 08s.
+ *
+ * The step is the smallest that keeps the ruler under seven labels, so a
+ * twenty-second fan-out is not labelled once and a week-long one is not
+ * labelled a hundred times. Positions are percentages of the same span the
+ * lanes are laid out on, so a tick and a bar edge cannot disagree.
+ */
+export function axisTicks(span: number): { at: number; label: string }[] {
+  const step =
+    TICK_STEPS_MS.find((ms) => span / ms <= 6) ??
+    // Past the largest listed step, derive one rather than emit a label per
+    // month: six ticks is the bound, whatever the span turns out to be.
+    Math.ceil(span / 6);
+  const ticks: { at: number; label: string }[] = [];
+  for (let t = 0; t <= span; t += step) {
+    ticks.push({ at: (t / span) * 100, label: tickLabel(t, span) });
+  }
+  return ticks;
 }
 
 /**
@@ -65,7 +119,7 @@ export interface TraceProps {
  * (CONSOLE-NOTES.md §25). Every header-strip number is derived from the same
  * flattened list the lanes render from, so they cannot read differently.
  */
-export function Trace({ agent, subagents, now, selected, onSelect }: TraceProps) {
+export function Trace({ agent, model, subagents, now, selected, onSelect }: TraceProps) {
   const flat = flatten(subagents);
   const maxDepth = flat.reduce((m, r) => Math.max(m, r.depth), 0);
   const tokensIn = flat.reduce((n, r) => n + (r.subagent.tokens ?? 0), 0);
@@ -129,22 +183,83 @@ export function Trace({ agent, subagents, now, selected, onSelect }: TraceProps)
       <div
         data-testid="trace-lanes"
         className="tscroll"
-        style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '10px 0' }}
+        style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '14px 14px 6px' }}
       >
+        {/* The ruler. Without it every bar is a length with nothing to read it
+            against, which is most of what this view is for. */}
+        <div
+          data-testid="trace-axis"
+          style={{ display: 'flex', gap: 0, alignItems: 'center', paddingBottom: '7px' }}
+        >
+          <span
+            style={{
+              width: `${CALL_CELL_WIDTH}px`,
+              flex: 'none',
+              color: 'var(--color-neutral-600)',
+              fontSize: '9.5px',
+              letterSpacing: '.06em',
+            }}
+          >
+            CALL
+          </span>
+          <div style={{ flex: 1, position: 'relative', height: '12px' }}>
+            {axisTicks(span).map((tick) => (
+              <span
+                key={tick.label}
+                data-testid="trace-tick"
+                style={{
+                  position: 'absolute',
+                  left: `${tick.at}%`,
+                  top: 0,
+                  color: 'var(--color-neutral-700)',
+                  fontSize: '9.5px',
+                }}
+              >
+                {tick.label}
+              </span>
+            ))}
+          </div>
+          <span
+            style={{
+              width: `${TOKENS_CELL_WIDTH}px`,
+              flex: 'none',
+              textAlign: 'right',
+              color: 'var(--color-neutral-600)',
+              fontSize: '9.5px',
+              letterSpacing: '.06em',
+            }}
+          >
+            TOKENS
+          </span>
+        </div>
+
         <Lane style={{ background: 'var(--color-accent-900)' }}>
           <div
             style={{
               width: `${CALL_CELL_WIDTH}px`,
               flex: 'none',
-              padding: '0 10px',
-              color: 'var(--color-text)',
+              display: 'flex',
+              gap: '7px',
+              alignItems: 'baseline',
+              paddingLeft: '4px',
               fontSize: '11px',
               overflow: 'hidden',
-              textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
             }}
           >
-            {agent}
+            <span style={{ color: 'var(--color-accent-400)', flex: 'none' }}>❯</span>
+            <span
+              data-testid="trace-parent-name"
+              style={{ color: 'var(--color-text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis' }}
+            >
+              {agent}
+            </span>
+            <span data-testid="trace-parent-badge" style={TYPE_BADGE}>
+              parent turn
+            </span>
+            {model && (
+              <span style={{ color: 'var(--color-neutral-600)', flex: 'none' }}>{model}</span>
+            )}
           </div>
           <div style={{ flex: 1, position: 'relative', height: '8px' }}>
             <div

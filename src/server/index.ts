@@ -51,6 +51,13 @@ export interface Cli {
    * without it the ingest fails closed and workflow mode is unreachable.
    */
   session?: string;
+  /**
+   * The working copy this console belongs to, and the scope of its picker — see
+   * {@link listTeamSummaries}. Defaults to where the process was started, which
+   * IS the session's cwd: the plugin launches the server from inside the
+   * session that asked for it.
+   */
+  cwd: string;
 }
 
 export function parseArgs(argv: string[]): Cli {
@@ -66,12 +73,17 @@ export function parseArgs(argv: string[]): Cli {
   // the server directly instead of trusting discovery to land on the same one.
   let team: string | undefined;
   let session: string | undefined;
+  // Where the process was started, which is the session's own working copy —
+  // the plugin launches the server from inside the session that asked for it.
+  let cwd = process.cwd();
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === 'setup' || arg === 'uninstall') command = arg;
     else if (arg === '--read-only') readOnly = true;
     else if (arg === '--yes') confirm = true;
+    else if (arg === '--cwd') cwd = argv[++i];
+    else if (arg.startsWith('--cwd=')) cwd = arg.slice('--cwd='.length);
     else if (arg === '--port') port = Number(argv[++i]);
     else if (arg.startsWith('--port=')) port = Number(arg.slice('--port='.length));
     else if (arg === '--claude-home') claudeHome = argv[++i];
@@ -92,6 +104,7 @@ export function parseArgs(argv: string[]): Cli {
     dbPath: path.join(claudeHome, 'agent-teams-console', 'events.db'),
     team,
     session,
+    cwd,
   };
 }
 
@@ -527,27 +540,38 @@ export async function sessionProjectDir(
  * has nothing to offer the operator. The subagent count is the bar: it keeps
  * every idle window on the machine out of the list.
  */
-async function soloSessionRows(
+async function sessionRows(
   projectsRoot: string,
+  sessionIds: readonly string[],
+  folderCwd: string,
   sessions: SessionFacts,
   covered: ReadonlySet<string>,
   diffstats: Map<string, TeamSummary['diffstat']>,
   now: number,
 ): Promise<TeamSummary[]> {
   const rows: TeamSummary[] = [];
-  for (const sessionId of sessions.live) {
+  for (const sessionId of sessionIds) {
     if (covered.has(sessionId)) continue;
-    const cwd = sessions.cwds.get(sessionId);
-    if (!cwd) continue;
-    const subagents = await subagentCountOf(projectsRoot, cwd, sessionId);
-    if (subagents === 0) continue;
+    const cwd = sessions.cwds.get(sessionId) ?? folderCwd;
     const dir = path.join(projectsRoot, cwd.replace(/[^a-zA-Z0-9]/g, '-'), sessionId);
-    let lastActivityAt = now;
+    const subagents = await subagentCountOf(projectsRoot, cwd, sessionId);
+    const workflow = await workflowOf(projectsRoot, cwd, sessionId, now);
+    // The transcript is the session, so its mtime is the session's last sign of
+    // life — and unlike `subagents/` it is written by every session, including
+    // the bare ones this list exists to stop dropping.
+    let lastActivityAt = 0;
     try {
-      lastActivityAt = (await fs.stat(path.join(dir, 'subagents'))).mtimeMs;
+      lastActivityAt = (await fs.stat(`${dir}.jsonl`)).mtimeMs;
     } catch {
-      // Counted above, so it was there a moment ago — `now` is close enough.
+      try {
+        lastActivityAt = (await fs.stat(path.join(dir, 'subagents'))).mtimeMs;
+      } catch {
+        // Enumerated from this directory a moment ago; `now` is close enough.
+        lastActivityAt = now;
+      }
     }
+    const leadAlive = sessions.live.has(sessionId);
+    const recent = now - lastActivityAt < IDLE_GRACE_MS;
     if (!diffstats.has(cwd)) diffstats.set(cwd, await diffstatOf(cwd));
     rows.push({
       // The SESSION id, not a team directory: `sessionOnly` below is what tells
@@ -557,25 +581,74 @@ async function soloSessionRows(
       members: 1,
       createdAt: 0,
       leadSessionId: sessionId,
-      leadAlive: true,
+      leadAlive,
       lastActivityAt,
-      live: true,
+      live: leadAlive || recent,
       current: false,
       branch: await branchOf(cwd),
       goal: sessions.names.get(sessionId),
-      state: 'live',
-      subagents,
+      state: leadAlive ? 'live' : recent ? 'idle' : 'done',
+      ...(workflow ? { workflow } : {}),
+      ...(subagents > 0 ? { subagents } : {}),
       ...(diffstats.get(cwd) ? { diffstat: diffstats.get(cwd) } : {}),
     });
   }
   return rows;
 }
 
+/**
+ * Every session this folder has ever held, newest first — the `<sessionId>.jsonl`
+ * files Claude Code writes per session under the cwd's project slug.
+ *
+ * This is the durable record and the only complete one. `teams/<name>/` is
+ * reaped when a team ends, so a listing keyed on it loses every finished team:
+ * three real teams on this machine, one of them seven members, were absent from
+ * the picker entirely while their transcripts sat right here.
+ *
+ * A session counts by EITHER form, the same rule {@link sessionProjectDir}
+ * follows: `<sessionId>.jsonl` is written for every session, and the sibling
+ * `<sessionId>/` directory only appears once one spills a tool result or spawns
+ * a subagent. Requiring one form would drop whichever sessions have the other.
+ */
+async function folderSessionIds(projectsRoot: string, cwd: string): Promise<string[]> {
+  const dir = path.join(projectsRoot, cwd.replace(/[^a-zA-Z0-9]/g, '-'));
+  let entries: string[];
+  try {
+    entries = await fs.readdir(dir);
+  } catch {
+    return [];
+  }
+  const ids = new Set<string>();
+  for (const entry of entries) {
+    const id = entry.endsWith('.jsonl') ? entry.slice(0, -'.jsonl'.length) : entry;
+    // Session ids are uuids; anything else in here is not a session.
+    if (/^[0-9a-f]{8}-[0-9a-f-]+$/i.test(id)) ids.add(id);
+  }
+  return [...ids];
+}
+
+/**
+ * The picker's rows, scoped to ONE FOLDER — the directory the console was
+ * started from.
+ *
+ * The scope is the point. A console is launched from inside a session in a
+ * working copy, so that working copy is what the operator is switching between;
+ * a machine-wide list mixed in every unrelated window and still MISSED the
+ * sessions that mattered, because it was keyed on `teams/<name>/config.json`,
+ * which is reaped when a team ends. Enumerating the folder's transcripts
+ * instead makes the list both narrower and more complete: the three finished
+ * multi-member teams that never appeared come back, and the four windows open
+ * on unrelated repos drop out.
+ *
+ * `cwd` absent keeps the old machine-wide behaviour, which is what the tests
+ * that predate the scope still exercise.
+ */
 export async function listTeamSummaries(
   teamsRoot: string,
   sessionsRoot: string,
   current: string,
   projectsRoot?: string,
+  cwd?: string,
 ): Promise<TeamsResponse> {
   let entries: string[] = [];
   try {
@@ -664,13 +737,29 @@ export async function listTeamSummaries(
   // and must not also appear below as a bare session.
   const adopted = adoptByCwd(teams, leadCwds, sessions, now);
 
+  const scoped = projectsRoot && cwd ? await folderSessionIds(projectsRoot, cwd) : undefined;
+  if (scoped) {
+    // A team whose lead ran somewhere else belongs to that folder's picker, not
+    // this one. The session ON SCREEN is the exception, always: dropping the row
+    // you are looking at would leave the picker contradicting the body, and
+    // would take away the only way back to it.
+    const here = new Set(scoped);
+    for (let i = teams.length - 1; i >= 0; i--) {
+      if (!here.has(teams[i].leadSessionId) && !teams[i].current) teams.splice(i, 1);
+    }
+  }
+
   if (projectsRoot) {
     const covered = new Set([
       ...teams.map((t) => t.leadSessionId),
       ...liveTeams.values(),
       ...adopted,
     ]);
-    teams.push(...(await soloSessionRows(projectsRoot, sessions, covered, diffstats, now)));
+    // Scoped: every session this folder holds, so a finished team whose
+    // `teams/` directory was reaped still lists. Unscoped: the old rule, live
+    // sessions only, since there is no folder to enumerate.
+    const ids = scoped ?? [...sessions.live].filter((id) => sessions.cwds.has(id));
+    teams.push(...(await sessionRows(projectsRoot, ids, cwd ?? '', sessions, covered, diffstats, now)));
   }
 
   teams.sort(
@@ -1045,7 +1134,8 @@ export async function main(argv: string[]): Promise<number> {
     stream: hub,
     state: publish,
     readOnly: cli.readOnly,
-    listTeams: () => listTeamSummaries(teamsRoot, sessionsRoot, currentTeam, projectsRoot),
+    listTeams: () =>
+      listTeamSummaries(teamsRoot, sessionsRoot, currentTeam, projectsRoot, cli.cwd),
     history: (agent: string) => transcriptHistory(store.replay(), agent),
     lineText: (agent: string, id: string) => transcriptLineText(store.replay(), agent, id),
     selectTeam,
@@ -1070,7 +1160,13 @@ export async function main(argv: string[]): Promise<number> {
    */
   const followRealTeam = async (): Promise<void> => {
     if (switching) return;
-    const { teams } = await listTeamSummaries(teamsRoot, sessionsRoot, currentTeam, projectsRoot);
+    const { teams } = await listTeamSummaries(
+      teamsRoot,
+      sessionsRoot,
+      currentTeam,
+      projectsRoot,
+      cli.cwd,
+    );
 
     // The listing already resolved both of these off disk for every row, so
     // caching the current team's costs nothing. The frame's own copies come

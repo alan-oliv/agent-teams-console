@@ -106,7 +106,7 @@ it('falls back to the directory id when the session was never named', () => {
 
 it('heads the list with the team count', async () => {
   renderSelect();
-  expect(await screen.findByText('SESSIONS ON THIS MACHINE · 2')).toBeTruthy();
+  expect(await screen.findByText('SESSIONS IN THIS FOLDER · 2')).toBeTruthy();
   // ⌘K is the one shortcut the design calls out, and it worked with nothing on
   // screen naming it — so it sits in the legend with the other three.
   expect(screen.getByText('↑↓ select · ⏎ switch · ⌘K search · esc close')).toBeTruthy();
@@ -381,7 +381,7 @@ it('lists a team whose session has ended, and says when', async () => {
   const rows = await screen.findAllByRole('option');
   expect(rows).toHaveLength(2);
   expect(within(rows[1]).getByTestId('team-meta').textContent).toContain('ended');
-  expect(screen.getByText('SESSIONS ON THIS MACHINE · 2')).toBeTruthy();
+  expect(screen.getByText('SESSIONS IN THIS FOLDER · 2')).toBeTruthy();
 });
 
 it('opens the sessions menu on ⌘K when it is closed', () => {
@@ -498,7 +498,7 @@ it('drops hidden sessions from the list and from the header count', async () => 
   renderSelect({}, { hidden: new Set(['session-b5129c7b']) });
   const rows = await screen.findAllByRole('option');
   expect(rows.map((r) => r.id)).not.toContain('team-option-session-b5129c7b');
-  expect(screen.getByText(/SESSIONS ON THIS MACHINE/).textContent).toContain(
+  expect(screen.getByText(/SESSIONS IN THIS FOLDER/).textContent).toContain(
     String(rows.length),
   );
 });
@@ -570,7 +570,7 @@ it('counts every listed session in the header', async () => {
   soloList();
   renderSelect();
   await screen.findAllByRole('option');
-  expect(screen.getByText('SESSIONS ON THIS MACHINE · 2')).toBeTruthy();
+  expect(screen.getByText('SESSIONS IN THIS FOLDER · 2')).toBeTruthy();
 });
 
 function listOf(teams: TeamSummary[]) {
@@ -677,7 +677,7 @@ it('tells a workflow session apart from a bare one by its kind pill', async () =
 
   const rows = await screen.findAllByRole('option');
   expect(rows).toHaveLength(2);
-  expect(screen.getByText('SESSIONS ON THIS MACHINE · 2')).toBeTruthy();
+  expect(screen.getByText('SESSIONS IN THIS FOLDER · 2')).toBeTruthy();
   expect(within(rows[0]).getByTestId('team-kind').textContent).toBe('workflow');
   expect(within(rows[1]).getByTestId('team-kind').textContent).toBe('solo');
   expect(within(rows[0]).getByTestId('team-meta').textContent).toContain('running');

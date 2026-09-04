@@ -125,7 +125,16 @@ function isSubagentCall(text: string): boolean {
   return text === 'Task' || text === 'Agent' || text.startsWith('Task(') || text.startsWith('Agent(');
 }
 
-/** The label a nested subagent's own row carries — it has no transcript line of its own. */
+/**
+ * What a subagent's row reads: `Task(explore-auth)`, per canvas `8b`.
+ *
+ * The subagent's NAME, never the dispatch line's own text. `describeTool`
+ * renders that line from the tool's first argument, which for a Task or Agent
+ * call is the whole prompt — so the row read `Agent(You are auditing GIT
+ * HYGIENE for a set of local git repos. STRICTLY READ-ONLY: do not run…)`
+ * across the full width. The trace view has always used the name; this is the
+ * same label in the same shape.
+ */
 function taskLabelOf(subagent: Subagent): string {
   const inner = subagent.name ?? subagent.description;
   return inner ? `Task(${inner})` : 'Task';
@@ -949,7 +958,7 @@ export function TranscriptFeed({
             <SubagentRow
               key={line.id}
               subagent={subagentGroup[0]}
-              label={text}
+              label={taskLabelOf(subagentGroup[0])}
               depth={1}
               s={s}
               opacity={opacity}

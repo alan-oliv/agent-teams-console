@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import type { Subagent } from '../../shared/domain';
-import { Trace } from './Trace';
+import { Trace, axisTicks } from './Trace';
 
 afterEach(cleanup);
 
@@ -147,5 +147,37 @@ describe('Trace detail panel', () => {
   it('shows no detail panel when nothing is selected', () => {
     renderTrace();
     expect(screen.queryByTestId('trace-detail')).toBeNull();
+  });
+});
+
+// Canvas 8a puts a ruler above the lanes: CALL, minute ticks, TOKENS. Without
+// it every bar is a length with nothing to read it against, which is most of
+// what this view is for.
+describe('the axis ruler', () => {
+  it('labels the span at a step that keeps the ruler readable', () => {
+    // 4m 08s, the canvas's own span — minute ticks, five labels.
+    expect(axisTicks(248_000).map((t) => t.label)).toEqual(['0:00', '1:00', '2:00', '3:00', '4:00']);
+    // A twenty-second fan-out is not labelled once...
+    expect(axisTicks(20_000).length).toBeGreaterThan(1);
+    // ...and no span is ever labelled more than seven times, however long.
+    for (const span of [60 * 60_000, 24 * 3_600_000, 7 * 86_400_000, 400 * 86_400_000]) {
+      expect(axisTicks(span).length).toBeLessThanOrEqual(7);
+    }
+  });
+
+  // Real data: four subagents stopped days ago and never marked returned, so
+  // the span was 5.6 days. Minutes-only labels rendered `8160:00` twenty times
+  // across the ruler, which is what this view drew the first time it met one.
+  it('labels in the largest unit the span needs', () => {
+    expect(axisTicks(248_000)[1].label).toBe('1:00');
+    expect(axisTicks(6 * 3_600_000).some((t) => t.label.includes(':'))).toBe(true);
+    const week = axisTicks(7 * 86_400_000);
+    expect(week.every((t) => /^\d+d \d+h$|^\d+h$/.test(t.label))).toBe(true);
+  });
+
+  it('positions ticks as percentages of the same span the bars use', () => {
+    const ticks = axisTicks(248_000);
+    expect(ticks[0].at).toBe(0);
+    expect(Math.round(ticks[1].at * 10) / 10).toBe(24.2);
   });
 });

@@ -122,6 +122,7 @@ export type SpawnEvent =
   | { kind: 'retract'; toolUseId: string }
   | {
       kind: 'update';
+      /** Empty when the record named the subagent by {@link SpawnEvent.agentId} instead. */
       toolUseId: string;
       agentId?: string;
       returnedAt?: number;
@@ -166,7 +167,15 @@ function str(value: unknown): string | undefined {
 }
 
 const NOTIFICATION = /<task-notification>([\s\S]*?)<\/task-notification>/;
-const NOTIFIED_TOOL_USE = /<tool-use-id>([\s\S]*?)<\/tool-use-id>/;
+const NOTIFIED_TOOL_USE = /<tool-use-id>([\s\S]*?)<\/tool-use-id>/g;
+/**
+ * The other id a notification may name its subject by. Almost every
+ * notification carries both, but the sweep a RESUMED session emits for agents
+ * it inherited — `status: stopped`, no completion record on disk — carries only
+ * these, and several at once. Measured on this machine: 166 of 170
+ * notifications carry `<tool-use-id>`, and the 4 that do not are that sweep.
+ */
+const NOTIFIED_TASK_ID = /<task-id>([\s\S]*?)<\/task-id>/g;
 const NOTIFIED_STATUS = /<status>([\s\S]*?)<\/status>/;
 const NOTIFIED_SUMMARY = /<summary>([\s\S]*?)<\/summary>/;
 
@@ -179,27 +188,39 @@ const NOTIFIED_SUMMARY = /<summary>([\s\S]*?)<\/summary>/;
  * `type: 'attachment'` record with no `message` at all while it is still queued
  * — and both are ordinary on a real machine, so both are read.
  */
-function notificationOf(rec: TranscriptRecord): SpawnEvent | null {
+function notificationsOf(rec: TranscriptRecord): SpawnEvent[] {
   const content = rec.message?.content;
   const text = typeof content === 'string' ? content : rec.attachment?.prompt;
-  if (typeof text !== 'string' || !text.includes('<task-notification>')) return null;
+  if (typeof text !== 'string' || !text.includes('<task-notification>')) return [];
   const body = NOTIFICATION.exec(text)?.[1];
-  if (!body) return null;
-  const toolUseId = str(NOTIFIED_TOOL_USE.exec(body)?.[1]?.trim());
-  if (!toolUseId) return null;
+  if (!body) return [];
   const ts = rec.timestamp ? Date.parse(rec.timestamp) : NaN;
-  if (Number.isNaN(ts)) return null;
+  if (Number.isNaN(ts)) return [];
   const status = NOTIFIED_STATUS.exec(body)?.[1]?.trim();
   const summary = str(NOTIFIED_SUMMARY.exec(body)?.[1]?.trim());
-  return {
-    kind: 'update',
+
+  // ONE event per id, not just the first: the resumed-session sweep names four
+  // agents in a single notification, and reading only the head left the other
+  // three `running` — with lifelines that ran to `now` for as long as the
+  // console stayed open, which on a week-old session is a week-long bar.
+  const toolUseIds = [...body.matchAll(NOTIFIED_TOOL_USE)].map((m) => str(m[1]?.trim())).filter(Boolean);
+  const taskIds = [...body.matchAll(NOTIFIED_TASK_ID)].map((m) => str(m[1]?.trim())).filter(Boolean);
+  // The tool-use id is the primary key, so it wins when both are present; the
+  // agent id is the fallback the sweep leaves us, resolved in applySpawnEvents.
+  const named: { toolUseId: string; agentId?: string }[] = toolUseIds.length
+    ? toolUseIds.map((id) => ({ toolUseId: id as string }))
+    : taskIds.map((id) => ({ toolUseId: '', agentId: id as string }));
+
+  return named.map(({ toolUseId, agentId }) => ({
+    kind: 'update' as const,
     toolUseId,
+    ...(agentId ? { agentId } : {}),
     returnedAt: ts,
     ...(summary ? { returnedSummary: cap(summary) } : {}),
-    // Every notification observed so far reads `completed`; anything else is
-    // the runtime saying it did not, so it is reported rather than smoothed.
+    // `completed` is the ordinary outcome; `stopped`, `killed` and `failed` are
+    // the runtime saying it did not, so they are reported rather than smoothed.
     ...(status !== undefined && status !== 'completed' ? { failed: true } : {}),
-  };
+  }));
 }
 
 /**
@@ -209,8 +230,7 @@ function notificationOf(rec: TranscriptRecord): SpawnEvent | null {
  */
 export function spawnEventsOf(rec: TranscriptRecord): SpawnEvent[] {
   const events: SpawnEvent[] = [];
-  const notified = notificationOf(rec);
-  if (notified) events.push(notified);
+  events.push(...notificationsOf(rec));
 
   const content = rec.message?.content;
   if (!Array.isArray(content)) return events;
@@ -300,8 +320,15 @@ export function applySpawnEvents(fold: SubagentFold, events: readonly SpawnEvent
       fold.spawns.forEach((s, i) => fold.at.set(s.toolUseId, i));
       continue;
     }
-    const at = fold.at.get(event.toolUseId);
-    if (at === undefined) continue;
+    // An agentId-only update — the resumed-session sweep — has no tool-use id
+    // to look up, so it is matched against the dispatch that already learned
+    // its agentId from its own launch result.
+    const at =
+      fold.at.get(event.toolUseId) ??
+      (event.agentId !== undefined
+        ? fold.spawns.findIndex((sp) => sp.agentId === event.agentId)
+        : -1);
+    if (at === undefined || at < 0) continue;
     const spawn = fold.spawns[at];
     if (event.agentId) spawn.agentId = event.agentId;
     if (event.returnedAt !== undefined) spawn.returnedAt = event.returnedAt;
