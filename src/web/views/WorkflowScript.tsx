@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import { Fragment, type CSSProperties } from 'react';
 import type { WorkflowRun } from '../../shared/domain';
 import { resumeSplit } from './workflow-resume';
 
@@ -20,85 +20,129 @@ const SIDE_PANEL: CSSProperties = {
   borderBottom: '1px solid var(--color-neutral-900)',
 };
 
+const HEAD: CSSProperties = {
+  flex: 'none',
+  display: 'flex',
+  gap: '10px',
+  alignItems: 'center',
+  padding: '10px 16px 8px',
+  color: 'var(--color-neutral-600)',
+  fontSize: '10px',
+  letterSpacing: '.12em',
+  borderBottom: '1px solid var(--color-neutral-900)',
+};
+
+const CHIP: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '5px',
+  border: '1px solid var(--color-neutral-900)',
+  borderRadius: 'var(--radius-sm)',
+  padding: '1px 7px',
+  fontSize: '10px',
+};
+
 const TINT = {
   cache: { color: 'var(--color-neutral-600)', mark: '⤿' },
-  fresh: { color: 'var(--color-accent-400)', mark: '●' },
+  fresh: { color: 'var(--color-accent-400)', mark: '▸' },
 } as const;
 
 export function WorkflowScript({ run }: { run: WorkflowRun }) {
   const split = resumeSplit(run.agents);
+  const boundary = split.cached.length;
+  const scriptPath = run.scriptPath;
 
   return (
     <div data-testid="workflow-script" style={{ flex: 1, display: 'flex', minHeight: 0 }}>
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-        <div
-          data-testid="wf-script-legend"
-          style={{
-            flex: 'none',
-            padding: '10px 16px 8px',
-            borderBottom: '1px solid var(--color-neutral-900)',
-            color: 'var(--color-neutral-600)',
-            fontSize: '10px',
-            display: 'flex',
-            gap: '14px',
-          }}
-        >
-          {/* Counted from the same array that is drawn below, so the number and
-              the drawing cannot disagree. */}
-          {run.live ? (
-            // A resumed run's journal omits every agent served from cache, so
-            // live the cache count is not zero — it is untakeable. Saying "this
-            // run started clean" here would be an assertion the data cannot back.
+        <div data-testid="wf-script-head" style={HEAD}>
+          <span style={{ flex: 'none' }}>SCRIPT</span>
+          {scriptPath !== undefined && (
             <>
-              <span style={{ color: TINT.fresh.color }}>
-                {`${TINT.fresh.mark} ${run.agents.length} call(s) the journal has seen`}
+              <span
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  letterSpacing: 'normal',
+                  color: 'var(--color-neutral-500)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {scriptPath}
               </span>
-              <span>
-                a cache hit is invisible until the snapshot lands — the journal
-                skips every agent replayed from cache
-              </span>
-            </>
-          ) : (
-            <>
-              <span style={{ color: TINT.cache.color }}>
-                {`${TINT.cache.mark} ${split.cached.length} replayed from cache`}
-              </span>
-              <span style={{ color: TINT.fresh.color }}>{`${TINT.fresh.mark} ${split.fresh.length} ran`}</span>
-              {!split.resumed && <span>nothing was replayed — this run started clean</span>}
-              {split.strayCacheHits > 0 && (
-                <span>{`${split.strayCacheHits} cache hit(s) after the prefix`}</span>
-              )}
+              <button
+                type="button"
+                className="btn-neutral"
+                data-testid="wf-script-copy-path"
+                onClick={() => void navigator.clipboard?.writeText(scriptPath)}
+                style={{
+                  flex: 'none',
+                  border: '1px solid var(--color-neutral-800)',
+                  borderRadius: 'var(--radius-sm)',
+                  background: 'transparent',
+                  color: 'var(--color-neutral-500)',
+                  fontSize: '10px',
+                  letterSpacing: 'normal',
+                  padding: '1px 8px',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                copy path
+              </button>
             </>
           )}
         </div>
 
-        <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+        <div data-testid="wf-script-calls" style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
           {run.agents.map((agent, i) => {
-            const cached = i < split.cached.length;
+            const cached = i < boundary;
             const tint = cached ? TINT.cache : TINT.fresh;
             return (
-              <div
-                key={agent.agentId}
-                data-testid="wf-script-call"
-                data-tint={cached ? 'cache' : 'fresh'}
-                style={{
-                  display: 'flex',
-                  gap: '10px',
-                  padding: '5px 16px',
-                  alignItems: 'baseline',
-                  fontSize: '11.5px',
-                  color: tint.color,
-                  borderLeft: `2px solid ${tint.color}`,
-                }}
-              >
-                <span style={{ width: '26px', flex: 'none', color: 'var(--color-neutral-700)', fontSize: '10px' }}>
-                  {i + 1}
-                </span>
-                <span style={{ flex: 'none' }}>{tint.mark}</span>
-                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {`agent(${agent.label ?? agent.agentId})`}
-                </span>
-              </div>
+              <Fragment key={agent.agentId}>
+                {/* The one boundary the resume model is about: the last replayed
+                    call above it, the first that ran live below. */}
+                {i === boundary && boundary > 0 && (
+                  <div
+                    data-testid="wf-script-boundary"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '7px 16px 5px',
+                      color: 'var(--color-neutral-700)',
+                      fontSize: '10px',
+                      letterSpacing: '.12em',
+                    }}
+                  >
+                    <span style={{ flex: 'none' }}>RAN LIVE FROM HERE</span>
+                    <span style={{ flex: 1, height: '1px', background: 'var(--color-neutral-900)' }} />
+                  </div>
+                )}
+                <div
+                  data-testid="wf-script-call"
+                  data-tint={cached ? 'cache' : 'fresh'}
+                  style={{
+                    display: 'flex',
+                    gap: '10px',
+                    padding: '5px 16px',
+                    alignItems: 'baseline',
+                    fontSize: '11.5px',
+                    color: tint.color,
+                    borderLeft: `2px solid ${tint.color}`,
+                  }}
+                >
+                  <span style={{ width: '26px', flex: 'none', color: 'var(--color-neutral-700)', fontSize: '10px' }}>
+                    {i + 1}
+                  </span>
+                  <span style={{ flex: 'none' }}>{tint.mark}</span>
+                  <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {`agent(${agent.label ?? agent.agentId})`}
+                  </span>
+                </div>
+              </Fragment>
             );
           })}
 
@@ -130,11 +174,15 @@ export function WorkflowScript({ run }: { run: WorkflowRun }) {
                 lineHeight: 1.5,
               }}
             >
-              the source is not carried on the wire — it is two thirds of a run&apos;s
-              bytes and every run would pay for it
-              {run.scriptPath !== undefined && (
+              {/* The runtime writes the script to disk at run START, so it exists
+                  in both cases. Only the route to it differs, and neither case
+                  has one yet. */}
+              {run.live
+                ? 'the console does not fetch the source: a live run has no snapshot yet, and a journal record carries only type, key and agentId — neither the source nor its path has reached this view'
+                : 'the console does not fetch the source: the snapshot carries it, and the frame the browser receives strips it back off'}
+              {scriptPath !== undefined && (
                 <div style={{ color: 'var(--color-neutral-700)', fontSize: '10px', marginTop: '4px' }}>
-                  {run.scriptPath}
+                  {scriptPath}
                 </div>
               )}
             </div>
@@ -153,6 +201,40 @@ export function WorkflowScript({ run }: { run: WorkflowRun }) {
       >
         <div style={SIDE_PANEL}>
           <div style={SIDE_LABEL}>RESUME</div>
+          <div
+            data-testid="wf-script-from"
+            style={{ color: 'var(--color-neutral-500)', fontSize: '11px', marginBottom: '8px' }}
+          >
+            {`from ${run.runId}`}
+          </div>
+
+          <div data-testid="wf-script-legend" style={{ ...SIDE_BODY, marginBottom: '8px' }}>
+            {/* Counted from the same array that is drawn beside them, so the
+                number and the drawing cannot disagree. */}
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <span data-testid="wf-script-chip-cache" style={{ ...CHIP, color: TINT.cache.color }}>
+                {/* A resumed run's journal omits every agent served from cache,
+                    so live this count is not zero — it is untakeable. */}
+                {`${TINT.cache.mark} ${run.live ? '—' : split.cached.length}`}
+              </span>
+              <span data-testid="wf-script-chip-fresh" style={{ ...CHIP, color: TINT.fresh.color }}>
+                {`${TINT.fresh.mark} ${run.live ? run.agents.length : split.fresh.length}`}
+              </span>
+            </div>
+
+            <div style={{ color: 'var(--color-neutral-600)', marginTop: '6px' }}>
+              {run.live ? (
+                'replayed from cache, and seen by the journal — a cache hit is invisible until the snapshot lands, since the journal skips every agent replayed from cache'
+              ) : (
+                <>
+                  replayed from cache, and ran
+                  {!split.resumed && ' — nothing was replayed, this run started clean'}
+                  {split.strayCacheHits > 0 && ` · ${split.strayCacheHits} cache hit(s) after the prefix`}
+                </>
+              )}
+            </div>
+          </div>
+
           <div data-testid="wf-script-note" style={SIDE_BODY}>
             A resume replays the longest unchanged prefix of agent() calls from
             cache; the first edited or new call, and everything after it, runs
