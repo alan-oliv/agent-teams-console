@@ -157,16 +157,33 @@ function Cell({ agent, rule }: { agent: WorkflowAgent | undefined; rule: boolean
   );
 }
 
+/**
+ * A phase's own state, in the cell vocabulary and nothing wider: running wins
+ * over returned, because one agent still out is what the header is for, and a
+ * phase nothing has started reads as the queued cell rather than as returned.
+ */
+function phaseState(agents: readonly WorkflowAgent[], phaseIndex: number): WorkflowAgentState {
+  const mine = agents.filter((a) => a.phaseIndex === phaseIndex);
+  if (mine.some((a) => a.state === 'run')) return 'run';
+  if (mine.length > 0 && mine.every((a) => a.state !== 'wait')) return 'done';
+  return 'wait';
+}
+
 /** Shared by both layouts, so a phase reads identically whichever is drawn. */
 function PhaseHead({ run, phase, style }: { run: Run; phase: WorkflowPhase; style: CSSProperties }) {
+  const state = phaseState(run.agents, phase.index);
   return (
     <div data-testid="wf-phase" style={{ display: 'flex', flexDirection: 'column', gap: '3px', ...style }}>
-      <div style={{ display: 'flex', gap: '8px', alignItems: 'baseline' }}>
+      <div style={{ display: 'flex', gap: '7px', alignItems: 'baseline' }}>
+        <span
+          data-testid="wf-phase-state"
+          title={state}
+          style={{ flex: 'none', color: GLYPH_COLOR[state], fontSize: '11.5px' }}
+        >
+          {GLYPH[state]}
+        </span>
         <span data-testid="wf-phase-title" style={{ color: 'var(--color-text)', fontSize: '11.5px' }}>
           {phase.title}
-        </span>
-        <span data-testid="wf-phase-count" style={{ color: 'var(--color-neutral-600)', fontSize: '10px' }}>
-          {phaseTally(run.agents, phase.index)}
         </span>
       </div>
       {phase.detail !== undefined && (
@@ -174,6 +191,9 @@ function PhaseHead({ run, phase, style }: { run: Run; phase: WorkflowPhase; styl
           {phase.detail}
         </div>
       )}
+      <span data-testid="wf-phase-count" style={{ color: 'var(--color-neutral-600)', fontSize: '10px' }}>
+        {phaseTally(run.agents, phase.index)}
+      </span>
     </div>
   );
 }
