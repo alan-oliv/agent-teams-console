@@ -71,7 +71,7 @@ describe('WorkflowAgents', () => {
     );
     const states = screen.getAllByTestId('wf-agent-state');
 
-    expect(states.map((s) => s.textContent)).toEqual(['failed', 'returned null', 'blocked']);
+    expect(states.map((s) => s.textContent)).toEqual(['✗ failed', '∅ returned null', '⊘ blocked']);
     expect(states[0].style.color).toBe('var(--fail)');
     expect(states[1].style.color).not.toBe('var(--fail)');
   });
@@ -105,7 +105,7 @@ describe('WorkflowAgents', () => {
   // CONSOLE-DECISIONS ruling 11: the `·` state is `queued`, not `waiting`.
   it('calls an agent queued for a slot queued', () => {
     render(<WorkflowAgents agents={[{ agentId: 'a1', state: 'wait' }]} />);
-    expect(screen.getByTestId('wf-agent-state').textContent).toBe('queued');
+    expect(screen.getByTestId('wf-agent-state').textContent).toBe('· queued');
   });
 
   it('says nothing here is addressable by name', () => {

@@ -1,5 +1,17 @@
 import type { CSSProperties } from 'react';
 import type { WorkflowAgent } from '../../shared/domain';
+import { GLYPH, GLYPH_COLOR } from './WorkflowRun';
+
+const HEAD: CSSProperties = {
+  flex: 'none',
+  display: 'flex',
+  alignItems: 'baseline',
+  gap: '10px',
+  padding: '10px 16px 8px',
+  color: 'var(--color-neutral-600)',
+  fontSize: '10px',
+  borderBottom: '1px solid var(--color-neutral-900)',
+};
 
 const FOOTER: CSSProperties = {
   flex: 'none',
@@ -32,6 +44,15 @@ function resultOf(agent: WorkflowAgent): { text: string; muted: boolean } {
 export function WorkflowJournal({ agents }: { agents: WorkflowAgent[] }) {
   return (
     <div data-testid="workflow-journal" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      <div data-testid="wf-journal-head" style={HEAD}>
+        <span style={{ letterSpacing: '.12em' }}>JOURNAL</span>
+        <span style={{ color: 'var(--color-neutral-700)' }}>&lt;transcriptDir&gt;/journal.jsonl</span>
+        <span style={{ flex: 1 }} />
+        <span>
+          each agent&apos;s actual return value — read this before theorising about an empty run
+        </span>
+      </div>
+
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
         {agents.map((agent) => {
           const result = resultOf(agent);
@@ -48,6 +69,7 @@ export function WorkflowJournal({ agents }: { agents: WorkflowAgent[] }) {
               }}
             >
               <div style={{ display: 'flex', gap: '10px', alignItems: 'baseline' }}>
+                <span style={{ color: GLYPH_COLOR[agent.state], fontSize: '11.5px' }}>{GLYPH[agent.state]}</span>
                 <span style={{ color: 'var(--color-neutral-400)', fontSize: '11.5px' }}>
                   {agent.label ?? agent.agentId}
                 </span>
@@ -83,8 +105,7 @@ export function WorkflowJournal({ agents }: { agents: WorkflowAgent[] }) {
       </div>
 
       <div data-testid="wf-journal-footer" style={FOOTER}>
-        journal.jsonl · each agent&apos;s actual return value — a cached result is
-        not automatically a non-empty one
+        a cached result is not automatically a non-empty one
       </div>
     </div>
   );
