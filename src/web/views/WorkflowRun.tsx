@@ -135,6 +135,54 @@ const TAB: CSSProperties = {
   letterSpacing: '.12em',
 };
 
+function Chip({ state }: { state: WorkflowAgentState }) {
+  return (
+    <span style={{ ...CHIP, ...CHIP_STATE[state], color: GLYPH_COLOR[state] }}>{GLYPH[state]}</span>
+  );
+}
+
+/**
+ * `fail` and `block` are absent from the design's legend, which lists four
+ * states and folds the rest into `null`. They stay separate here for the same
+ * reason the cells do: a skip is a decision and a throw is a failure, and a
+ * legend that re-merges them teaches the grid to be read wrong.
+ */
+const LEGEND: Record<WorkflowAgentState, string> = {
+  done: 'returned',
+  run: 'running',
+  cache: 'replayed from cache',
+  null: 'returned null — skipped or died',
+  wait: 'queued',
+  fail: 'failed',
+  block: 'blocked',
+};
+
+function Legend() {
+  return (
+    <div
+      data-testid="wf-legend"
+      style={{
+        flex: 'none',
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        gap: '8px 16px',
+        padding: '10px 16px',
+        borderTop: '1px solid var(--color-neutral-900)',
+        color: 'var(--color-neutral-600)',
+        fontSize: '10px',
+      }}
+    >
+      {(Object.keys(LEGEND) as WorkflowAgentState[]).map((state) => (
+        <span key={state} style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+          <Chip state={state} />
+          {LEGEND[state]}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function Cell({ agent, rule }: { agent: WorkflowAgent | undefined; rule: boolean }) {
   return (
     <span
@@ -148,11 +196,7 @@ function Cell({ agent, rule }: { agent: WorkflowAgent | undefined; rule: boolean
         ...(rule ? RULE : null),
       }}
     >
-      {agent && (
-        <span style={{ ...CHIP, ...CHIP_STATE[agent.state], color: GLYPH_COLOR[agent.state] }}>
-          {GLYPH[agent.state]}
-        </span>
-      )}
+      {agent && <Chip state={agent.state} />}
     </span>
   );
 }
@@ -340,6 +384,8 @@ export function WorkflowRun({ run }: { run: Run }) {
                 </div>
               ))}
             </div>
+
+            <Legend />
           </>
         ) : (
           <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>

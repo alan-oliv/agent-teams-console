@@ -103,6 +103,18 @@ describe('WorkflowRun', () => {
     expect(cells[2].textContent).toBe('');
   });
 
+  // The cell vocabulary is seven glyphs the grid never explains otherwise, and
+  // a skip must not be legended as a failure.
+  it('legends every cell state under the grid, once the grid is drawn', () => {
+    render(<WorkflowRun run={RUN} />);
+    expect(screen.queryByTestId('wf-legend')).toBeNull();
+    openGrid();
+    const legend = screen.getByTestId('wf-legend').textContent ?? '';
+    for (const word of ['returned', 'running', 'cache', 'null', 'queued', 'failed', 'blocked']) {
+      expect(legend).toContain(word);
+    }
+  });
+
   it('marks a running agent with its own glyph', () => {
     render(<WorkflowRun run={RUN} />);
     openGrid();
@@ -240,6 +252,8 @@ describe('WorkflowRun', () => {
       expect(screen.queryByTestId('wf-row')).toBeNull();
       expect(screen.queryByTestId('wf-phase-group')).toBeNull();
       expect(screen.queryByTestId('wf-layout')).toBeNull();
+      // No grid to read means nothing for a legend to explain.
+      expect(screen.queryByTestId('wf-legend')).toBeNull();
     });
 
     // The design: "Draw the flat list, and say what it is" — the list below the
