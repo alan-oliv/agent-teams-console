@@ -24,7 +24,7 @@ import {
  * cell and borrows the console's own failed treatment, because a decision and a
  * failure drawn identically is the one thing this cell cannot do.
  */
-const GLYPH: Record<WorkflowAgentState, string> = {
+export const GLYPH: Record<WorkflowAgentState, string> = {
   done: '✓',
   run: '●',
   cache: '⤿',
@@ -34,7 +34,7 @@ const GLYPH: Record<WorkflowAgentState, string> = {
   block: '⊘',
 };
 
-const GLYPH_COLOR: Record<WorkflowAgentState, string> = {
+export const GLYPH_COLOR: Record<WorkflowAgentState, string> = {
   done: 'var(--color-accent-400)',
   run: 'var(--color-accent-500)',
   cache: 'var(--color-neutral-500)',
