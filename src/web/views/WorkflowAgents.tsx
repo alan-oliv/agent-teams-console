@@ -1,6 +1,7 @@
-import type { CSSProperties } from 'react';
+import { useState, type CSSProperties } from 'react';
 import type { WorkflowAgent, WorkflowAgentState } from '../../shared/domain';
 import { formatElapsed, formatTokens } from '../format';
+import { GLYPH, GLYPH_COLOR } from './WorkflowRun';
 
 const STATE_WORD: Record<WorkflowAgentState, string> = {
   done: 'returned',
@@ -12,9 +13,6 @@ const STATE_WORD: Record<WorkflowAgentState, string> = {
   fail: 'failed',
   block: 'blocked',
 };
-
-/** Only a failure is coloured. Dimming the row that wants a human is backwards. */
-const STATE_COLOR: Partial<Record<WorkflowAgentState, string>> = { fail: 'var(--fail)' };
 
 const HEAD: CSSProperties = {
   flex: 'none',
@@ -42,24 +40,30 @@ const STATE_W = '104px';
 const ISO_W = '76px';
 const NUM_W = '62px';
 
+const HEAD_CLIP: CSSProperties = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+const NUM_HEAD: CSSProperties = { width: NUM_W, flex: 'none', textAlign: 'right', ...HEAD_CLIP };
+const NUM_CELL: CSSProperties = { width: NUM_W, flex: 'none', textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
+
 /** Absent, not zero — most of these are simply not recorded on a live run. */
 const dash = (v: string | number | undefined, format: (n: never) => string = String as never) =>
   v === undefined ? '—' : format(v as never);
 
 export function WorkflowAgents({ agents }: { agents: WorkflowAgent[] }) {
+  const [hoveredId, setHoveredId] = useState<string>();
+
   return (
     <div data-testid="workflow-agents" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       <div data-testid="wf-agents-head" style={HEAD}>
-        <span style={{ width: ID_W, flex: 'none' }}>AGENT</span>
-        <span style={{ width: PHASE_W, flex: 'none' }}>PHASE</span>
-        <span style={{ width: MODEL_W, flex: 'none' }}>MODEL</span>
-        <span style={{ width: STATE_W, flex: 'none' }}>STATE</span>
-        <span style={{ width: ISO_W, flex: 'none' }}>ISOLATION</span>
-        <span style={{ width: NUM_W, flex: 'none' }}>TOKENS</span>
-        <span style={{ width: NUM_W, flex: 'none' }}>TOOLS</span>
-        <span style={{ flex: 1, minWidth: 0 }}>PROMPT</span>
-        <span style={{ width: NUM_W, flex: 'none' }}>DURATION</span>
-        <span style={{ width: NUM_W, flex: 'none' }}>ATTEMPT</span>
+        <span style={{ width: ID_W, flex: 'none', ...HEAD_CLIP }}>AGENT</span>
+        <span style={{ width: PHASE_W, flex: 'none', ...HEAD_CLIP }}>PHASE</span>
+        <span style={{ flex: 1, minWidth: 0, ...HEAD_CLIP }}>PROMPT</span>
+        <span style={{ width: MODEL_W, flex: 'none', ...HEAD_CLIP }}>MODEL</span>
+        <span style={{ width: ISO_W, flex: 'none', ...HEAD_CLIP }}>ISOLATION</span>
+        <span style={{ width: STATE_W, flex: 'none', ...HEAD_CLIP }}>STATE</span>
+        <span style={NUM_HEAD}>TOKENS</span>
+        <span style={NUM_HEAD}>TOOLS</span>
+        <span style={NUM_HEAD}>DURATION</span>
+        <span style={NUM_HEAD}>ATTEMPT</span>
       </div>
 
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
@@ -67,6 +71,8 @@ export function WorkflowAgents({ agents }: { agents: WorkflowAgent[] }) {
           <div
             key={agent.agentId}
             data-testid="wf-agent"
+            onMouseEnter={() => setHoveredId(agent.agentId)}
+            onMouseLeave={() => setHoveredId(undefined)}
             style={{
               display: 'flex',
               gap: '10px',
@@ -74,6 +80,7 @@ export function WorkflowAgents({ agents }: { agents: WorkflowAgent[] }) {
               borderBottom: '1px solid var(--color-neutral-900)',
               alignItems: 'baseline',
               fontSize: '11.5px',
+              background: hoveredId === agent.agentId ? 'var(--color-neutral-900)' : undefined,
             }}
           >
             <span
@@ -85,27 +92,6 @@ export function WorkflowAgents({ agents }: { agents: WorkflowAgent[] }) {
             </span>
             <span data-testid="wf-agent-phase" style={{ width: PHASE_W, flex: 'none', color: 'var(--color-neutral-500)' }}>
               {agent.phaseTitle ?? '—'}
-            </span>
-            <span data-testid="wf-agent-model" style={{ width: MODEL_W, flex: 'none', color: 'var(--color-neutral-600)' }}>
-              {agent.model ?? '—'}
-            </span>
-            <span
-              data-testid="wf-agent-state"
-              style={{ width: STATE_W, flex: 'none', color: STATE_COLOR[agent.state] ?? 'var(--color-neutral-500)' }}
-            >
-              {STATE_WORD[agent.state]}
-            </span>
-            <span
-              data-testid="wf-agent-isolation"
-              style={{ width: ISO_W, flex: 'none', color: agent.isolation ? 'var(--color-accent-400)' : 'var(--color-neutral-700)' }}
-            >
-              {agent.isolation ?? '—'}
-            </span>
-            <span data-testid="wf-agent-tokens" style={{ width: NUM_W, flex: 'none', color: 'var(--color-neutral-500)' }}>
-              {dash(agent.tokens, formatTokens)}
-            </span>
-            <span data-testid="wf-agent-tools" style={{ width: NUM_W, flex: 'none', color: 'var(--color-neutral-600)' }}>
-              {dash(agent.toolCalls)}
             </span>
             <span
               data-testid="wf-agent-prompt"
@@ -121,16 +107,28 @@ export function WorkflowAgents({ agents }: { agents: WorkflowAgent[] }) {
             >
               {agent.prompt ?? '—'}
             </span>
-            <span
-              data-testid="wf-agent-duration"
-              style={{ width: NUM_W, flex: 'none', color: 'var(--color-neutral-600)' }}
-            >
-              {dash(agent.durationMs, formatElapsed)}
+            <span data-testid="wf-agent-model" style={{ width: MODEL_W, flex: 'none', color: 'var(--color-neutral-600)' }}>
+              {agent.model ?? '—'}
             </span>
             <span
-              data-testid="wf-agent-attempt"
-              style={{ width: NUM_W, flex: 'none', color: 'var(--color-neutral-600)' }}
+              data-testid="wf-agent-isolation"
+              style={{ width: ISO_W, flex: 'none', color: agent.isolation ? 'var(--color-accent-400)' : 'var(--color-neutral-700)' }}
             >
+              {agent.isolation ?? '—'}
+            </span>
+            <span data-testid="wf-agent-state" style={{ width: STATE_W, flex: 'none', color: GLYPH_COLOR[agent.state] }}>
+              {GLYPH[agent.state]} {STATE_WORD[agent.state]}
+            </span>
+            <span data-testid="wf-agent-tokens" style={{ ...NUM_CELL, color: 'var(--color-neutral-500)' }}>
+              {dash(agent.tokens, formatTokens)}
+            </span>
+            <span data-testid="wf-agent-tools" style={{ ...NUM_CELL, color: 'var(--color-neutral-600)' }}>
+              {dash(agent.toolCalls)}
+            </span>
+            <span data-testid="wf-agent-duration" style={{ ...NUM_CELL, color: 'var(--color-neutral-600)' }}>
+              {dash(agent.durationMs, formatElapsed)}
+            </span>
+            <span data-testid="wf-agent-attempt" style={{ ...NUM_CELL, color: 'var(--color-neutral-600)' }}>
               {dash(agent.attempt)}
             </span>
           </div>

@@ -46,6 +46,35 @@ export const GLYPH_COLOR: Record<WorkflowAgentState, string> = {
 
 const PHASE_MIN = 132;
 
+const CHIP: CSSProperties = {
+  flex: 'none',
+  width: '36px',
+  height: '28px',
+  borderRadius: '5px',
+  boxSizing: 'border-box',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+};
+
+/**
+ * Fill for a state the run has settled, border for one it has not — a queued,
+ * skipped, failed or blocked cell is an outline so the filled chips are the
+ * only thing that reads as mass across a column.
+ */
+const CHIP_STATE: Record<WorkflowAgentState, CSSProperties> = {
+  cache: { background: 'var(--color-neutral-900)' },
+  done: { background: 'var(--color-accent-900)' },
+  run: { background: 'var(--color-accent-700)' },
+  wait: { border: '1px solid var(--color-neutral-800)' },
+  null: { border: '1px solid var(--warn-edge)' },
+  fail: { border: `1px solid ${GLYPH_COLOR.fail}` },
+  block: { border: `1px solid ${GLYPH_COLOR.block}` },
+};
+
+/** Between phase columns only — the work-item column keeps its open edge. */
+const RULE: CSSProperties = { borderLeft: '1px solid var(--color-neutral-900)', paddingLeft: '10px' };
+
 // The header is `flex: none` above a scrolling body, which is what lets the
 // detail wrap to two lines without stealing height from the grid.
 const HEAD: CSSProperties = {
@@ -106,7 +135,7 @@ const TAB: CSSProperties = {
   letterSpacing: '.12em',
 };
 
-function Cell({ agent }: { agent: WorkflowAgent | undefined }) {
+function Cell({ agent, rule }: { agent: WorkflowAgent | undefined; rule: boolean }) {
   return (
     <span
       data-testid="wf-cell"
@@ -114,10 +143,16 @@ function Cell({ agent }: { agent: WorkflowAgent | undefined }) {
       style={{
         flex: 1,
         minWidth: `${PHASE_MIN}px`,
-        color: agent ? GLYPH_COLOR[agent.state] : 'transparent',
+        display: 'flex',
+        alignItems: 'center',
+        ...(rule ? RULE : null),
       }}
     >
-      {agent ? GLYPH[agent.state] : ''}
+      {agent && (
+        <span style={{ ...CHIP, ...CHIP_STATE[agent.state], color: GLYPH_COLOR[agent.state] }}>
+          {GLYPH[agent.state]}
+        </span>
+      )}
     </span>
   );
 }
@@ -253,12 +288,12 @@ export function WorkflowRun({ run }: { run: Run }) {
               >
                 WORK ITEM
               </span>
-              {columns.map((phase) => (
+              {columns.map((phase, i) => (
                 <PhaseHead
                   key={phase.index}
                   run={run}
                   phase={phase}
-                  style={{ flex: 1, minWidth: `${PHASE_MIN}px` }}
+                  style={{ flex: 1, minWidth: `${PHASE_MIN}px`, ...(i > 0 ? RULE : null) }}
                 />
               ))}
             </div>
@@ -273,14 +308,14 @@ export function WorkflowRun({ run }: { run: Run }) {
                     gap: '10px',
                     padding: '7px 16px',
                     borderBottom: '1px solid var(--color-neutral-900)',
-                    alignItems: 'baseline',
+                    alignItems: 'stretch',
                   }}
                 >
-                  <span data-testid="wf-item" style={IDENTITY}>
+                  <span data-testid="wf-item" style={{ ...IDENTITY, alignSelf: 'center' }}>
                     {row.key}
                   </span>
                   {row.cells.map((agent, i) => (
-                    <Cell key={columns[i].index} agent={agent} />
+                    <Cell key={columns[i].index} agent={agent} rule={i > 0} />
                   ))}
                 </div>
               ))}
