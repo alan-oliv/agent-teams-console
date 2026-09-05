@@ -123,10 +123,12 @@ describe('Composer', () => {
 describe('Composer delivery honesty', () => {
   const lead = { ...alpha, name: 'team-lead', isLead: true, status: 'working' as const };
 
-  it('says a message to the lead is queued when no teammate is live to deliver it', () => {
+  it('wears the canvas prompt line, still usable, when no teammate is live', () => {
     render(<Composer agent={lead} variant="wall" teamLive={false} />);
     const input = screen.getByTestId('composer-input') as HTMLTextAreaElement;
-    expect(input.placeholder).toBe('message team-lead · queued until a teammate is live');
+    // Canvas 8b's line — the hint stops naming a team-lead the session does
+    // not have (ruling 34).
+    expect(input.placeholder).toBe('esc to interrupt · takes its subagents with it');
     // Queueing is real: the message is delivered once a team comes up, so the
     // composer stays usable rather than pretending it is broken.
     expect(input.disabled).toBe(false);

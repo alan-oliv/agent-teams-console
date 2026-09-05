@@ -762,9 +762,11 @@ export async function listTeamSummaries(
     teams.push(...(await sessionRows(projectsRoot, ids, cwd ?? '', sessions, covered, diffstats, now)));
   }
 
+  // The current row is NOT pinned first: selecting a session must never
+  // reshuffle the list under the cursor, so the order is the same whoever is
+  // selected — live first, then most recent activity.
   teams.sort(
     (a, b) =>
-      Number(b.current) - Number(a.current) ||
       Number(b.live) - Number(a.live) ||
       b.lastActivityAt - a.lastActivityAt ||
       (a.name < b.name ? -1 : a.name > b.name ? 1 : 0),

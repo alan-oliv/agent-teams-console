@@ -132,7 +132,7 @@ export function Bar<T extends string>({
         fontSize: 12.5,
       }}
     >
-      {/* The id is half of the picker trigger's accessible name — TeamSelect
+      {/* The id is half of the picker trigger's accessible name — SessionPicker
           names itself `team-wordmark team-trigger-name`. */}
       <span
         id="team-wordmark"

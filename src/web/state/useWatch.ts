@@ -2,7 +2,7 @@ import { createContext, useContext } from 'react';
 
 /**
  * Whether the console's current session is being dismissed, and the way to
- * change that — shared between App (which owns the state) and TeamSelect
+ * change that — shared between App (which owns the state) and SessionPicker
  * (which shows and triggers it from the picker), without threading it through
  * StatusBar, which sits between them and has no use for the value.
  */
@@ -27,7 +27,7 @@ export interface WatchState {
 }
 
 // A safe no-op default so a component reading it outside a Provider — most
-// TeamSelect tests, which render it standalone — behaves as "always watching"
+// SessionPicker tests, which render it standalone — behaves as "always watching"
 // rather than crashing.
 export const WatchContext = createContext<WatchState>({
   dismissed: false,

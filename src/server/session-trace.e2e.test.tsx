@@ -257,7 +257,8 @@ it('takes a session with no team config at all from the picker to a populated tr
   act(() => MockEventSource.last().emit('snapshot', state));
 
   expect(await screen.findByTestId('trace-view')).toBeTruthy();
-  expect(screen.getByRole('tab', { name: 'trace' }).getAttribute('aria-selected')).toBe('true');
+  const traceTabs = screen.getAllByRole('tab', { name: 'trace' });
+  expect(traceTabs.every((t) => t.getAttribute('aria-selected') === 'true')).toBe(true);
   expect(screen.getByTestId('trace-subagents').textContent).toBe('2');
   expect(screen.getByTestId('trace-max-depth').textContent).toBe('1');
   // Read off the subagents' OWN transcripts — 2 calls x 3 records x 2,500

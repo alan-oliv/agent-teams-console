@@ -6,7 +6,7 @@ import { soloViews, VIEW_IDS } from '../state/useTeamState';
 import { flattenSubagents } from '../../shared/subagents';
 import { Bar, METRIC } from './Bar';
 import { runOrder } from './RunSelect';
-import { TeamSelect } from './TeamSelect';
+import { SessionPicker } from './SessionPicker';
 
 /**
  * The order metrics are SHED in, which is not the order they are read in.
@@ -171,7 +171,7 @@ export function StatusBar({
       wordmark="OCTO"
       picker={
         <>
-          <TeamSelect
+          <SessionPicker
             current={state.teamName}
             sessionName={state.sessionName}
             mode={solo ? (hasSubagents ? 'subagents' : 'solo') : 'teammates'}

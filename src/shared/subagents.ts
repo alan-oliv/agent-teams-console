@@ -45,6 +45,7 @@ export interface SubagentSpawn {
   agentId?: string;
   returnedAt?: number;
   returnedSummary?: string;
+  returnedWords?: number;
   failed?: boolean;
 }
 
@@ -334,7 +335,11 @@ export function applySpawnEvents(fold: SubagentFold, events: readonly SpawnEvent
     if (event.returnedAt !== undefined) spawn.returnedAt = event.returnedAt;
     if (event.failed) spawn.failed = true;
     const summary = event.returnedSummary ?? (event.content === undefined ? undefined : flatten(event.content));
-    if (summary) spawn.returnedSummary = cap(summary);
+    if (summary) {
+      spawn.returnedSummary = cap(summary);
+      // Counted here, where the string is still the whole return.
+      spawn.returnedWords = summary.split(/\s+/).filter(Boolean).length;
+    }
   }
 }
 
@@ -467,6 +472,7 @@ function nodesOf(
       node.durationMs = spawn.returnedAt - (started ?? spawn.queuedAt);
     }
     if (spawn.returnedSummary) node.returnedSummary = spawn.returnedSummary;
+    if (spawn.returnedWords !== undefined) node.returnedWords = spawn.returnedWords;
     if (digest && digest.records > 0) {
       node.tokens = digest.tokens;
       node.toolCalls = digest.toolCalls;

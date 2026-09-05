@@ -760,7 +760,10 @@ describe('interactions the wall settles against the README', () => {
 
 it('opens the queued messages from the in-flight badge instead of only counting them', () => {
   const onOpenMail = vi.fn();
-  const agents = [{ ...fixtureAgents()[0], unread: 4 }];
+  // Two columns, not one: a roster of one draws the headerless solo stream,
+  // and the badge under test lives in the header.
+  const [first, second] = fixtureAgents();
+  const agents = [{ ...first, unread: 4 }, { ...second, unread: 0 }];
   render(<Wall agents={agents} focused={null} onFocus={() => {}} now={FIXTURE_NOW} onOpenMail={onOpenMail} />);
 
   const badge = screen.getByTestId('in-flight');
@@ -773,10 +776,21 @@ it('opens the queued messages from the in-flight badge instead of only counting 
 // own click focuses, and opening the mail is the more specific intent.
 it('does not focus the column when the badge is clicked', () => {
   const onFocus = vi.fn();
-  const agents = [{ ...fixtureAgents()[0], unread: 2 }];
+  const [first, second] = fixtureAgents();
+  const agents = [{ ...first, unread: 2 }, { ...second, unread: 0 }];
   render(<Wall agents={agents} focused={null} onFocus={onFocus} now={FIXTURE_NOW} onOpenMail={() => {}} />);
   fireEvent.click(screen.getByTestId('in-flight'));
   expect(onFocus).not.toHaveBeenCalled();
+});
+
+// Canvas §8's stream mock: chrome, then rows. No portrait, no name, no meter —
+// a roster of one has nothing to tell columns apart by (ruling 34).
+it('draws the solo stream without a header pane', () => {
+  render(<Wall agents={[fixtureAgents()[0]]} focused={null} onFocus={vi.fn()} now={FIXTURE_NOW} />);
+  expect(screen.getByTestId('wall-column')).toBeTruthy();
+  expect(screen.queryByTestId('wall-name')).toBeNull();
+  expect(screen.queryByTestId('wall-bar')).toBeNull();
+  expect(screen.queryByTestId('wall-cost')).toBeNull();
 });
 
 // Movie themes rename agents and nothing else. The cast comes from context, so

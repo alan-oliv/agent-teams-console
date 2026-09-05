@@ -217,6 +217,9 @@ export interface Subagent {
   toolCalls?: number;
   contextTokens?: number;
   returnedSummary?: string;
+  /** Counted from the full return before the summary cap — the capped text
+   *  tops out near 70 words, and the stream row quotes figures well past it. */
+  returnedWords?: number;
   /** Its own `Task`/`Agent` calls, same ordering and grouping rules. */
   children: Subagent[];
 }

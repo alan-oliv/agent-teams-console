@@ -108,7 +108,77 @@ describe('Trace header strip', () => {
     });
     // returnedSummary is 400 chars -> ~100 estimated tokens; 4400 / 100 = 44:1.
     expect(screen.getByTestId('trace-shown-to-parent').textContent).toBe('100');
-    expect(screen.getByTestId('trace-ratio').textContent).toContain('44:1');
+    expect(screen.getByTestId('trace-ratio').textContent).toBe(
+      '44:1 — 1 context window compressed into 1 summary line. The ratio is the reason this view exists.',
+    );
+  });
+
+  it('prints a state only while it is news — running shows, returned stays silent', () => {
+    renderTrace({
+      subagents: [
+        subagent({ toolUseId: 'toolu_1' }),
+        subagent({ toolUseId: 'toolu_2', state: 'running', returnedAt: undefined, durationMs: undefined }),
+      ],
+    });
+    const states = screen.getAllByTestId('trace-lane-state');
+    expect(states).toHaveLength(1);
+    expect(states[0].textContent).toBe('running');
+  });
+
+  it('labels a returned top-level lane with its duration at the bar end, children unlabelled', () => {
+    renderTrace({
+      subagents: [
+        subagent({
+          toolUseId: 'toolu_1',
+          durationMs: 96_000,
+          returnedAt: T + 96_000,
+          children: [
+            subagent({ toolUseId: 'toolu_2', depth: 2, parent: 'toolu_1', durationMs: 20_000 }),
+          ],
+        }),
+      ],
+      now: T + 120_000,
+    });
+    const durations = screen.getAllByTestId('trace-bar-duration');
+    expect(durations).toHaveLength(1);
+    expect(durations[0].textContent).toBe('1m 36s');
+  });
+
+  it('spells out depth 3 in the call cell, where indentation alone has become hard to count', () => {
+    renderTrace({
+      subagents: [
+        subagent({
+          toolUseId: 'toolu_1',
+          children: [
+            subagent({
+              toolUseId: 'toolu_2',
+              depth: 2,
+              parent: 'toolu_1',
+              children: [
+                subagent({ toolUseId: 'toolu_3', name: 'dep-audit', depth: 3, parent: 'toolu_2' }),
+              ],
+            }),
+          ],
+        }),
+      ],
+    });
+    const lanes = screen.getAllByTestId('trace-lane');
+    expect(lanes[2].textContent).toContain('depth 3');
+    expect(lanes[1].textContent).not.toContain('depth 2');
+  });
+
+  it('anchors the axis at the turn start when it precedes the first dispatch', () => {
+    // Turn began a minute before the dispatch: the dispatch's bar starts at
+    // 50% of the two-minute span, and the parent's own bar spans the turn.
+    renderTrace({
+      turnStartedAt: T - 60_000,
+      subagents: [subagent({ returnedAt: undefined, durationMs: undefined, state: 'running' })],
+      now: T + 60_000,
+    });
+    expect(screen.getByTestId('trace-bar').style.left).toBe('50%');
+    const parent = screen.getByTestId('trace-parent-bar');
+    expect(parent.style.left).toBe('0%');
+    expect(parent.style.width).toBe('100%');
   });
 });
 

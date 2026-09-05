@@ -347,8 +347,11 @@ export function Composer({
             // reader has departed and nothing is left to collect a message.
             : recipients.length === 0
             ? 'nobody is left to read it'
+            // Canvas 8b's prompt line for a session with no live team. The
+            // input still works — a send still queues to the lead's inbox —
+            // but the hint stops naming a team-lead the session does not have.
             : recipients.some((to) => to.isLead) && !teamLive
-              ? `${v.placeholder(named)} · queued until a teammate is live`
+              ? 'esc to interrupt · takes its subagents with it'
               : routed && !chip
                 ? 'message the lead · @ to reach a teammate'
                 : v.placeholder(named)

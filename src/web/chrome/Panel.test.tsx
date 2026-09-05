@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Agent, AgentStatus } from '../../shared/domain';
+import type { Agent, AgentStatus, Subagent } from '../../shared/domain';
 import { buildCast } from '../../shared/cast';
 import { CastContext } from '../state/useCast';
-import { Panel } from './Panel';
+import { Panel, SoloFooter } from './Panel';
 
 // This suite renders once per `it`; without explicit cleanup the un-unmounted
 // nodes from one test leak into the next and getByRole/getByText start
@@ -260,4 +260,62 @@ it('casts the chips and the departed list, and focuses the real name', () => {
 
   fireEvent.click(screen.getAllByTestId('agent-chip')[0]);
   expect(onFocusAgent).toHaveBeenCalledWith('team-lead');
+});
+
+describe('SoloFooter', () => {
+  function tree(): Record<string, Subagent[]> {
+    return {
+      lead: [
+        {
+          toolUseId: 't1',
+          name: 'explore-auth',
+          agent: 'lead',
+          parent: 'lead',
+          depth: 1,
+          spawnIndex: 0,
+          siblingGroup: 'rec-1',
+          state: 'returned',
+          queuedAt: 0,
+          tokens: 24_100,
+          children: [
+            {
+              toolUseId: 't2',
+              name: 'grep-callsites',
+              agent: 'lead',
+              parent: 't1',
+              depth: 2,
+              spawnIndex: 0,
+              siblingGroup: 'rec-2',
+              state: 'returned',
+              queuedAt: 0,
+              tokens: 6_300,
+              children: [],
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  it('offers stream and trace pills and switches on click', () => {
+    const onViewChange = vi.fn();
+    render(<SoloFooter view="wall" onViewChange={onViewChange} hasSubagents subagents={tree()} />);
+    const tabs = screen.getAllByRole('tab');
+    expect(tabs.map((t) => t.textContent)).toEqual(['stream', 'trace']);
+    expect(tabs[0].getAttribute('aria-selected')).toBe('true');
+    fireEvent.click(tabs[1]);
+    expect(onViewChange).toHaveBeenCalledWith('trace');
+  });
+
+  it('sums the whole tree at the right edge, every depth counted', () => {
+    render(<SoloFooter view="wall" onViewChange={vi.fn()} hasSubagents subagents={tree()} />);
+    expect(screen.getByTestId('solo-footer-subagents').textContent).toBe('2 subagents · 30.4k');
+    expect(screen.getByText('esc interrupts the turn')).toBeTruthy();
+  });
+
+  it('spends no width on a subagents figure when the session never dispatched one', () => {
+    render(<SoloFooter view="wall" onViewChange={vi.fn()} hasSubagents={false} subagents={{}} />);
+    expect(screen.queryByTestId('solo-footer-subagents')).toBeNull();
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['stream']);
+  });
 });
