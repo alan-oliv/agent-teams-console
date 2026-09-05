@@ -187,9 +187,28 @@ button {
   }
 }
 
+/* The stream's tail cursor — the canvas's own 1.1s step-end blink, which reads
+   as a terminal at a prompt rather than as something animating. */
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
 .team-trigger:hover {
   border-color: var(--color-accent-700);
   background: var(--color-accent-900);
+}
+
+/* Canvas `saIsStream`: the caret chip is the one control on a stream row, so it
+   answers to the pointer the way every other outlined control here does. */
+.stream-more:hover {
+  color: var(--color-accent-300);
+  border-color: var(--color-accent-700);
 }
 
 /* Every scrollable pane in every view — wall columns, overview tiles, grid

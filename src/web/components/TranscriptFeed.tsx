@@ -27,7 +27,7 @@ import {
   type JsonTokenKind,
 } from '../../shared/json';
 
-export type FeedSize = 'wall' | 'overview' | 'grid' | 'rail';
+export type FeedSize = 'wall' | 'overview' | 'grid' | 'rail' | 'stream';
 
 interface FeedStyle {
   padding: string;
@@ -39,6 +39,13 @@ interface FeedStyle {
   markerSize: string;
   textColor: string;
   textSize?: string;
+  /**
+   * Whether a long line wraps instead of ellipsising. Only `stream` does: every
+   * other size draws into a column narrow enough that a wrapped line would push
+   * the rows below it off the pane, which is what the clamp is for. At full
+   * frame width there is nothing to protect and clamping just hides text.
+   */
+  wrap?: boolean;
 }
 
 const FEED: Record<FeedSize, FeedStyle> = {
@@ -61,6 +68,15 @@ const FEED: Record<FeedSize, FeedStyle> = {
     padding: '15px 18px', rowGap: 11, gap: 9,
     markerWidth: '10px', markerSize: '11px',
     textColor: 'var(--color-neutral-300)',
+  },
+  // Canvas `saIsStream`, transcribed. A roster of one takes the whole frame, so
+  // it gets the canvas's own stream metrics rather than the wall column's,
+  // which are measured against a 366px pane.
+  stream: {
+    padding: '15px 16px 10px', rowGap: 9, gap: 9,
+    markerWidth: '10px', markerSize: '11px',
+    textColor: 'var(--color-neutral-300)', textSize: '11.5px',
+    wrap: true,
   },
 };
 
@@ -135,9 +151,14 @@ function isSubagentCall(text: string): boolean {
  * across the full width. The trace view has always used the name; this is the
  * same label in the same shape.
  */
-function taskLabelOf(subagent: Subagent): string {
+function taskLabelOf(subagent: Subagent, wrap?: boolean): string {
   const inner = subagent.name ?? subagent.description;
-  return inner ? `Task(${inner})` : 'Task';
+  if (!inner) return 'Task';
+  // Canvas `8a` renders the stream's Task row as `Task(Explore, grep-callsites)`
+  // — the type inside the parens, no badge beside it. The badge is `8b`'s
+  // treatment, drawn for a wall column where the label has to stay short. At
+  // full frame the type reads better in the name than as a pill after it.
+  return wrap && subagent.agentType ? `Task(${subagent.agentType}, ${inner})` : `Task(${inner})`;
 }
 
 /**
@@ -149,6 +170,29 @@ function subagentSummary(subagent: Subagent): string {
   const tokens = subagent.tokens !== undefined ? formatTokens(subagent.tokens) : '—';
   const duration = subagent.durationMs !== undefined ? formatElapsed(subagent.durationMs) : '—';
   return `${tokens} · ${duration}`;
+}
+
+/**
+ * The same figure in the stream's own words, per canvas `8a`: `returned 41
+ * words · 6.3k used`, `… · spawned 2` where the call fanned out again, and
+ * `running · 6.2k so far` while it is still going.
+ *
+ * It reports what the PARENT got out of the call, which is the question the
+ * stream is answering — the wall column's `24.1k · 1m 36s` reports what the
+ * call cost, which is the trace's question. Same data, different reading.
+ */
+function streamSummary(subagent: Subagent): string {
+  const tokens = subagent.tokens !== undefined ? formatTokens(subagent.tokens) : undefined;
+  if (subagent.state === 'running') return tokens ? `running · ${tokens} so far` : 'running';
+  if (subagent.state !== 'returned') return subagent.state;
+
+  const words = subagent.returnedSummary?.trim().split(/\s+/).filter(Boolean).length;
+  const parts = [words ? `returned ${words} words` : 'returned'];
+  // Absent, never zero: a subagent whose sidecar never landed spent an unknown
+  // number of tokens, not none.
+  if (tokens) parts.push(`${tokens} used`);
+  if (subagent.children.length > 0) parts.push(`spawned ${subagent.children.length}`);
+  return parts.join(' · ');
 }
 
 /**
@@ -204,7 +248,7 @@ function SubagentRow({
         >
           {label}
         </span>
-        {badge && (
+        {badge && !s.wrap && (
           <span data-testid={depth > 1 ? 'subagent-depth' : 'subagent-type'} style={TYPE_BADGE}>
             {badge}
           </span>
@@ -214,12 +258,29 @@ function SubagentRow({
           data-testid="subagent-summary"
           style={{ color: 'var(--color-neutral-600)', fontSize: '10px', flex: 'none' }}
         >
-          {subagentSummary(subagent)}
+          {s.wrap ? streamSummary(subagent) : subagentSummary(subagent)}
         </span>
         <span
           data-testid="transcript-more"
           aria-hidden
-          style={{ color: 'var(--color-neutral-600)', flex: 'none', fontSize: '10px' }}
+          className={s.wrap ? 'stream-more' : undefined}
+          style={{
+            color: 'var(--color-neutral-600)',
+            flex: 'none',
+            fontSize: '10px',
+            // Canvas `saIsStream` gates the summary and the caret on one flag
+            // and draws the caret as a chip. In a wall column that border costs
+            // width the label needs; at full frame it is what makes the one
+            // control on the row look like one.
+            ...(s.wrap
+              ? {
+                  cursor: 'pointer',
+                  border: '1px solid var(--color-neutral-800)',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '0 6px',
+                }
+              : {}),
+          }}
         >
           ▸
         </span>
@@ -312,7 +373,7 @@ function SubagentRow({
             <SubagentRow
               key={child.toolUseId}
               subagent={child}
-              label={taskLabelOf(child)}
+              label={taskLabelOf(child, s.wrap)}
               depth={depth + 1}
               s={s}
               opacity={1}
@@ -936,7 +997,10 @@ export function TranscriptFeed({
           text.includes('\n') ||
           payload !== undefined ||
           (line.text.length === TRANSCRIPT_TEXT_CAP && line.text.endsWith('…')) ||
-          text.length > LONG_LINE_CHARS;
+          // Length alone only makes a row expandable where it would be clipped.
+          // A wrapping stream shows the line whole, so a caret there would open
+          // a drawer onto text already on screen.
+          (!s.wrap && text.length > LONG_LINE_CHARS);
         const isOpen = more && open.has(line.id);
         const opacity = appearance.fade
           ? (working ? 1 : RESTING) * fade(shown.length - 1 - i)
@@ -958,7 +1022,7 @@ export function TranscriptFeed({
             <SubagentRow
               key={line.id}
               subagent={subagentGroup[0]}
-              label={taskLabelOf(subagentGroup[0])}
+              label={taskLabelOf(subagentGroup[0], s.wrap)}
               depth={1}
               s={s}
               opacity={opacity}
@@ -1303,7 +1367,7 @@ export function TranscriptFeed({
               display: 'flex',
               gap: `${s.gap}px`,
               alignItems: 'baseline',
-              whiteSpace: 'nowrap',
+              ...(s.wrap ? {} : { whiteSpace: 'nowrap' }),
               opacity,
               ...(more ? { cursor: 'pointer' } : {}),
             }}
@@ -1319,8 +1383,9 @@ export function TranscriptFeed({
               data-testid="transcript-text"
               style={{
                 color: s.textColor,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
+                ...(s.wrap
+                  ? { lineHeight: 1.6, textWrap: 'pretty', minWidth: 0 }
+                  : { overflow: 'hidden', textOverflow: 'ellipsis' }),
                 ...(s.textSize ? { fontSize: s.textSize } : {}),
               }}
             >
@@ -1341,6 +1406,29 @@ export function TranscriptFeed({
           </div>
         );
       })}
+
+      {/* The canvas closes its stream with a prompt row, and draws it on a bar
+          reading `working · 4m 08s` — so it is the terminal's own cursor,
+          always there, not a readout of whether a turn is running. The composer
+          below carries the same glyph but is the place to type; this is where
+          the session is. */}
+      {s.wrap && (
+        <div
+          data-testid="stream-prompt"
+          aria-hidden
+          style={{ display: 'flex', gap: `${s.gap}px`, alignItems: 'center', paddingTop: '4px' }}
+        >
+          <span style={{ color: 'var(--color-accent-500)', fontSize: '11px' }}>❯</span>
+          <span
+            style={{
+              width: '7px',
+              height: '14px',
+              background: 'var(--color-accent-400)',
+              animation: 'blink 1.1s step-end infinite',
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }

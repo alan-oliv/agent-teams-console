@@ -1013,3 +1013,145 @@ it('labels a dispatch row with the subagent name, not the prompt it was given', 
   expect(row.textContent).toBe('Task(Git hygiene: hatch core repos)');
   expect(row.textContent).not.toContain('STRICTLY READ-ONLY');
 });
+
+// The solo/subagents stream takes the whole frame, so it is drawn from the
+// canvas's own `saIsStream` metrics rather than the wall column's, which are
+// measured against a 366px pane.
+describe('the stream size', () => {
+  const LONG = 'x'.repeat(400);
+  const SUB_LINE: TranscriptLine = {
+    id: 'rec-9#0', marker: '⏺', text: 'Task(explore-auth)', ts: 1787843382976,
+  };
+  const SUB: Subagent = {
+    toolUseId: 'toolu_9',
+    name: 'explore-auth',
+    agent: 'probe-alpha',
+    parent: 'probe-alpha',
+    depth: 1,
+    spawnIndex: 0,
+    siblingGroup: 'rec-9',
+    state: 'returned',
+    queuedAt: 1787843382976,
+    agentType: 'Explore',
+    returnedSummary: '34 sites, 4 of them read expires_at directly',
+    tokens: 24100,
+    durationMs: 96000,
+    children: [],
+  };
+
+  it('takes the canvas stream metrics, not the wall column ones', () => {
+    const { rerender } = render(<TranscriptFeed lines={LINES} size="stream" />);
+    const feed = screen.getByTestId('transcript-feed');
+    expect(feed.style.gap).toBe('9px');
+    expect(feed.style.padding).toBe('15px 16px 10px');
+
+    rerender(<TranscriptFeed lines={LINES} size="wall" />);
+    expect(screen.getByTestId('transcript-feed').style.padding).toBe('13px 12px');
+  });
+
+  it('wraps a long line instead of clipping it to one', () => {
+    render(<TranscriptFeed lines={[{ ...LINES[1], text: LONG }]} size="stream" />);
+    const row = screen.getByTestId('transcript-row');
+    expect(row.style.whiteSpace).toBe('');
+    const text = screen.getByTestId('transcript-text');
+    expect(text.style.textOverflow).toBe('');
+    expect(text.style.lineHeight).toBe('1.6');
+    // The whole line, not the first 120 characters of it.
+    expect(text.textContent).toBe(LONG);
+  });
+
+  // Length alone earns a caret only where the row would be clipped. Opening a
+  // drawer onto text already fully on screen is a control that changes nothing.
+  it('does not make a long line expandable on its length alone', () => {
+    const { rerender } = render(<TranscriptFeed lines={[{ ...LINES[1], text: LONG }]} size="stream" />);
+    expect(screen.queryByTestId('transcript-more')).toBeNull();
+
+    rerender(<TranscriptFeed lines={[{ ...LINES[1], text: LONG }]} size="wall" />);
+    expect(screen.getByTestId('transcript-more')).toBeTruthy();
+  });
+
+  // A row with real hidden content still opens — the author's own line breaks.
+  // Bare, per the `5b` rule: the chip belongs to the Task row, which is what
+  // the canvas's `subShow` gates it on.
+  it('still carries a caret on a row with more behind it, drawn bare', () => {
+    render(<TranscriptFeed lines={[{ ...LINES[1], text: 'first\nsecond' }]} size="stream" />);
+    const caret = screen.getByTestId('transcript-more');
+    expect(caret.style.border).toBe('');
+  });
+
+  it('draws the Task row caret as a chip', () => {
+    render(<TranscriptFeed lines={[SUB_LINE]} size="stream" subagents={[SUB]} />);
+    const caret = screen.getByTestId('transcript-more');
+    expect(caret.style.border).toBe('1px solid var(--color-neutral-800)');
+    expect(caret.style.padding).toBe('0px 6px');
+    expect(caret.className).toBe('stream-more');
+  });
+
+  // Canvas `8a`: `Task(Explore, grep-callsites)` — type inside the parens, no
+  // badge after it. The badge is the wall column's treatment, where the label
+  // has to stay short.
+  it('names a Task row by type and name, with no badge beside it', () => {
+    render(<TranscriptFeed lines={[SUB_LINE]} size="stream" subagents={[SUB]} />);
+    expect(screen.getByTestId('transcript-text').textContent).toBe('Task(Explore, explore-auth)');
+    expect(screen.queryByTestId('subagent-type')).toBeNull();
+  });
+
+  it('keeps the badge and the short label in a wall column', () => {
+    render(<TranscriptFeed lines={[SUB_LINE]} size="wall" subagents={[SUB]} />);
+    expect(screen.getByTestId('transcript-text').textContent).toBe('Task(explore-auth)');
+    expect(screen.getByTestId('subagent-type').textContent).toBe('Explore');
+  });
+
+  // The stream reports what the PARENT got out of the call; the wall column
+  // reports what the call cost. Same data, the question each view is asking.
+  it('reads a returned call in words, tokens and fan-out', () => {
+    render(<TranscriptFeed lines={[SUB_LINE]} size="stream" subagents={[SUB]} />);
+    expect(screen.getByTestId('subagent-summary').textContent).toBe(
+      'returned 8 words · 24.1k used',
+    );
+  });
+
+  it('counts a call that fanned out again', () => {
+    const parent: Subagent = {
+      ...SUB,
+      children: [{ ...SUB, toolUseId: 'k1' }, { ...SUB, toolUseId: 'k2' }],
+    };
+    render(<TranscriptFeed lines={[SUB_LINE]} size="stream" subagents={[parent]} />);
+    expect(screen.getByTestId('subagent-summary').textContent).toBe(
+      'returned 8 words · 24.1k used · spawned 2',
+    );
+  });
+
+  it('reads a call still going as what it has spent so far', () => {
+    const running: Subagent = { ...SUB, state: 'running', tokens: 6200, returnedSummary: undefined };
+    render(<TranscriptFeed lines={[SUB_LINE]} size="stream" subagents={[running]} />);
+    expect(screen.getByTestId('subagent-summary').textContent).toBe('running · 6.2k so far');
+  });
+
+  it('keeps cost-and-duration on the wall column row', () => {
+    render(<TranscriptFeed lines={[SUB_LINE]} size="wall" subagents={[SUB]} />);
+    expect(screen.getByTestId('subagent-summary').textContent).toBe('24.1k · 1m 36s');
+  });
+
+  it('leaves the Task row caret bare in a wall column, where the border costs label width', () => {
+    render(<TranscriptFeed lines={[SUB_LINE]} size="wall" subagents={[SUB]} />);
+    const caret = screen.getByTestId('transcript-more');
+    expect(caret.style.border).toBe('');
+    expect(caret.className).toBe('');
+  });
+
+  // The canvas draws the prompt row on a bar reading `working · 4m 08s`, so it
+  // is the terminal's own cursor rather than a readout of whether a turn runs.
+  it('closes the stream with a prompt cursor at any status', () => {
+    const { rerender } = render(<TranscriptFeed lines={LINES} size="stream" working={false} />);
+    expect(screen.getByTestId('stream-prompt').textContent).toBe('❯');
+
+    rerender(<TranscriptFeed lines={LINES} size="stream" working />);
+    expect(screen.getByTestId('stream-prompt').textContent).toBe('❯');
+  });
+
+  it('leaves the wall column without a prompt cursor at any status', () => {
+    render(<TranscriptFeed lines={LINES} size="wall" working={false} />);
+    expect(screen.queryByTestId('stream-prompt')).toBeNull();
+  });
+});

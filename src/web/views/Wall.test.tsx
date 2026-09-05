@@ -760,7 +760,8 @@ describe('interactions the wall settles against the README', () => {
 
 it('opens the queued messages from the in-flight badge instead of only counting them', () => {
   const onOpenMail = vi.fn();
-  const agents = [{ ...fixtureAgents()[0], unread: 4 }];
+  const [first, second] = fixtureAgents();
+  const agents = [{ ...first, unread: 4 }, second];
   render(<Wall agents={agents} focused={null} onFocus={() => {}} now={FIXTURE_NOW} onOpenMail={onOpenMail} />);
 
   const badge = screen.getByTestId('in-flight');
@@ -773,7 +774,8 @@ it('opens the queued messages from the in-flight badge instead of only counting 
 // own click focuses, and opening the mail is the more specific intent.
 it('does not focus the column when the badge is clicked', () => {
   const onFocus = vi.fn();
-  const agents = [{ ...fixtureAgents()[0], unread: 2 }];
+  const [first, second] = fixtureAgents();
+  const agents = [{ ...first, unread: 2 }, second];
   render(<Wall agents={agents} focused={null} onFocus={onFocus} now={FIXTURE_NOW} onOpenMail={() => {}} />);
   fireEvent.click(screen.getByTestId('in-flight'));
   expect(onFocus).not.toHaveBeenCalled();
@@ -923,4 +925,40 @@ it('does not count a completed task as blocked by its own resolved history', () 
       { ...TASK, id: 'T-01', state: 'completed', blockedBy: ['T-00'], openBlockedBy: ['T-00'] },
     ]),
   ).toBe('TaskList — 1 task');
+});
+
+// Ruling 24 made a roster of one render the wall as the parent's stream. The
+// view id and the component stayed the same, so for a while the METRICS did
+// too — the canvas measures its stream against the frame and a wall column
+// against 366px, and one was being drawn with the other's numbers.
+describe('a roster of one', () => {
+  it('draws its transcript with the stream metrics, not the column ones', () => {
+    render(
+      <Wall agents={[agents[0]]} focused={agents[0].name} onFocus={vi.fn()} now={FIXTURE_NOW} />,
+    );
+    expect(screen.getByTestId('transcript-feed').style.padding).toBe('15px 16px 10px');
+  });
+
+  // Canvas `8a` opens straight on the transcript. The identity header exists to
+  // tell columns apart, and there is only one; the bar above and the panel row
+  // below already carry the status, elapsed, name and context it repeats.
+  it('opens straight on the transcript, with no identity header', () => {
+    render(
+      <Wall agents={[agents[0]]} focused={agents[0].name} onFocus={vi.fn()} now={FIXTURE_NOW} />,
+    );
+    expect(screen.queryByTestId('wall-name')).toBeNull();
+    expect(screen.getByTestId('transcript-feed')).toBeTruthy();
+  });
+
+  it('keeps the header on a real roster, where it tells the columns apart', () => {
+    renderWall();
+    expect(screen.getAllByTestId('wall-name').length).toBe(agents.length);
+  });
+
+  it('leaves a real roster on the column metrics', () => {
+    renderWall();
+    for (const feed of screen.getAllByTestId('transcript-feed')) {
+      expect(feed.style.padding).toBe('13px 12px');
+    }
+  });
 });

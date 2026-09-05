@@ -84,7 +84,7 @@ function InFlight({ agent, onOpen }: { agent: Agent; onOpen?: (name: string) => 
 }
 
 const Column = memo(function Column({
-  agent, isFocused, isTinted, isDragging, width, readOnly, teamLive, routed,
+  agent, isFocused, isTinted, isDragging, width, soloStream, readOnly, teamLive, routed,
   onFocus, onHoverEnter, onHoverLeave, onGrip, onGripReset, onOpenMail, subagents, tasks,
 }: {
   agent: Agent;
@@ -106,6 +106,13 @@ const Column = memo(function Column({
    */
   /** `null` on a roster of one: the stream takes the frame — see `soloStream`. */
   width: number | null;
+  /**
+   * A roster of one, drawn at full frame. Carried separately from `width`,
+   * which a persisted drag can leave set even here, and it decides the feed's
+   * metrics: the canvas measures its stream against the frame and the wall
+   * column against 366px, and the two are not the same drawing.
+   */
+  soloStream: boolean;
   readOnly: boolean;
   teamLive: boolean;
   /**
@@ -173,6 +180,12 @@ const Column = memo(function Column({
       onMouseEnter={() => onHoverEnter(agent.name)}
       onMouseLeave={() => onHoverLeave(agent.name)}
     >
+      {/* Canvas `8a` opens its stream on the transcript: no identity header.
+          The header tells COLUMNS apart, and a roster of one has none to tell
+          apart — the bar above already carries the status and elapsed, and the
+          panel row below carries the name and context. Drawn at full frame it
+          is a second, wider readout of what the chrome already says. */}
+      {!soloStream && (
       <div style={HEADER}>
         <Portrait agent={agent} slot="wall" />
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '5px' }}>
@@ -318,10 +331,11 @@ const Column = memo(function Column({
           )}
         </div>
       </div>
+      )}
 
       <TranscriptFeed
         lines={agent.transcript}
-        size="wall"
+        size={soloStream ? 'stream' : 'wall'}
         agent={agent.name}
         working={agent.status === 'working'}
         subagents={subagents}
@@ -558,6 +572,7 @@ export function Wall({
             isTinted={agent.name === focused || hovered === agent.name}
             isDragging={dragging === agent.name}
             width={widths[agent.name] ?? (soloStream ? null : COLUMN_WIDTH)}
+            soloStream={soloStream}
             readOnly={readOnly}
             teamLive={teamLive}
             routed={agent.isLead}
