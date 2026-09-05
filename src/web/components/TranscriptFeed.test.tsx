@@ -853,12 +853,13 @@ describe('Task rows and fan-out', () => {
     };
   }
 
-  it('collapses a single Task call to one line: Task(type, name), what it returned, caret', () => {
+  it('collapses a solo Task call to one line: Task(type, name), what it returned, caret', () => {
     const lines: TranscriptLine[] = [{ id: 'rec-1#0', marker: '⏺', text: 'Task(scout)', ts: T }];
     render(
       <TranscriptFeed
         lines={lines}
         size="wall"
+        solo
         subagents={[subagent({ agentType: 'general-purpose', tokens: 4200, returnedWords: 41 })]}
       />,
     );
@@ -869,27 +870,55 @@ describe('Task rows and fan-out', () => {
     expect(within(row).getByTestId('transcript-more').textContent).toBe('▸');
   });
 
-  it('says only queued for a call with nothing measured yet', () => {
+  it('says only queued for a solo call with nothing measured yet', () => {
     const lines: TranscriptLine[] = [{ id: 'rec-1#0', marker: '⏺', text: 'Task(scout)', ts: T }];
     render(
-      <TranscriptFeed lines={lines} size="wall" subagents={[subagent({ state: 'queued' })]} />,
+      <TranscriptFeed lines={lines} size="wall" solo subagents={[subagent({ state: 'queued' })]} />,
     );
     expect(screen.getByTestId('subagent-summary').textContent).toBe('queued');
   });
 
-  it('reads running · tokens so far while the call is still out', () => {
+  // Ruling 32 is solo-scoped: a TEAM column's Task row keeps canvas 8b's whole
+  // anatomy — Task(name), the type pill, tokens · duration.
+  it('keeps the type pill and tokens · duration on a team column', () => {
     const lines: TranscriptLine[] = [{ id: 'rec-1#0', marker: '⏺', text: 'Task(scout)', ts: T }];
     render(
       <TranscriptFeed
         lines={lines}
         size="wall"
+        subagents={[subagent({ agentType: 'general-purpose', tokens: 4200, durationMs: 65_000 })]}
+      />,
+    );
+    const row = screen.getByTestId('transcript-row');
+    expect(within(row).getByTestId('transcript-text').textContent).toBe('Task(scout)');
+    expect(within(row).getByTestId('subagent-type').textContent).toBe('general-purpose');
+    expect(within(row).getByTestId('subagent-summary').textContent).toBe('4.2k · 1m 05s');
+  });
+
+  // Absent means not-landed-yet — a queued call has genuinely nothing to show,
+  // and a zero would claim it spent no tokens rather than saying it hasn't run.
+  it('shows em-dashes for a team column call with nothing measured yet', () => {
+    const lines: TranscriptLine[] = [{ id: 'rec-1#0', marker: '⏺', text: 'Task(scout)', ts: T }];
+    render(
+      <TranscriptFeed lines={lines} size="wall" subagents={[subagent({ state: 'queued' })]} />,
+    );
+    expect(screen.getByTestId('subagent-summary').textContent).toBe('— · —');
+  });
+
+  it('reads running · tokens so far while a solo call is still out', () => {
+    const lines: TranscriptLine[] = [{ id: 'rec-1#0', marker: '⏺', text: 'Task(scout)', ts: T }];
+    render(
+      <TranscriptFeed
+        lines={lines}
+        size="wall"
+        solo
         subagents={[subagent({ state: 'running', tokens: 6200 })]}
       />,
     );
     expect(screen.getByTestId('subagent-summary').textContent).toBe('running · 6.2k so far');
   });
 
-  it('counts a call with its own dispatches as spawned N on the collapsed row', () => {
+  it('counts a solo call with its own dispatches as spawned N on the collapsed row', () => {
     const lines: TranscriptLine[] = [{ id: 'rec-1#0', marker: '⏺', text: 'Task(scout)', ts: T }];
     const children = [
       subagent({ toolUseId: 'toolu_2', name: 'schema-read', depth: 2, parent: 'toolu_1' }),
@@ -899,6 +928,7 @@ describe('Task rows and fan-out', () => {
       <TranscriptFeed
         lines={lines}
         size="wall"
+        solo
         subagents={[subagent({ tokens: 28_700, returnedWords: 78, children })]}
       />,
     );

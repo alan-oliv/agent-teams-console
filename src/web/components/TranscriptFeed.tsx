@@ -151,12 +151,25 @@ function streamTaskLabelOf(subagent: Subagent): string {
 }
 
 /**
- * The collapsed row's right-aligned figure, state first — the canvas's stream
- * mock reads returns, not spend: `returned 41 words · 6.3k used · spawned 2`,
- * `running · 6.2k so far`. A figure not yet measured is omitted rather than
- * zeroed or dashed; `queued` alone is a gap-fill, the canvas never draws one.
+ * The team column's collapsed figure — canvas `8b`'s `24.1k · 1m 36s`.
+ * Em-dashes rather than zeros: a queued or running call has genuinely nothing
+ * measured yet, and a zero would claim it spent no tokens instead of saying
+ * it hasn't returned.
  */
-function subagentSummary(subagent: Subagent): string {
+function spendSummary(subagent: Subagent): string {
+  const tokens = subagent.tokens !== undefined ? formatTokens(subagent.tokens) : '—';
+  const duration = subagent.durationMs !== undefined ? formatElapsed(subagent.durationMs) : '—';
+  return `${tokens} · ${duration}`;
+}
+
+/**
+ * The SOLO stream's collapsed figure, state first — the canvas's stream mock
+ * reads returns, not spend: `returned 41 words · 6.3k used · spawned 2`,
+ * `running · 6.2k so far` (ruling 32, solo-scoped). A figure not yet measured
+ * is omitted rather than zeroed or dashed; `queued` alone is a gap-fill, the
+ * canvas never draws one.
+ */
+function streamSummary(subagent: Subagent): string {
   const tokens = subagent.tokens !== undefined ? formatTokens(subagent.tokens) : undefined;
   const spawned = subagent.children.length > 0 ? ` · spawned ${subagent.children.length}` : '';
   if (subagent.state === 'queued') return 'queued';
@@ -178,7 +191,7 @@ function subagentSummary(subagent: Subagent): string {
  * identically at any depth.
  */
 function SubagentRow({
-  subagent, label, depth, s, opacity, open, toggle,
+  subagent, label, depth, s, opacity, open, toggle, solo,
 }: {
   subagent: Subagent;
   label: string;
@@ -187,10 +200,14 @@ function SubagentRow({
   opacity: number;
   open: ReadonlySet<string>;
   toggle: (e: MouseEvent, id: string) => void;
+  /** Solo stream anatomy (ruling 32) — a team column keeps `8b`'s whole. */
+  solo: boolean;
 }) {
   const isOpen = open.has(subagent.toolUseId);
-  // Depth 1 carries its type inside the label (`streamTaskLabelOf`), no pill.
-  const badge = depth > 1 ? `${subagent.agentType ?? 'agent'} · depth ${depth}` : undefined;
+  // Solo depth 1 carries its type inside the label (`streamTaskLabelOf`), no
+  // pill; a team column's row wears the pill, per 8b.
+  const badge =
+    depth > 1 ? `${subagent.agentType ?? 'agent'} · depth ${depth}` : solo ? undefined : subagent.agentType;
 
   if (!isOpen) {
     return (
@@ -234,7 +251,7 @@ function SubagentRow({
           data-testid="subagent-summary"
           style={{ color: 'var(--color-neutral-600)', fontSize: '10px', flex: 'none' }}
         >
-          {subagentSummary(subagent)}
+          {solo ? streamSummary(subagent) : spendSummary(subagent)}
         </span>
         <span
           data-testid="transcript-more"
@@ -338,6 +355,7 @@ function SubagentRow({
               opacity={1}
               open={open}
               toggle={toggle}
+              solo={solo}
             />
           ))}
           {subagent.children.length > MAX_CHAIN_ROWS && (
@@ -753,6 +771,7 @@ export function TranscriptFeed({
   agent,
   working = true,
   subagents,
+  solo = false,
 }: {
   lines: TranscriptLine[];
   size: FeedSize;
@@ -762,6 +781,12 @@ export function TranscriptFeed({
   working?: boolean;
   /** This agent's own Task/Agent dispatches, in spawn order. */
   subagents?: Subagent[];
+  /**
+   * The solo stream's Task-row anatomy (ruling 32): `Task(type, name)`, no
+   * pill, return-first figures. Off, a team column keeps canvas `8b`'s —
+   * `Task(name)`, type pill, `tokens · duration`.
+   */
+  solo?: boolean;
 }) {
   const s = FEED[size];
   const appearance = useAppearance();
@@ -978,8 +1003,9 @@ export function TranscriptFeed({
             <SubagentRow
               key={line.id}
               subagent={subagentGroup[0]}
-              label={streamTaskLabelOf(subagentGroup[0])}
+              label={solo ? streamTaskLabelOf(subagentGroup[0]) : taskLabelOf(subagentGroup[0])}
               depth={1}
+              solo={solo}
               s={s}
               opacity={opacity}
               open={open}
