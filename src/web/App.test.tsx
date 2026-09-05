@@ -925,8 +925,10 @@ it('drops the trace pill when a solo session has no subagents', async () => {
   render(<App />);
   act(() => MockEventSource.last().emit('snapshot', bareState()));
 
-  const tabs = await screen.findAllByRole('tab');
-  expect(tabs.map((t) => t.textContent)).toEqual(['stream']);
+  // Bar and footer alike — the canvas's stream mock draws the switcher twice.
+  const [bar, footer] = await screen.findAllByRole('tablist');
+  expect(within(bar).getAllByRole('tab').map((t) => t.textContent)).toEqual(['stream']);
+  expect(within(footer).getAllByRole('tab').map((t) => t.textContent)).toEqual(['stream']);
 });
 
 // …and a `trace` left in the URL from a session that HAD one falls back to the
@@ -946,8 +948,12 @@ it('offers a sub-agents session two pills, with the wall labelled stream', async
   render(<App />);
   act(() => MockEventSource.last().emit('snapshot', soloState()));
 
-  const tabs = await screen.findAllByRole('tab');
-  expect(tabs.map((t) => t.textContent)).toEqual(['stream', 'trace']);
+  // Twice over: the footer repeats the switcher and displaces PANEL, whose
+  // chips would list a roster of one.
+  const [bar, footer] = await screen.findAllByRole('tablist');
+  expect(within(bar).getAllByRole('tab').map((t) => t.textContent)).toEqual(['stream', 'trace']);
+  expect(within(footer).getAllByRole('tab').map((t) => t.textContent)).toEqual(['stream', 'trace']);
+  expect(screen.queryByText('PANEL')).toBeNull();
 });
 
 it('mounts the trace view over the session’s own tree when its pill is picked', async () => {
@@ -1004,9 +1010,10 @@ it('defaults to trace and the two-pill switcher for a /s/:sessionId URL, indepen
     body: '{}',
   });
 
-  const tabs = await screen.findAllByRole('tab');
-  expect(tabs.map((t) => t.textContent)).toEqual(['stream', 'trace']);
-  expect(screen.getByRole('tab', { name: 'trace' }).getAttribute('aria-selected')).toBe('true');
+  const [bar] = await screen.findAllByRole('tablist');
+  expect(within(bar).getAllByRole('tab').map((t) => t.textContent)).toEqual(['stream', 'trace']);
+  const traceTabs = screen.getAllByRole('tab', { name: 'trace' });
+  expect(traceTabs.every((t) => t.getAttribute('aria-selected') === 'true')).toBe(true);
   expect(await screen.findByTestId('trace-view')).toBeTruthy();
 });
 

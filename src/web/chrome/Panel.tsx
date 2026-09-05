@@ -1,8 +1,10 @@
 import { memo, useState } from 'react';
-import type { Agent } from '../../shared/domain';
+import type { Agent, SubagentTree, ViewId } from '../../shared/domain';
+import { flattenSubagents } from '../../shared/subagents';
 import { StatusGlyph } from '../components/StatusGlyph';
-import { formatPct } from '../format';
+import { formatPct, formatTokens } from '../format';
 import { useCast } from '../state/useCast';
+import { soloViews } from '../state/useTeamState';
 
 const IDLE_COLLAPSE_AT = 3;
 const LEGEND = '↑↓ select · ⏎ open · esc interrupt · x stop · ⌃T tasks · t teams';
@@ -155,6 +157,70 @@ export function Panel({ agents, focusedAgent, onFocusAgent }: PanelProps) {
           ))}
       </div>
       <span style={{ color: 'var(--color-neutral-600)', whiteSpace: 'nowrap' }}>{LEGEND}</span>
+    </div>
+  );
+}
+
+/**
+ * The solo session's footer, off the canvas's stream mock (§8): the view
+ * switcher again on the left — `view  stream · trace` — and the tree's whole
+ * figure on the right. It replaces PANEL, whose chips list a roster this
+ * session does not have. The mock's key legend is cropped at `esc interrupts
+ * th…`; `the turn` is the reconstruction, marked as such in the decisions file.
+ */
+export function SoloFooter({ view, onViewChange, hasSubagents, subagents }: {
+  view: ViewId;
+  onViewChange(view: ViewId): void;
+  hasSubagents: boolean;
+  subagents: SubagentTree;
+}) {
+  const all = Object.values(subagents).flatMap(flattenSubagents);
+  // Absent means not-yet-landed, not zero — the same rule the status bar sums by.
+  const tokens = all.reduce((n, s) => n + (s.tokens ?? 0), 0);
+
+  return (
+    <div
+      style={{
+        borderTop: '1px solid var(--color-neutral-900)',
+        background: 'var(--term)',
+        padding: '8px 14px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        fontSize: 10.5,
+      }}
+    >
+      <span style={{ color: 'var(--color-neutral-600)' }}>view</span>
+      <div role="tablist" style={{ display: 'flex', gap: 2 }}>
+        {soloViews(hasSubagents).map((id) => (
+          <button
+            key={id}
+            className="tab"
+            type="button"
+            role="tab"
+            aria-selected={id === view}
+            onClick={() => onViewChange(id)}
+            style={{
+              padding: '1px 9px',
+              fontSize: 11.5,
+              whiteSpace: 'nowrap',
+              borderRadius: 'var(--radius-sm)',
+              color: id === view ? 'var(--color-text)' : 'var(--color-neutral-600)',
+              background: id === view ? 'var(--color-accent-900)' : 'transparent',
+              boxShadow: id === view ? 'inset 0 0 0 1px var(--color-accent-700)' : 'none',
+            }}
+          >
+            {id === 'wall' ? 'stream' : id}
+          </button>
+        ))}
+      </div>
+      <span style={{ flex: 1 }} />
+      {all.length > 0 && (
+        <span data-testid="solo-footer-subagents" style={{ color: 'var(--color-neutral-500)', whiteSpace: 'nowrap' }}>
+          {`${all.length} subagent${all.length === 1 ? '' : 's'} · ${formatTokens(tokens)}`}
+        </span>
+      )}
+      <span style={{ color: 'var(--color-neutral-600)', whiteSpace: 'nowrap' }}>esc interrupts the turn</span>
     </div>
   );
 }

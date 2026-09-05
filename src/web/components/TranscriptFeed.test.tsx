@@ -853,30 +853,58 @@ describe('Task rows and fan-out', () => {
     };
   }
 
-  it('collapses a single Task call to one line: text, type badge, tokens · duration, caret', () => {
+  it('collapses a single Task call to one line: Task(type, name), what it returned, caret', () => {
     const lines: TranscriptLine[] = [{ id: 'rec-1#0', marker: '⏺', text: 'Task(scout)', ts: T }];
     render(
       <TranscriptFeed
         lines={lines}
         size="wall"
-        subagents={[subagent({ agentType: 'general-purpose', tokens: 4200, durationMs: 65_000 })]}
+        subagents={[subagent({ agentType: 'general-purpose', tokens: 4200, returnedWords: 41 })]}
       />,
     );
     const row = screen.getByTestId('transcript-row');
-    expect(within(row).getByTestId('transcript-text').textContent).toBe('Task(scout)');
-    expect(within(row).getByTestId('subagent-type').textContent).toBe('general-purpose');
-    expect(within(row).getByTestId('subagent-summary').textContent).toBe('4.2k · 1m 05s');
+    expect(within(row).getByTestId('transcript-text').textContent).toBe('Task(general-purpose, scout)');
+    expect(within(row).queryByTestId('subagent-type')).toBeNull();
+    expect(within(row).getByTestId('subagent-summary').textContent).toBe('returned 41 words · 4.2k used');
     expect(within(row).getByTestId('transcript-more').textContent).toBe('▸');
   });
 
-  // Absent means not-landed-yet — a queued call has genuinely nothing to show,
-  // and a zero would claim it spent no tokens rather than saying it hasn't run.
-  it('shows em-dashes for a queued call with nothing measured yet', () => {
+  it('says only queued for a call with nothing measured yet', () => {
     const lines: TranscriptLine[] = [{ id: 'rec-1#0', marker: '⏺', text: 'Task(scout)', ts: T }];
     render(
       <TranscriptFeed lines={lines} size="wall" subagents={[subagent({ state: 'queued' })]} />,
     );
-    expect(screen.getByTestId('subagent-summary').textContent).toBe('— · —');
+    expect(screen.getByTestId('subagent-summary').textContent).toBe('queued');
+  });
+
+  it('reads running · tokens so far while the call is still out', () => {
+    const lines: TranscriptLine[] = [{ id: 'rec-1#0', marker: '⏺', text: 'Task(scout)', ts: T }];
+    render(
+      <TranscriptFeed
+        lines={lines}
+        size="wall"
+        subagents={[subagent({ state: 'running', tokens: 6200 })]}
+      />,
+    );
+    expect(screen.getByTestId('subagent-summary').textContent).toBe('running · 6.2k so far');
+  });
+
+  it('counts a call with its own dispatches as spawned N on the collapsed row', () => {
+    const lines: TranscriptLine[] = [{ id: 'rec-1#0', marker: '⏺', text: 'Task(scout)', ts: T }];
+    const children = [
+      subagent({ toolUseId: 'toolu_2', name: 'schema-read', depth: 2, parent: 'toolu_1' }),
+      subagent({ toolUseId: 'toolu_3', name: 'risk-check', depth: 2, parent: 'toolu_1' }),
+    ];
+    render(
+      <TranscriptFeed
+        lines={lines}
+        size="wall"
+        subagents={[subagent({ tokens: 28_700, returnedWords: 78, children })]}
+      />,
+    );
+    expect(screen.getByTestId('subagent-summary').textContent).toBe(
+      'returned 78 words · 28.7k used · spawned 2',
+    );
   });
 
   it('expands into the same drawer container the other expandable rows use', () => {

@@ -84,7 +84,7 @@ function InFlight({ agent, onOpen }: { agent: Agent; onOpen?: (name: string) => 
 }
 
 const Column = memo(function Column({
-  agent, isFocused, isTinted, isDragging, width, readOnly, teamLive, routed,
+  agent, isFocused, isTinted, isDragging, width, headerless = false, readOnly, teamLive, routed,
   onFocus, onHoverEnter, onHoverLeave, onGrip, onGripReset, onOpenMail, subagents, tasks,
 }: {
   agent: Agent;
@@ -106,6 +106,12 @@ const Column = memo(function Column({
    */
   /** `null` on a roster of one: the stream takes the frame — see `soloStream`. */
   width: number | null;
+  /**
+   * The canvas's solo stream (§8) draws no header pane — no portrait, name,
+   * meter or cost, just the chrome and the rows. A roster of one has nothing
+   * to tell columns apart by, which is all the header is for.
+   */
+  headerless?: boolean;
   readOnly: boolean;
   teamLive: boolean;
   /**
@@ -173,6 +179,7 @@ const Column = memo(function Column({
       onMouseEnter={() => onHoverEnter(agent.name)}
       onMouseLeave={() => onHoverLeave(agent.name)}
     >
+      {!headerless && (
       <div style={HEADER}>
         <Portrait agent={agent} slot="wall" />
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '5px' }}>
@@ -318,6 +325,7 @@ const Column = memo(function Column({
           )}
         </div>
       </div>
+      )}
 
       <TranscriptFeed
         lines={agent.transcript}
@@ -558,6 +566,7 @@ export function Wall({
             isTinted={agent.name === focused || hovered === agent.name}
             isDragging={dragging === agent.name}
             width={widths[agent.name] ?? (soloStream ? null : COLUMN_WIDTH)}
+            headerless={soloStream}
             readOnly={readOnly}
             teamLive={teamLive}
             routed={agent.isLead}

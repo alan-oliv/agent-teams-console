@@ -5,7 +5,7 @@ import type { Agent, TeamsResponse, TeamSummary } from '../shared/domain';
 import { wallOrder as rosterOrder } from '../shared/roster';
 import { postJson } from './api';
 import { NeedsYou } from './chrome/NeedsYou';
-import { Panel } from './chrome/Panel';
+import { Panel, SoloFooter } from './chrome/Panel';
 import { StatusBar } from './chrome/StatusBar';
 import { StopConfirm, WatchConfirm } from './chrome/StopConfirm';
 import { DiffModal } from './components/DiffModal';
@@ -418,8 +418,12 @@ export function App() {
         {view === 'tasks' && <Tasks tasks={state.tasks} teamName={state.teamName} />}
         {view === 'trace' && traceLead && (
           <Trace
-            agent={traceLead.name}
+            // Display only — the canvas names a teamless session's parent lane
+            // `main` (8a), and `team-lead` is a team word this session has no
+            // claim to. The subagent lookup below still joins on the real key.
+            agent="main"
             model={traceLead.model}
+            turnStartedAt={traceLead.turnStartedAt}
             subagents={
               state.subagents?.[traceLead.name] ?? Object.values(state.subagents ?? {}).flat()
             }
@@ -475,7 +479,16 @@ export function App() {
         onCancel={() => setPendingDismiss(false)}
       />
       <NeedsYou items={state.needsYou} readOnly={state.readOnly} now={now} />
-      <Panel agents={state.agents} focusedAgent={store.agent} onFocusAgent={store.setAgent} />
+      {solo ? (
+        <SoloFooter
+          view={view}
+          onViewChange={store.setView}
+          hasSubagents={hasSubagents}
+          subagents={state.subagents ?? {}}
+        />
+      ) : (
+        <Panel agents={state.agents} focusedAgent={store.agent} onFocusAgent={store.setAgent} />
+      )}
     </div>
     </WatchContext.Provider>
     </DiffContext.Provider>

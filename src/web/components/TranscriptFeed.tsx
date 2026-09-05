@@ -141,14 +141,33 @@ function taskLabelOf(subagent: Subagent): string {
 }
 
 /**
- * The collapsed row's right-aligned figure. Em-dashes rather than zeros: a
- * queued or running call has genuinely nothing measured yet, and a zero would
- * claim it spent no tokens instead of saying it hasn't returned.
+ * A depth-1 row folds the type into the parens — `Task(Explore, grep-callsites)`
+ * — per the canvas's stream mock (§8), which draws no pill there. The drawer's
+ * children keep {@link taskLabelOf} plus the pill: only `8b` draws that far in.
+ */
+function streamTaskLabelOf(subagent: Subagent): string {
+  const inner = subagent.name ?? subagent.description;
+  return subagent.agentType && inner ? `Task(${subagent.agentType}, ${inner})` : taskLabelOf(subagent);
+}
+
+/**
+ * The collapsed row's right-aligned figure, state first — the canvas's stream
+ * mock reads returns, not spend: `returned 41 words · 6.3k used · spawned 2`,
+ * `running · 6.2k so far`. A figure not yet measured is omitted rather than
+ * zeroed or dashed; `queued` alone is a gap-fill, the canvas never draws one.
  */
 function subagentSummary(subagent: Subagent): string {
-  const tokens = subagent.tokens !== undefined ? formatTokens(subagent.tokens) : '—';
-  const duration = subagent.durationMs !== undefined ? formatElapsed(subagent.durationMs) : '—';
-  return `${tokens} · ${duration}`;
+  const tokens = subagent.tokens !== undefined ? formatTokens(subagent.tokens) : undefined;
+  const spawned = subagent.children.length > 0 ? ` · spawned ${subagent.children.length}` : '';
+  if (subagent.state === 'queued') return 'queued';
+  if (subagent.state === 'running') return `running${tokens ? ` · ${tokens} so far` : ''}${spawned}`;
+  const opening =
+    subagent.state === 'failed'
+      ? 'failed'
+      : subagent.returnedWords !== undefined
+        ? `returned ${subagent.returnedWords} word${subagent.returnedWords === 1 ? '' : 's'}`
+        : 'returned';
+  return `${opening}${tokens ? ` · ${tokens} used` : ''}${spawned}`;
 }
 
 /**
@@ -170,7 +189,8 @@ function SubagentRow({
   toggle: (e: MouseEvent, id: string) => void;
 }) {
   const isOpen = open.has(subagent.toolUseId);
-  const badge = depth > 1 ? `${subagent.agentType ?? 'agent'} · depth ${depth}` : subagent.agentType;
+  // Depth 1 carries its type inside the label (`streamTaskLabelOf`), no pill.
+  const badge = depth > 1 ? `${subagent.agentType ?? 'agent'} · depth ${depth}` : undefined;
 
   if (!isOpen) {
     return (
@@ -958,7 +978,7 @@ export function TranscriptFeed({
             <SubagentRow
               key={line.id}
               subagent={subagentGroup[0]}
-              label={taskLabelOf(subagentGroup[0])}
+              label={streamTaskLabelOf(subagentGroup[0])}
               depth={1}
               s={s}
               opacity={opacity}

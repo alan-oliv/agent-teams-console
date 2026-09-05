@@ -227,6 +227,27 @@ describe('spawnsOf', () => {
     ];
     expect(spawnsOf(records)[0].returnedSummary).toHaveLength(SUBAGENT_SUMMARY_CAP);
   });
+
+  it('counts the words of the whole return, not of the capped summary', () => {
+    const long = Array.from({ length: 150 }, (_, i) => `word${i}`).join(' ');
+    const records: TranscriptRecord[] = [
+      {
+        type: 'assistant',
+        uuid: 'a',
+        timestamp: '2026-08-30T03:00:00.000Z',
+        message: { content: [{ type: 'tool_use', id: 'toolu_x', name: 'Task', input: {} }] },
+      },
+      {
+        type: 'user',
+        uuid: 'b',
+        timestamp: '2026-08-30T03:00:09.000Z',
+        message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_x', content: long }] },
+      },
+    ];
+    const spawn = spawnsOf(records)[0];
+    expect(spawn.returnedSummary!.length).toBeLessThan(long.length);
+    expect(spawn.returnedWords).toBe(150);
+  });
 });
 
 describe('foldSubagentRecords', () => {

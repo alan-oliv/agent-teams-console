@@ -2407,35 +2407,37 @@ function str(value) {
   return typeof value === "string" && value !== "" ? value : void 0;
 }
 var NOTIFICATION = /<task-notification>([\s\S]*?)<\/task-notification>/;
-var NOTIFIED_TOOL_USE = /<tool-use-id>([\s\S]*?)<\/tool-use-id>/;
+var NOTIFIED_TOOL_USE = /<tool-use-id>([\s\S]*?)<\/tool-use-id>/g;
+var NOTIFIED_TASK_ID = /<task-id>([\s\S]*?)<\/task-id>/g;
 var NOTIFIED_STATUS = /<status>([\s\S]*?)<\/status>/;
 var NOTIFIED_SUMMARY = /<summary>([\s\S]*?)<\/summary>/;
-function notificationOf(rec) {
+function notificationsOf(rec) {
   const content = rec.message?.content;
   const text = typeof content === "string" ? content : rec.attachment?.prompt;
-  if (typeof text !== "string" || !text.includes("<task-notification>")) return null;
+  if (typeof text !== "string" || !text.includes("<task-notification>")) return [];
   const body = NOTIFICATION.exec(text)?.[1];
-  if (!body) return null;
-  const toolUseId = str(NOTIFIED_TOOL_USE.exec(body)?.[1]?.trim());
-  if (!toolUseId) return null;
+  if (!body) return [];
   const ts = rec.timestamp ? Date.parse(rec.timestamp) : NaN;
-  if (Number.isNaN(ts)) return null;
+  if (Number.isNaN(ts)) return [];
   const status = NOTIFIED_STATUS.exec(body)?.[1]?.trim();
   const summary = str(NOTIFIED_SUMMARY.exec(body)?.[1]?.trim());
-  return {
+  const toolUseIds = [...body.matchAll(NOTIFIED_TOOL_USE)].map((m) => str(m[1]?.trim())).filter(Boolean);
+  const taskIds = [...body.matchAll(NOTIFIED_TASK_ID)].map((m) => str(m[1]?.trim())).filter(Boolean);
+  const named = toolUseIds.length ? toolUseIds.map((id) => ({ toolUseId: id })) : taskIds.map((id) => ({ toolUseId: "", agentId: id }));
+  return named.map(({ toolUseId, agentId }) => ({
     kind: "update",
     toolUseId,
+    ...agentId ? { agentId } : {},
     returnedAt: ts,
     ...summary ? { returnedSummary: cap(summary) } : {},
-    // Every notification observed so far reads `completed`; anything else is
-    // the runtime saying it did not, so it is reported rather than smoothed.
+    // `completed` is the ordinary outcome; `stopped`, `killed` and `failed` are
+    // the runtime saying it did not, so they are reported rather than smoothed.
     ...status !== void 0 && status !== "completed" ? { failed: true } : {}
-  };
+  }));
 }
 function spawnEventsOf(rec) {
   const events = [];
-  const notified = notificationOf(rec);
-  if (notified) events.push(notified);
+  events.push(...notificationsOf(rec));
   const content = rec.message?.content;
   if (!Array.isArray(content)) return events;
   const ts = rec.timestamp ? Date.parse(rec.timestamp) : NaN;
@@ -2491,14 +2493,17 @@ function applySpawnEvents(fold, events) {
       fold.spawns.forEach((s, i) => fold.at.set(s.toolUseId, i));
       continue;
     }
-    const at = fold.at.get(event.toolUseId);
-    if (at === void 0) continue;
+    const at = fold.at.get(event.toolUseId) ?? (event.agentId !== void 0 ? fold.spawns.findIndex((sp) => sp.agentId === event.agentId) : -1);
+    if (at === void 0 || at < 0) continue;
     const spawn = fold.spawns[at];
     if (event.agentId) spawn.agentId = event.agentId;
     if (event.returnedAt !== void 0) spawn.returnedAt = event.returnedAt;
     if (event.failed) spawn.failed = true;
     const summary = event.returnedSummary ?? (event.content === void 0 ? void 0 : flatten(event.content));
-    if (summary) spawn.returnedSummary = cap(summary);
+    if (summary) {
+      spawn.returnedSummary = cap(summary);
+      spawn.returnedWords = summary.split(/\s+/).filter(Boolean).length;
+    }
   }
 }
 function bearsContext(rec) {
@@ -2574,6 +2579,7 @@ function nodesOf(spawns, agent, parent, depth, facts, seen) {
       node.durationMs = spawn.returnedAt - (started ?? spawn.queuedAt);
     }
     if (spawn.returnedSummary) node.returnedSummary = spawn.returnedSummary;
+    if (spawn.returnedWords !== void 0) node.returnedWords = spawn.returnedWords;
     if (digest && digest.records > 0) {
       node.tokens = digest.tokens;
       node.toolCalls = digest.toolCalls;
@@ -2917,6 +2923,21 @@ function deliveryDrafts(content) {
     drafts.push({ marker: marker === "\u276F" ? "\u2709" : marker, text, sender: part.from });
   }
   return drafts;
+}
+function isPromptTurn(rec) {
+  if (rec.type !== "user") return false;
+  const content = rec.message?.content;
+  if (typeof content === "string") {
+    return splitTeammateDelivery(content).some(
+      (part) => part.from === void 0 && tidy(part.text) !== "" && markerForUserText(part.text) === "\u276F"
+    );
+  }
+  if (!Array.isArray(content)) return false;
+  return content.some((block) => {
+    if (!block || typeof block !== "object") return false;
+    const b = block;
+    return b.type === "text" && typeof b.text === "string" && tidy(b.text) !== "";
+  });
 }
 function markerForUserText(body) {
   const trimmed = body.trim();
@@ -3263,6 +3284,13 @@ function project(events, readOnly, now = Date.now()) {
   );
   let totalTokens = 0;
   const liveMembers = config ? new Set(config.members.map((m) => m.name)) : null;
+  const firstRecordAt = (recs) => {
+    for (const rec of recs ?? []) {
+      const at = rec.timestamp ? Date.parse(rec.timestamp) : NaN;
+      if (Number.isFinite(at)) return at;
+    }
+    return void 0;
+  };
   const roster = buildRoster(config, sidecars);
   const soloLead = roster.length === 0 ? [...records.keys()][0] : void 0;
   if (soloLead !== void 0) {
@@ -3272,7 +3300,10 @@ function project(events, readOnly, now = Date.now()) {
       isLead: true,
       agentType: "",
       role: "",
-      joinedAt: 0
+      // Its own first record, not 0: there is no config.json to carry a
+      // createdAt here, and an epoch joinedAt rendered as `496798h 13m` in
+      // both the column header and the bar.
+      joinedAt: firstRecordAt(records.get(soloLead)) ?? 0
     });
   }
   const agents = roster.map((id) => {
@@ -3315,6 +3346,12 @@ function project(events, readOnly, now = Date.now()) {
       color: id.color,
       status,
       currentTool: currentTool.get(id.name),
+      turns: recs.reduce((n, rec) => n + (isPromptTurn(rec) ? 1 : 0), 0),
+      turnStartedAt: recs.reduce((at, rec) => {
+        if (!isPromptTurn(rec)) return at;
+        const t = rec.timestamp ? Date.parse(rec.timestamp) : NaN;
+        return Number.isFinite(t) ? t : at;
+      }, void 0),
       contextTokens: sub?.tokenCount ?? contextOccupancy(recs),
       contextLimit: resolved.window,
       compactAt: resolved.compactAt,
@@ -3357,7 +3394,9 @@ function project(events, readOnly, now = Date.now()) {
     sessionName,
     leadSessionId: config?.leadSessionId ?? "",
     branch,
-    startedAt: config?.createdAt ?? 0,
+    // A config-less session has no createdAt, so the lead's own start stands in
+    // — the alternative is an elapsed measured from the epoch.
+    startedAt: config?.createdAt ?? agents.find((a) => a.isLead)?.startedAt ?? 0,
     totalTokens,
     totalCostUsd: agents.reduce((sum, a) => sum + a.costUsd, 0),
     rateLimits,
@@ -5340,11 +5379,14 @@ function parseArgs(argv) {
   let claudeHome = process.env.CLAUDE_CONFIG_DIR || path10.join(os2.homedir(), ".claude");
   let team;
   let session;
+  let cwd = process.cwd();
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "setup" || arg === "uninstall") command = arg;
     else if (arg === "--read-only") readOnly = true;
     else if (arg === "--yes") confirm = true;
+    else if (arg === "--cwd") cwd = argv[++i];
+    else if (arg.startsWith("--cwd=")) cwd = arg.slice("--cwd=".length);
     else if (arg === "--port") port = Number(argv[++i]);
     else if (arg.startsWith("--port=")) port = Number(arg.slice("--port=".length));
     else if (arg === "--claude-home") claudeHome = argv[++i];
@@ -5363,7 +5405,8 @@ function parseArgs(argv) {
     settingsPath: path10.join(claudeHome, "settings.json"),
     dbPath: path10.join(claudeHome, "agent-teams-console", "events.db"),
     team,
-    session
+    session,
+    cwd
   };
 }
 function toDiscovered(config) {
@@ -5585,9 +5628,21 @@ async function sessionProjectDir(projectsRoot, sessionId, cwd) {
       return false;
     }
   };
-  if (cwd) {
-    const dir = path10.join(projectsRoot, cwd.replace(/[^a-zA-Z0-9]/g, "-"), sessionId);
+  const isFile = async (file) => {
+    try {
+      return (await fs8.stat(file)).isFile();
+    } catch {
+      return false;
+    }
+  };
+  const found = async (slug) => {
+    const dir = path10.join(projectsRoot, slug, sessionId);
     if (await isDir(dir)) return dir;
+    return await isFile(`${dir}.jsonl`) ? dir : null;
+  };
+  if (cwd) {
+    const hit = await found(cwd.replace(/[^a-zA-Z0-9]/g, "-"));
+    if (hit) return hit;
   }
   let slugs;
   try {
@@ -5596,25 +5651,31 @@ async function sessionProjectDir(projectsRoot, sessionId, cwd) {
     return null;
   }
   for (const slug of slugs) {
-    const dir = path10.join(projectsRoot, slug, sessionId);
-    if (await isDir(dir)) return dir;
+    const hit = await found(slug);
+    if (hit) return hit;
   }
   return null;
 }
-async function soloSessionRows(projectsRoot, sessions, covered, diffstats, now) {
+async function sessionRows(projectsRoot, sessionIds, folderCwd, sessions, covered, diffstats, now) {
   const rows = [];
-  for (const sessionId of sessions.live) {
+  for (const sessionId of sessionIds) {
     if (covered.has(sessionId)) continue;
-    const cwd = sessions.cwds.get(sessionId);
-    if (!cwd) continue;
-    const subagents = await subagentCountOf(projectsRoot, cwd, sessionId);
-    if (subagents === 0) continue;
+    const cwd = sessions.cwds.get(sessionId) ?? folderCwd;
     const dir = path10.join(projectsRoot, cwd.replace(/[^a-zA-Z0-9]/g, "-"), sessionId);
-    let lastActivityAt = now;
+    const subagents = await subagentCountOf(projectsRoot, cwd, sessionId);
+    const workflow = await workflowOf(projectsRoot, cwd, sessionId, now);
+    let lastActivityAt = 0;
     try {
-      lastActivityAt = (await fs8.stat(path10.join(dir, "subagents"))).mtimeMs;
+      lastActivityAt = (await fs8.stat(`${dir}.jsonl`)).mtimeMs;
     } catch {
+      try {
+        lastActivityAt = (await fs8.stat(path10.join(dir, "subagents"))).mtimeMs;
+      } catch {
+        lastActivityAt = now;
+      }
     }
+    const leadAlive = sessions.live.has(sessionId);
+    const recent = now - lastActivityAt < IDLE_GRACE_MS;
     if (!diffstats.has(cwd)) diffstats.set(cwd, await diffstatOf(cwd));
     rows.push({
       // The SESSION id, not a team directory: `sessionOnly` below is what tells
@@ -5624,20 +5685,36 @@ async function soloSessionRows(projectsRoot, sessions, covered, diffstats, now) 
       members: 1,
       createdAt: 0,
       leadSessionId: sessionId,
-      leadAlive: true,
+      leadAlive,
       lastActivityAt,
-      live: true,
+      live: leadAlive || recent,
       current: false,
       branch: await branchOf(cwd),
       goal: sessions.names.get(sessionId),
-      state: "live",
-      subagents,
+      state: leadAlive ? "live" : recent ? "idle" : "done",
+      ...workflow ? { workflow } : {},
+      ...subagents > 0 ? { subagents } : {},
       ...diffstats.get(cwd) ? { diffstat: diffstats.get(cwd) } : {}
     });
   }
   return rows;
 }
-async function listTeamSummaries(teamsRoot2, sessionsRoot, current, projectsRoot) {
+async function folderSessionIds(projectsRoot, cwd) {
+  const dir = path10.join(projectsRoot, cwd.replace(/[^a-zA-Z0-9]/g, "-"));
+  let entries;
+  try {
+    entries = await fs8.readdir(dir);
+  } catch {
+    return [];
+  }
+  const ids = /* @__PURE__ */ new Set();
+  for (const entry of entries) {
+    const id = entry.endsWith(".jsonl") ? entry.slice(0, -".jsonl".length) : entry;
+    if (/^[0-9a-f]{8}-[0-9a-f-]+$/i.test(id)) ids.add(id);
+  }
+  return [...ids];
+}
+async function listTeamSummaries(teamsRoot2, sessionsRoot, current, projectsRoot, cwd) {
   let entries = [];
   try {
     entries = await fs8.readdir(teamsRoot2);
@@ -5698,13 +5775,21 @@ async function listTeamSummaries(teamsRoot2, sessionsRoot, current, projectsRoot
     });
   }
   const adopted = adoptByCwd(teams, leadCwds, sessions, now);
+  const scoped = projectsRoot && cwd ? await folderSessionIds(projectsRoot, cwd) : void 0;
+  if (scoped) {
+    const here = new Set(scoped);
+    for (let i = teams.length - 1; i >= 0; i--) {
+      if (!here.has(teams[i].leadSessionId) && !teams[i].current) teams.splice(i, 1);
+    }
+  }
   if (projectsRoot) {
     const covered = /* @__PURE__ */ new Set([
       ...teams.map((t) => t.leadSessionId),
       ...liveTeams.values(),
       ...adopted
     ]);
-    teams.push(...await soloSessionRows(projectsRoot, sessions, covered, diffstats, now));
+    const ids = scoped ?? [...sessions.live].filter((id) => sessions.cwds.has(id));
+    teams.push(...await sessionRows(projectsRoot, ids, cwd ?? "", sessions, covered, diffstats, now));
   }
   teams.sort(
     (a, b) => Number(b.current) - Number(a.current) || Number(b.live) - Number(a.live) || b.lastActivityAt - a.lastActivityAt || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
@@ -5947,7 +6032,7 @@ async function main(argv) {
     stream: hub,
     state: publish,
     readOnly: cli.readOnly,
-    listTeams: () => listTeamSummaries(teamsRoot2, sessionsRoot, currentTeam, projectsRoot),
+    listTeams: () => listTeamSummaries(teamsRoot2, sessionsRoot, currentTeam, projectsRoot, cli.cwd),
     history: (agent) => transcriptHistory(store.replay(), agent),
     lineText: (agent, id) => transcriptLineText(store.replay(), agent, id),
     selectTeam,
@@ -5958,7 +6043,13 @@ async function main(argv) {
   console.log(`agent teams console on http://127.0.0.1:${port}${cli.readOnly ? " (read-only)" : ""}`);
   const followRealTeam = async () => {
     if (switching) return;
-    const { teams } = await listTeamSummaries(teamsRoot2, sessionsRoot, currentTeam, projectsRoot);
+    const { teams } = await listTeamSummaries(
+      teamsRoot2,
+      sessionsRoot,
+      currentTeam,
+      projectsRoot,
+      cli.cwd
+    );
     const mine = teams.find((t) => t.name === currentTeam);
     leadFacts = { sessionName: mine?.goal, branch: mine?.branch };
     if (pinned) return;

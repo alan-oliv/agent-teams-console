@@ -54,6 +54,13 @@ export interface TraceProps {
   agent: string;
   /** The parent lane's model, beside its `parent turn` badge (canvas `8a`). */
   model?: string;
+  /**
+   * When the parent's current turn began. `8a`'s axis is the TURN — `0:00` is
+   * where the operator pressed enter, not where the first Task went out — so
+   * this anchors the ruler and the parent lane's own bar when it precedes
+   * every dispatch.
+   */
+  turnStartedAt?: number;
   subagents: Subagent[];
   now: number;
   selected: string | null;
@@ -119,7 +126,7 @@ export function axisTicks(span: number): { at: number; label: string }[] {
  * (CONSOLE-NOTES.md §25). Every header-strip number is derived from the same
  * flattened list the lanes render from, so they cannot read differently.
  */
-export function Trace({ agent, model, subagents, now, selected, onSelect }: TraceProps) {
+export function Trace({ agent, model, turnStartedAt, subagents, now, selected, onSelect }: TraceProps) {
   const flat = flatten(subagents);
   const maxDepth = flat.reduce((m, r) => Math.max(m, r.depth), 0);
   const tokensIn = flat.reduce((n, r) => n + (r.subagent.tokens ?? 0), 0);
@@ -132,9 +139,11 @@ export function Trace({ agent, model, subagents, now, selected, onSelect }: Trac
 
   const starts = flat.map((r) => r.subagent.queuedAt);
   const ends = flat.map((r) => r.subagent.returnedAt ?? now);
-  const axisStart = starts.length > 0 ? Math.min(...starts) : now;
+  const anchors = turnStartedAt !== undefined ? [...starts, turnStartedAt] : starts;
+  const axisStart = anchors.length > 0 ? Math.min(...anchors) : now;
   const axisEnd = Math.max(now, ...ends, axisStart + 1);
   const span = axisEnd - axisStart;
+  const parentLeft = (((turnStartedAt ?? axisStart) - axisStart) / span) * 100;
 
   const selectedRow = selected ? flat.find((r) => r.subagent.toolUseId === selected) : undefined;
 
@@ -175,7 +184,7 @@ export function Trace({ agent, model, subagents, now, selected, onSelect }: Trac
               lineHeight: 1.45,
             }}
           >
-            {`${formatTokens(tokensIn)} spent inside subagents against ${formatTokens(shownToParent)} that reached the parent — ${ratio}:1`}
+            {`${ratio}:1 — ${flat.length} context window${flat.length === 1 ? '' : 's'} compressed into ${flat.length} summary line${flat.length === 1 ? '' : 's'}. The ratio is the reason this view exists.`}
           </span>
         )}
       </div>
@@ -263,9 +272,13 @@ export function Trace({ agent, model, subagents, now, selected, onSelect }: Trac
           </div>
           <div style={{ flex: 1, position: 'relative', height: '8px' }}>
             <div
+              data-testid="trace-parent-bar"
               style={{
                 position: 'absolute',
-                inset: 0,
+                left: `${parentLeft}%`,
+                width: `${Math.max(0.5, ((now - (turnStartedAt ?? axisStart)) / span) * 100)}%`,
+                top: 0,
+                bottom: 0,
                 background: 'var(--color-accent-600)',
                 borderRadius: '2px',
               }}
@@ -321,9 +334,23 @@ export function Trace({ agent, model, subagents, now, selected, onSelect }: Trac
                     {subagent.model}
                   </span>
                 )}
-                <span style={{ color: 'var(--color-neutral-600)', fontSize: '10px', flex: 'none' }}>
-                  {subagent.state}
-                </span>
+                {depth >= 3 && (
+                  <span style={{ color: 'var(--color-neutral-600)', fontSize: '10px', flex: 'none' }}>
+                    {`depth ${depth}`}
+                  </span>
+                )}
+                {/* `8a` prints a state only while it is news — `running` on the
+                    one unfinished row, nothing on returned ones, whose ended
+                    bar and duration already say it. Queued and failed are the
+                    gap-fill: unphotographed, but silence would hide them. */}
+                {subagent.state !== 'returned' && (
+                  <span
+                    data-testid="trace-lane-state"
+                    style={{ color: 'var(--color-neutral-600)', fontSize: '10px', flex: 'none' }}
+                  >
+                    {subagent.state}
+                  </span>
+                )}
               </div>
               <div style={{ flex: 1, position: 'relative', height: bar.height }}>
                 <div
@@ -338,6 +365,25 @@ export function Trace({ agent, model, subagents, now, selected, onSelect }: Trac
                     borderRadius: '2px',
                   }}
                 />
+                {/* `1m 36s` off the bar's end — `8a` durations top-level rows
+                    only; a child's cost is its parent's business. */}
+                {depth === 1 && subagent.durationMs !== undefined && (
+                  <span
+                    data-testid="trace-bar-duration"
+                    style={{
+                      position: 'absolute',
+                      left: `${Math.min(left + width, 92)}%`,
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      marginLeft: '6px',
+                      color: 'var(--color-neutral-600)',
+                      fontSize: '9.5px',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {formatElapsed(subagent.durationMs)}
+                  </span>
+                )}
               </div>
               <div
                 style={{
@@ -401,6 +447,9 @@ function Lane({
         height: '22px',
         cursor: onClick ? 'pointer' : undefined,
         background: selected ? 'var(--color-bg)' : undefined,
+        // `8a` marks the selected lane with an accent left edge; inset shadow
+        // rather than a border so the row's content does not shift on click.
+        boxShadow: selected ? 'inset 2px 0 0 var(--color-accent-500)' : undefined,
         ...style,
       }}
     >
