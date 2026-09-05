@@ -194,11 +194,11 @@ describe('WorkflowRun', () => {
   it('shows the run totals that exist, and says why there is no budget', () => {
     render(<WorkflowRun run={RUN} />);
     const totals = screen.getByTestId('wf-totals').textContent ?? '';
-    expect(totals).toContain('219 tool calls');
-    expect(totals).toContain('4 agents');
+    expect(totals).toContain('tool calls219');
+    expect(totals).toContain('agents4');
     // The figure is each agent's final context, summed — not the run's spend.
     // §20: labeling it bare next to "tool calls" and "agents" read as a bill.
-    expect(totals).toContain('699k final context');
+    expect(totals).toContain('final context699k');
     // Absent by fact, not by omission — and the panel has to say so, or the
     // missing meter reads as a console that failed to read one.
     expect(totals).toMatch(/no budget on disk/i);
@@ -284,8 +284,8 @@ describe('WorkflowRun', () => {
       render(<WorkflowRun run={LIVE} />);
       const totals = screen.getByTestId('wf-totals').textContent ?? '';
 
-      expect(totals).toContain('3 started');
-      expect(totals).toContain('2 returned');
+      expect(totals).toContain('started3');
+      expect(totals).toContain('returned2');
       expect(totals).not.toMatch(/0 tool calls/);
     });
 

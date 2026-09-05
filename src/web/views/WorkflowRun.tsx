@@ -108,6 +108,35 @@ const SIDE_BODY: CSSProperties = { color: 'var(--color-neutral-500)', fontSize: 
 
 const SIDE_PANEL: CSSProperties = { padding: '12px 14px', borderBottom: '1px solid var(--color-neutral-900)' };
 
+const ROW: CSSProperties = {
+  display: 'flex',
+  gap: '10px',
+  justifyContent: 'space-between',
+  alignItems: 'baseline',
+  marginBottom: '5px',
+};
+
+/**
+ * An em-dash value is a figure that does not exist, never one this view failed
+ * to read — so the row keeps the sentence saying which, rather than leaving a
+ * blank the operator has to explain to themselves.
+ */
+function SideRow({ label, value, note }: { label: string; value: string; note?: string }) {
+  return (
+    <>
+      <div style={ROW}>
+        <span style={{ flex: 'none', color: 'var(--color-neutral-600)' }}>{label}</span>
+        <span style={{ color: 'var(--color-text)', fontWeight: 500, textAlign: 'right' }}>{value}</span>
+      </div>
+      {note !== undefined && (
+        <div style={{ color: 'var(--color-neutral-700)', fontSize: '10px', lineHeight: 1.45, marginBottom: '7px' }}>
+          {note}
+        </div>
+      )}
+    </>
+  );
+}
+
 /**
  * Both the grid's row key and the phase list's identity, so the one MEASURED
  * width covers both. A label with no `verb:` prefix is its own key and a live
@@ -463,34 +492,50 @@ export function WorkflowRun({ run }: { run: Run }) {
         <div style={SIDE_PANEL}>
           <div style={SIDE_LABEL}>RUN TOTALS</div>
           <div data-testid="wf-totals" style={SIDE_BODY}>
-            {run.live
-              ? `${live.started} started · ${live.returned} returned`
-              : `${formatTokens(run.totalTokens ?? 0)} final context · ${run.totalToolCalls ?? 0} tool calls · ${run.agentCount ?? run.agents.length} agents`}
-            {/* Budget is deliberately absent: it exists nowhere on disk, and
-                totalTokens counts this run's agents while budget.spent() is a
-                session-level counter — showing one as the other under-reports. */}
-            <div style={{ color: 'var(--color-neutral-700)', fontSize: '10px', marginTop: '4px' }}>
-              {run.live
-                ? 'tokens, tool calls and duration land with the snapshot, at the end'
-                : "no budget on disk · this is the run's own spend, not the session's"}
-            </div>
+            {run.live ? (
+              <>
+                <SideRow label="started" value={`${live.started}`} />
+                <SideRow
+                  label="returned"
+                  value={`${live.returned}`}
+                  note="tokens, tool calls and duration land with the snapshot, at the end"
+                />
+              </>
+            ) : (
+              <>
+                <SideRow label="final context" value={formatTokens(run.totalTokens ?? 0)} />
+                <SideRow label="tool calls" value={`${run.totalToolCalls ?? 0}`} />
+                <SideRow label="agents" value={`${run.agentCount ?? run.agents.length}`} />
+                {/* Budget is deliberately absent: it exists nowhere on disk, and
+                    totalTokens counts this run's agents while budget.spent() is a
+                    session-level counter — showing one as the other under-reports. */}
+                <SideRow
+                  label="budget"
+                  value="—"
+                  note="no budget on disk · this is the run's own spend, not the session's"
+                />
+              </>
+            )}
           </div>
         </div>
 
         <div style={SIDE_PANEL}>
           <div style={SIDE_LABEL}>LIMITS</div>
           <div data-testid="wf-limits" style={SIDE_BODY}>
-            concurrency is min(16, CPUs − 2) agents at once
-            <div style={{ color: 'var(--color-neutral-600)', marginTop: '4px' }}>
-              {`${run.live ? live.started : (run.agentCount ?? run.agents.length)} of 1000 agents — the lifetime cap for the whole run`}
-            </div>
             {/* The cap is resolved from the HOST's cpu count at launch and never
                 written to the snapshot. This browser's own core count is a
                 different machine's number, so the figure is named as missing
-                rather than substituted. */}
-            <div style={{ color: 'var(--color-neutral-700)', fontSize: '10px', marginTop: '4px' }}>
-              the slot count itself is not recorded — only the formula is known
-            </div>
+                rather than substituted — the formula is the only value there is. */}
+            <SideRow
+              label="concurrency"
+              value="—"
+              note="min(16, CPUs − 2) agents at once · the slot count itself is not recorded — only the formula is known"
+            />
+            <SideRow
+              label="lifetime cap"
+              value={`${run.live ? live.started : (run.agentCount ?? run.agents.length)} of 1000 agents`}
+              note="the cap is for the whole run"
+            />
           </div>
         </div>
 

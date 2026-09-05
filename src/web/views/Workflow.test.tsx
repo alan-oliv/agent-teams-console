@@ -233,7 +233,7 @@ describe('Workflow', () => {
     // The sidebar was never restricted to a finished run, and the shell used to
     // drop it for a live one by branching around the run view entirely.
     expect(screen.getByTestId('wf-limits')).toBeTruthy();
-    expect(screen.getByTestId('wf-totals').textContent).toContain('1 started');
+    expect(screen.getByTestId('wf-totals').textContent).toContain('started1');
   });
 
   it('shows a live run no elapsed it cannot source', () => {
