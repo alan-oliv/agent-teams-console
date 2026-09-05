@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import type { TeamSummary, TeamsResponse } from '../../shared/domain';
+import type { FolderSummary, TeamSummary, TeamsResponse } from '../../shared/domain';
 import { postJson } from '../api';
-import { diffStat, formatElapsed } from '../format';
+import { diffStat, formatElapsed, shortPath } from '../format';
 import { useCast } from '../state/useCast';
 import { useWatch } from '../state/useWatch';
 
@@ -13,6 +13,12 @@ const TRIGGER_WIDTH = '146px';
 // Ruling 14. The reconcile turned each row into two lines — name over id,
 // branch and diffstat — and that anatomy was sized for 520; 432 predates it.
 const PANEL_WIDTH = '520px';
+
+// The folder menu is narrower than the panel it hangs off, and offset to start
+// under the chip that opens it rather than at the panel's edge — both the
+// canvas's own numbers.
+const FOLDER_MENU_WIDTH = '288px';
+const FOLDER_MENU_LEFT = '100px';
 
 /**
  * The three session kinds the canvas knows, with the colours it gives them —
@@ -104,6 +110,14 @@ export function TeamSelect({ current, sessionName, mode, open, onOpenChange, now
   const [cursor, setCursor] = useState(0);
   const [mark, setMark] = useState<Mark | null>(null);
   const [query, setQuery] = useState('');
+  // Two folders, not one: `folder` is what the operator asked for ('' being
+  // "wherever the console was started"), `scope` is what the server answered
+  // with. Reading the chip off the reply rather than the request keeps them
+  // from chasing each other — setting one from the other would refetch.
+  const [folder, setFolder] = useState('');
+  const [scope, setScope] = useState('');
+  const [folders, setFolders] = useState<FolderSummary[]>([]);
+  const [foldersOpen, setFoldersOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const wrapper = useRef<HTMLDivElement>(null);
@@ -116,11 +130,13 @@ export function TeamSelect({ current, sessionName, mode, open, onOpenChange, now
     let live = true;
     setLoading(true);
     setUnreadable(false);
-    fetch('/api/teams')
+    fetch(folder ? `/api/teams?folder=${encodeURIComponent(folder)}` : '/api/teams')
       .then((res) => (res.ok ? (res.json() as Promise<TeamsResponse>) : Promise.reject(res.status)))
       .then((payload) => {
         if (!live) return;
         setTeams(payload.teams);
+        setScope(payload.folder ?? '');
+        setFolders(payload.folders ?? []);
         setCursor(Math.max(0, payload.teams.findIndex((t) => t.name === current)));
         setLoading(false);
       })
@@ -132,11 +148,14 @@ export function TeamSelect({ current, sessionName, mode, open, onOpenChange, now
     return () => {
       live = false;
     };
-  }, [open]);
+  }, [open, folder]);
 
   function close() {
     setMark(null);
     setQuery('');
+    // Only one menu is ever open: opening the session dropdown puts the folder
+    // menu away, and so does closing it.
+    setFoldersOpen(false);
     onOpenChange(false);
     trigger.current?.focus();
   }
@@ -218,6 +237,18 @@ export function TeamSelect({ current, sessionName, mode, open, onOpenChange, now
   const filteredRows = rows.filter((t) => matchesQuery(t, query));
   const teamCount = rows.length;
   const cursorTeam = filteredRows[Math.min(cursor, filteredRows.length - 1)];
+
+  // The chip and the note count SESSIONS ON DISK, which is what the folder menu
+  // beside them counts; the header count above the list counts ROWS, because it
+  // sits directly on top of them. The two differ whenever a folder's sessions
+  // fold into one team row, and each is true of what it is next to.
+  const here = folders.find((f) => f.path === scope);
+  const folderName = here?.name ?? scope.split('/').filter(Boolean).pop() ?? scope;
+  const totalSessions = folders.reduce((n, f) => n + f.sessions, 0);
+  const folderNote = here
+    ? `${here.sessions} of ${totalSessions} sessions are in this folder` +
+      (here.sessions === totalSessions ? '' : ' · switch folders to see the rest')
+    : '';
 
   function onListKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     if (e.key === 'ArrowDown') {
@@ -357,26 +388,60 @@ export function TeamSelect({ current, sessionName, mode, open, onOpenChange, now
             outline: 'none',
           }}
         >
+          {/* The header is a folder picker, not a caption: `SESSIONS ON` plus
+              the folder itself, because the scope is now something the operator
+              chooses rather than something the launcher decided for them. The
+              noun stays "SESSIONS" (decision 23) \u2014 the ruling that chose
+              "TEAMS" was compensating for a filter that listed bare windows,
+              and with that fixed the list holds teams, workflow sessions and
+              solo sessions alike. */}
           <div
             style={{
               display: 'flex',
-              justifyContent: 'space-between',
               alignItems: 'center',
-              padding: '10px 14px 8px',
+              gap: '9px',
+              padding: '7px 12px 6px',
+              borderBottom: '1px solid var(--color-neutral-900)',
               color: 'var(--color-neutral-600)',
-              fontSize: '10.5px',
+              fontSize: '10px',
               letterSpacing: '.12em',
+              position: 'relative',
             }}
           >
-            {/* "IN THIS FOLDER", not the canvas's "ON THIS MACHINE": the list
-                is scoped to the working copy the console was started in, so the
-                canvas's word is no longer true of it. The noun is still
-                "SESSIONS" (decision 23): the ruling that
-                chose "TEAMS" was compensating for a filter that listed bare
-                windows. With the filter fixed, the list holds teams, workflow
-                sessions and solo sessions \u2014 only SESSIONS is true of all
-                three, and bare windows still never list. */}
-            <span>{`SESSIONS IN THIS FOLDER \u00b7 ${teamCount}`}</span>
+            <span style={{ flex: 'none' }}>SESSIONS ON</span>
+            <button
+              type="button"
+              data-testid="folder-chip"
+              aria-haspopup="listbox"
+              aria-expanded={foldersOpen}
+              onClick={() => setFoldersOpen((o) => !o)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '2px 8px',
+                border: '1px solid var(--color-neutral-800)',
+                borderRadius: 'var(--radius-sm)',
+                background: 'transparent',
+                letterSpacing: 'normal',
+                cursor: 'pointer',
+                flex: 'none',
+              }}
+            >
+              <span style={{ color: 'var(--color-accent-300)', fontSize: '11px', whiteSpace: 'nowrap' }}>
+                {folderName}
+              </span>
+              <span style={{ color: 'var(--color-neutral-600)', fontSize: '10px', whiteSpace: 'nowrap' }}>
+                {shortPath(scope)}
+              </span>
+              <span aria-hidden="true" style={{ color: 'var(--color-accent-400)', fontSize: '10px' }}>
+                {foldersOpen ? '\u25b4' : '\u25be'}
+              </span>
+            </button>
+            {/* The canvas leaves this slot as bare spacer \u2014 a mock has no live
+                search to draw in it. It is the only gap in the row wide enough
+                to type into, and the footer's `\u2318K to search` promises somewhere
+                to type, so the input fills it rather than displacing the count. */}
             <input
               ref={search}
               data-testid="team-search"
@@ -395,9 +460,104 @@ export function TeamSelect({ current, sessionName, mode, open, onOpenChange, now
                 color: 'var(--color-text)',
                 fontSize: '11px',
                 letterSpacing: 'normal',
-                width: '140px',
+                flex: 1,
+                minWidth: 0,
               }}
             />
+            <span data-testid="session-count" style={{ flex: 'none' }}>
+              {teamCount}
+            </span>
+
+            {foldersOpen && (
+              <div
+                data-testid="folder-menu"
+                role="listbox"
+                aria-label="folders"
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 5px)',
+                  left: FOLDER_MENU_LEFT,
+                  zIndex: 22,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  width: FOLDER_MENU_WIDTH,
+                  background: 'var(--color-bg)',
+                  border: '1px solid var(--color-neutral-800)',
+                  borderRadius: 'var(--radius-md)',
+                  boxShadow: 'var(--shadow-md)',
+                  overflow: 'hidden',
+                  letterSpacing: 'normal',
+                  // The canvas draws three folders and needs no cap. This
+                  // machine has eighteen, and uncapped the menu ran 200px past
+                  // the panel it hangs off. Same ceiling as the session list
+                  // below it, so the two menus stop in the same place.
+                  maxHeight: '320px',
+                  overflowY: 'auto',
+                }}
+              >
+                {folders.map((f) => {
+                  const isHere = f.path === scope;
+                  return (
+                    <div
+                      key={f.path}
+                      role="option"
+                      aria-selected={isHere}
+                      onClick={() => {
+                        // Picking filters the list and closes the folder menu \u2014
+                        // the session dropdown stays open, since choosing a
+                        // folder is how you get to the session in it.
+                        setFolder(f.path);
+                        setFoldersOpen(false);
+                        setCursor(0);
+                      }}
+                      style={{
+                        padding: '7px 11px',
+                        display: 'flex',
+                        gap: '9px',
+                        alignItems: 'baseline',
+                        cursor: 'pointer',
+                        background: isHere ? 'var(--color-accent-900)' : 'transparent',
+                        borderBottom: '1px solid var(--color-neutral-900)',
+                      }}
+                    >
+                      <span
+                        style={{
+                          color: isHere ? 'var(--color-accent-300)' : 'var(--color-text)',
+                          fontSize: '11.5px',
+                          whiteSpace: 'nowrap',
+                          flex: 'none',
+                        }}
+                      >
+                        {f.name}
+                      </span>
+                      <span
+                        style={{
+                          color: 'var(--color-neutral-600)',
+                          fontSize: '10px',
+                          minWidth: 0,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {shortPath(f.path)}
+                      </span>
+                      <span style={{ flex: 1 }} />
+                      <span
+                        style={{
+                          color: 'var(--color-neutral-600)',
+                          fontSize: '10px',
+                          whiteSpace: 'nowrap',
+                          flex: 'none',
+                        }}
+                      >
+                        {f.sessions}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           <div
@@ -704,17 +864,24 @@ export function TeamSelect({ current, sessionName, mode, open, onOpenChange, now
 
           <div
             style={{
-              padding: '9px 16px',
-              borderTop: '1px solid var(--color-neutral-900)',
+              display: 'flex',
+              gap: '12px',
+              padding: '8px 12px',
               color: 'var(--color-neutral-600)',
-              fontSize: '10.5px',
+              fontSize: '10px',
             }}
           >
-            {/* ⌘K opens the picker from anywhere and re-focuses the search
-                once it is open. It worked with nothing on screen naming it,
-                which for the one shortcut the design calls out is the same as
-                not having it. */}
-            ↑↓ select · ⏎ switch · ⌘K search · esc close
+            {/* The canvas gives the footer two slots: the shortcut it wants
+                named, and the scope. The separator above comes from the last
+                row's own bottom border, so there is no border here. */}
+            {/* Both `flex: none`: a flex child shrinks below its content by
+                default, and these two wrapped to four lines before the spacer
+                between them gave up any width. */}
+            <span style={{ flex: 'none' }}>⌘K to search</span>
+            <span style={{ flex: 1 }} />
+            <span data-testid="folder-note" style={{ flex: 'none' }}>
+              {folderNote}
+            </span>
           </div>
         </div>
       )}

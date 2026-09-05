@@ -371,9 +371,27 @@ export interface TeamSummary {
   diffstat?: { added: number; removed: number };
 }
 
+/**
+ * One working directory the machine has ever held a session in — a row in the
+ * picker's folder menu.
+ *
+ * `path` is the real absolute directory, not the project slug: the slug maps
+ * `/` and `.` and `_` all onto `-`, so it cannot be turned back into a path.
+ * The path is read out of a transcript record instead, which carries it whole.
+ */
+export interface FolderSummary {
+  path: string;              // absolute; the client abbreviates it for display
+  name: string;              // its basename — what the chip shows first
+  sessions: number;          // `<sessionId>.jsonl` files under its project dir
+}
+
 export interface TeamsResponse {
   current: string;           // '' when the console has not resolved a team yet
   teams: TeamSummary[];      // current first, then live, then lastActivityAt desc, then name
+  /** The folder the rows above are scoped to; '' when the listing is machine-wide. */
+  folder?: string;
+  /** Every folder with sessions in it, newest first — the folder menu's rows. */
+  folders?: FolderSummary[];
 }
 
 /**

@@ -49,6 +49,8 @@ function emptyState(readOnly: boolean): TeamState {
 
 let shutdowns: number;
 let listed: TeamsResponse;
+/** What `?folder=` handed the listing, `undefined` when it was absent. */
+let listFolderCalls: (string | undefined)[];
 let selectCalls: string[];
 let selectOutcome: (name: string) => SelectTeamOutcome;
 let sessionCalls: string[];
@@ -60,6 +62,7 @@ let lineTexts: Record<string, string>;
 async function boot(readOnly: boolean, webDist?: string): Promise<{ server: Server; url: string }> {
   state = emptyState(readOnly);
   shutdowns = 0;
+  listFolderCalls = [];
   listed = {
     current: TEAM,
     teams: [
@@ -90,7 +93,10 @@ async function boot(readOnly: boolean, webDist?: string): Promise<{ server: Serv
     readOnly,
     webDist,
     lineText: (agent: string, id: string) => lineTexts[`${agent}|${id}`],
-    listTeams: () => Promise.resolve(listed),
+    listTeams: (folder?: string) => {
+      listFolderCalls.push(folder);
+      return Promise.resolve(listed);
+    },
     selectTeam: (name: string) => {
       selectCalls.push(name);
       return Promise.resolve(selectOutcome(name));
@@ -480,6 +486,19 @@ describe('the team selector', () => {
       const res = await fetch(`${url}/api/teams`);
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual(listed);
+    } finally {
+      await shutdown(server);
+    }
+  });
+
+  // The folder menu asks for another folder's sessions on the same endpoint;
+  // the guard on what it may name lives in the listing, not the route.
+  it('hands the requested folder to the listing', async () => {
+    const { server, url } = await boot(false);
+    try {
+      await fetch(`${url}/api/teams`);
+      await fetch(`${url}/api/teams?folder=${encodeURIComponent('/Users/dev/code/hatch')}`);
+      expect(listFolderCalls).toEqual([undefined, '/Users/dev/code/hatch']);
     } finally {
       await shutdown(server);
     }

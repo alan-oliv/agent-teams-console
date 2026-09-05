@@ -17,7 +17,7 @@ import { checkClaudeVersion, readClaudeVersion, runSetup } from './setup';
 import { isPidAlive, recycledSpares, startIdleReaper } from './lifecycle';
 import { logError, logInfo } from './log';
 import type { TeamConfig } from '../shared/roster';
-import type { TeamsResponse, TeamSummary, TeamState } from '../shared/domain';
+import type { FolderSummary, TeamsResponse, TeamSummary, TeamState } from '../shared/domain';
 
 const execFileAsync = promisify(execFile);
 
@@ -610,8 +610,7 @@ async function sessionRows(
  * `<sessionId>/` directory only appears once one spills a tool result or spawns
  * a subagent. Requiring one form would drop whichever sessions have the other.
  */
-async function folderSessionIds(projectsRoot: string, cwd: string): Promise<string[]> {
-  const dir = path.join(projectsRoot, cwd.replace(/[^a-zA-Z0-9]/g, '-'));
+async function sessionIdsIn(dir: string): Promise<string[]> {
   let entries: string[];
   try {
     entries = await fs.readdir(dir);
@@ -625,6 +624,115 @@ async function folderSessionIds(projectsRoot: string, cwd: string): Promise<stri
     if (/^[0-9a-f]{8}-[0-9a-f-]+$/i.test(id)) ids.add(id);
   }
   return [...ids];
+}
+
+async function folderSessionIds(projectsRoot: string, cwd: string): Promise<string[]> {
+  return sessionIdsIn(path.join(projectsRoot, cwd.replace(/[^a-zA-Z0-9]/g, '-')));
+}
+
+/**
+ * The directory a project dir was recorded for, read back out of one of its
+ * transcripts.
+ *
+ * The slug cannot be reversed — `cwd.replace(/[^a-zA-Z0-9]/g, '-')` maps `/`,
+ * `.`, `_` and `-` all onto the same character, so `-private-tmp` is as much
+ * `/private/tmp` as it is `/private-tmp`. Every transcript record carries the
+ * real `cwd`, so one of them is asked instead. Not the first line: a resumed
+ * session opens with a summary record that has no cwd on it, so the scan runs
+ * until it finds one.
+ */
+async function folderPathOf(dir: string, sessionIds: string[]): Promise<string | undefined> {
+  // A session id can name a spill directory with no transcript beside it, so
+  // the first id is not always readable. Three is enough to clear that without
+  // turning a miss into a scan of the whole folder.
+  for (const sessionId of sessionIds.slice(0, 3)) {
+    const cwd = await cwdInTranscript(path.join(dir, `${sessionId}.jsonl`));
+    if (cwd) return cwd;
+  }
+  return undefined;
+}
+
+async function cwdInTranscript(file: string): Promise<string | undefined> {
+  let head: string;
+  try {
+    const fh = await fs.open(file);
+    try {
+      // 64 KiB covers a transcript's opening records many times over; reading
+      // the whole file would mean pulling megabytes per folder to answer a
+      // question the first few lines always settle.
+      const { buffer, bytesRead } = await fh.read(Buffer.alloc(65536), 0, 65536, 0);
+      head = buffer.subarray(0, bytesRead).toString('utf8');
+    } finally {
+      await fh.close();
+    }
+  } catch {
+    return undefined;
+  }
+  for (const line of head.split('\n')) {
+    if (!line.includes('"cwd"')) continue;
+    try {
+      const rec = JSON.parse(line) as { cwd?: unknown };
+      if (typeof rec.cwd === 'string' && rec.cwd !== '') return rec.cwd;
+    } catch {
+      // A truncated last line is expected — we read a fixed prefix of the file.
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Every folder the machine has sessions in, newest first — the folder menu.
+ *
+ * Ordered by the project directory's own mtime, which moves when a session is
+ * written into it: the folder worked in most recently sits at the top, which is
+ * the one an operator switching folders most often wants. A folder whose path
+ * cannot be read back is dropped rather than shown under its slug — a row the
+ * operator cannot recognise is worse than no row.
+ */
+export async function listFolders(projectsRoot: string): Promise<FolderSummary[]> {
+  let entries: string[];
+  try {
+    entries = await fs.readdir(projectsRoot);
+  } catch {
+    return [];
+  }
+  const folders: (FolderSummary & { at: number })[] = [];
+  for (const entry of entries) {
+    const dir = path.join(projectsRoot, entry);
+    const ids = await sessionIdsIn(dir);
+    if (ids.length === 0) continue;
+    const cwd = await folderPathOf(dir, ids);
+    if (!cwd) continue;
+    let at = 0;
+    try {
+      at = (await fs.stat(dir)).mtimeMs;
+    } catch {
+      // Ordering only — a directory we cannot stat still lists, just last.
+    }
+    folders.push({ path: cwd, name: path.basename(cwd), sessions: ids.length, at });
+  }
+  folders.sort((a, b) => b.at - a.at);
+  return folders.map(({ at: _at, ...folder }) => folder);
+}
+
+/**
+ * Which folder a listing request may actually be answered for.
+ *
+ * The scope is not just a filter: it reaches `<cwd>/.git/HEAD` and a `git diff`
+ * spawned in that directory, so a path the browser names is checked against the
+ * folders that demonstrably hold sessions before any of that runs. `fallback`
+ * is this process's own `--cwd` and needs no check — and deliberately is not
+ * required to be in the list, since a working copy whose first session has not
+ * been written yet is still the right scope for it.
+ */
+export async function folderScope(
+  projectsRoot: string,
+  fallback: string,
+  folder?: string,
+): Promise<string> {
+  if (!folder || folder === fallback) return fallback;
+  const known = await listFolders(projectsRoot);
+  return known.some((f) => f.path === folder) ? folder : fallback;
 }
 
 /**
@@ -769,7 +877,10 @@ export async function listTeamSummaries(
       b.lastActivityAt - a.lastActivityAt ||
       (a.name < b.name ? -1 : a.name > b.name ? 1 : 0),
   );
-  return { current, teams };
+  // Only when there is a folder to be scoped to: a machine-wide listing has no
+  // chip to draw, and the menu would be offering to leave a scope it is not in.
+  const folders = projectsRoot && cwd ? await listFolders(projectsRoot) : undefined;
+  return { current, teams, ...(folders ? { folder: cwd, folders } : {}) };
 }
 
 /**
@@ -1134,8 +1245,14 @@ export async function main(argv: string[]): Promise<number> {
     stream: hub,
     state: publish,
     readOnly: cli.readOnly,
-    listTeams: () =>
-      listTeamSummaries(teamsRoot, sessionsRoot, currentTeam, projectsRoot, cli.cwd),
+    listTeams: async (folder?: string) =>
+      listTeamSummaries(
+        teamsRoot,
+        sessionsRoot,
+        currentTeam,
+        projectsRoot,
+        await folderScope(projectsRoot, cli.cwd, folder),
+      ),
     history: (agent: string) => transcriptHistory(store.replay(), agent),
     lineText: (agent: string, id: string) => transcriptLineText(store.replay(), agent, id),
     selectTeam,

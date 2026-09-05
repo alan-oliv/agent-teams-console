@@ -113,6 +113,15 @@ export function elapsedLabel(startedAt: number, now: number): string {
 }
 
 // Local time, so the clock reads as the time the operator experienced.
+/**
+ * `/Users/alanoliv/code/octo` → `~/code/octo` — the form the folder chip draws.
+ * The server sends the real path because that is what it takes back; the home
+ * prefix is the operator's own and carries nothing worth the width.
+ */
+export function shortPath(dir: string): string {
+  return dir.replace(/^\/(?:Users|home)\/[^/]+/, '~');
+}
+
 export function clockLabel(ts: number): string {
   const d = new Date(ts);
   const pad = (n: number) => String(n).padStart(2, '0');

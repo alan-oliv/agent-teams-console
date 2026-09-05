@@ -8,6 +8,8 @@ import {
   parseArgs,
   discoverTeam,
   fencedSink,
+  folderScope,
+  listFolders,
   listTeamSummaries,
   sessionProjectDir,
   DEFAULT_PORT,
@@ -860,5 +862,140 @@ describe('sessionProjectDir', () => {
   it('falls back to the scan when the recorded cwd points nowhere', async () => {
     const target = await makeSession('-Users-alanoliv-code-other');
     expect(await sessionProjectDir(path.join(dir, 'projects'), SESSION, '/gone')).toBe(target);
+  });
+});
+
+// The picker's header chip and its folder menu both come off the listing, so a
+// scoped response has to carry the scope and the folders beside the rows.
+describe('the folder menu on a listing', () => {
+  const projects = () => path.join(dir, 'projects');
+  const teams = () => path.join(dir, 'teams');
+  const sessions = () => path.join(dir, 'sessions');
+  const ID = '00000001-1111-2222-3333-444444444444';
+
+  async function writeTranscript(cwd: string) {
+    const slug = path.join(projects(), cwd.replace(/[^a-zA-Z0-9]/g, '-'));
+    await fs.mkdir(slug, { recursive: true });
+    await fs.writeFile(path.join(slug, `${ID}.jsonl`), `${JSON.stringify({ type: 'user', cwd })}\n`);
+  }
+
+  it('carries the folder in scope and every folder to switch to', async () => {
+    await writeTranscript('/Users/dev/code/octo');
+    await writeTranscript('/Users/dev/code/hatch');
+
+    const listing = await listTeamSummaries(
+      teams(),
+      sessions(),
+      '',
+      projects(),
+      '/Users/dev/code/octo',
+    );
+    expect(listing.folder).toBe('/Users/dev/code/octo');
+    expect(listing.folders?.map((f) => f.name).sort()).toEqual(['hatch', 'octo']);
+  });
+
+  // A machine-wide listing has no chip to draw, and a menu on it would be
+  // offering to leave a scope it is not in.
+  it('carries neither when the listing is not scoped to a folder', async () => {
+    await writeTranscript('/Users/dev/code/octo');
+
+    const listing = await listTeamSummaries(teams(), sessions(), '', projects());
+    expect(listing.folder).toBeUndefined();
+    expect(listing.folders).toBeUndefined();
+  });
+});
+
+describe('listFolders', () => {
+  const projects = () => path.join(dir, 'projects');
+
+  /** A project dir as Claude Code writes one: the slug, with transcripts in it. */
+  async function writeTranscripts(cwd: string, sessionIds: string[], recordCwd = cwd) {
+    const slug = path.join(projects(), cwd.replace(/[^a-zA-Z0-9]/g, '-'));
+    await fs.mkdir(slug, { recursive: true });
+    for (const id of sessionIds) {
+      await fs.writeFile(
+        path.join(slug, `${id}.jsonl`),
+        // A resumed session opens on a summary record with no cwd on it, which
+        // is why the reader scans rather than taking the first line.
+        `${JSON.stringify({ type: 'summary', leafUuid: 'x' })}\n` +
+          `${JSON.stringify({ type: 'user', cwd: recordCwd, sessionId: id })}\n`,
+      );
+    }
+    return slug;
+  }
+
+  const ID = (n: number) => `0000000${n}-1111-2222-3333-444444444444`;
+
+  it('names each folder by the cwd its transcripts record, not by the slug', async () => {
+    await writeTranscripts('/Users/dev/code/octo-ui', [ID(1), ID(2)]);
+
+    const [folder] = await listFolders(projects());
+    // The slug maps `/`, `.`, `_` and `-` onto one character, so `octo-ui`
+    // could not be told from `octo/ui` or `octo.ui` by reading it back.
+    expect(folder).toEqual({ path: '/Users/dev/code/octo-ui', name: 'octo-ui', sessions: 2 });
+  });
+
+  it('drops a folder whose path cannot be read back rather than showing its slug', async () => {
+    const slug = path.join(projects(), '-Users-dev-code-mystery');
+    await fs.mkdir(slug, { recursive: true });
+    await fs.writeFile(path.join(slug, `${ID(1)}.jsonl`), `${JSON.stringify({ type: 'summary' })}\n`);
+    await writeTranscripts('/Users/dev/code/octo', [ID(2)]);
+
+    expect((await listFolders(projects())).map((f) => f.name)).toEqual(['octo']);
+  });
+
+  it('skips project dirs holding no sessions', async () => {
+    await fs.mkdir(path.join(projects(), '-Users-dev-empty'), { recursive: true });
+    await writeTranscripts('/Users/dev/code/octo', [ID(1)]);
+
+    expect((await listFolders(projects())).map((f) => f.name)).toEqual(['octo']);
+  });
+
+  it('puts the folder written into most recently first', async () => {
+    const older = await writeTranscripts('/Users/dev/code/older', [ID(1)]);
+    const newer = await writeTranscripts('/Users/dev/code/newer', [ID(2)]);
+    await fs.utimes(older, new Date(1_000_000), new Date(1_000_000));
+    await fs.utimes(newer, new Date(2_000_000), new Date(2_000_000));
+
+    expect((await listFolders(projects())).map((f) => f.name)).toEqual(['newer', 'older']);
+  });
+
+  it('reads nothing at all from a missing projects root', async () => {
+    expect(await listFolders(path.join(dir, 'nope'))).toEqual([]);
+  });
+});
+
+describe('folderScope', () => {
+  const projects = () => path.join(dir, 'projects');
+
+  async function writeTranscript(cwd: string) {
+    const slug = path.join(projects(), cwd.replace(/[^a-zA-Z0-9]/g, '-'));
+    await fs.mkdir(slug, { recursive: true });
+    await fs.writeFile(
+      path.join(slug, '00000001-1111-2222-3333-444444444444.jsonl'),
+      `${JSON.stringify({ type: 'user', cwd })}\n`,
+    );
+  }
+
+  it('answers for a folder that holds sessions', async () => {
+    await writeTranscript('/Users/dev/code/hatch');
+    expect(await folderScope(projects(), '/Users/dev/code/octo', '/Users/dev/code/hatch')).toBe(
+      '/Users/dev/code/hatch',
+    );
+  });
+
+  // The scope is read from, and a `git diff` is spawned inside it, so a path the
+  // browser invented has to fall back rather than reach the filesystem.
+  it('falls back to its own cwd for a folder with no sessions in it', async () => {
+    await writeTranscript('/Users/dev/code/hatch');
+    for (const hostile of ['/etc', '../../etc', '/Users/dev/code/hatch/..']) {
+      expect(await folderScope(projects(), '/Users/dev/code/octo', hostile)).toBe(
+        '/Users/dev/code/octo',
+      );
+    }
+  });
+
+  it('takes its own cwd unread when no folder was asked for', async () => {
+    expect(await folderScope(projects(), '/Users/dev/code/octo')).toBe('/Users/dev/code/octo');
   });
 });

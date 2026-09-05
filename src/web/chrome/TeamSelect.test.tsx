@@ -17,6 +17,11 @@ afterEach(cleanup);
 // so it stands in as an idle REAL team.
 const LIST = {
   current: 'session-98b0b4a7',
+  folder: '/Users/dev/code/octo',
+  folders: [
+    { path: '/Users/dev/code/octo', name: 'octo', sessions: 2 },
+    { path: '/Users/dev/code/hatch', name: 'hatch', sessions: 5 },
+  ],
   teams: sampleTeams().map((t, i) =>
     i === 1 ? { ...t, state: 'idle' as const, members: 2 } : t,
   ),
@@ -27,7 +32,7 @@ let fetchMock: ReturnType<typeof vi.fn>;
 /** Routes on path so a test can fail the POST without also failing the GET. */
 function routed(post: () => Promise<Response>) {
   return vi.fn((path: string) =>
-    path === '/api/teams'
+    path === '/api/teams' || path.startsWith('/api/teams?')
       ? Promise.resolve(new Response(JSON.stringify(LIST), { status: 200 }))
       : post(),
   );
@@ -104,12 +109,14 @@ it('falls back to the directory id when the session was never named', () => {
   expect(screen.getByTestId('team-trigger-name').textContent).toBe('session-98b0b4a7');
 });
 
-it('heads the list with the team count', async () => {
+it('heads the list with the folder it is scoped to and the row count', async () => {
   renderSelect();
-  expect(await screen.findByText('SESSIONS IN THIS FOLDER · 2')).toBeTruthy();
-  // ⌘K is the one shortcut the design calls out, and it worked with nothing on
-  // screen naming it — so it sits in the legend with the other three.
-  expect(screen.getByText('↑↓ select · ⏎ switch · ⌘K search · esc close')).toBeTruthy();
+  expect(await screen.findByText('SESSIONS ON')).toBeTruthy();
+  expect(screen.getByTestId('folder-chip').textContent).toContain('octo');
+  // The home prefix is the operator's own and buys nothing at 10px.
+  expect(screen.getByTestId('folder-chip').textContent).toContain('~/code/octo');
+  expect(screen.getByTestId('session-count').textContent).toBe('2');
+  expect(screen.getByText('⌘K to search')).toBeTruthy();
 });
 
 // The row leads with the name the operator gave the session; the directory id
@@ -381,7 +388,7 @@ it('lists a team whose session has ended, and says when', async () => {
   const rows = await screen.findAllByRole('option');
   expect(rows).toHaveLength(2);
   expect(within(rows[1]).getByTestId('team-meta').textContent).toContain('ended');
-  expect(screen.getByText('SESSIONS IN THIS FOLDER · 2')).toBeTruthy();
+  expect(screen.getByTestId('session-count').textContent).toBe('2');
 });
 
 it('opens the sessions menu on ⌘K when it is closed', () => {
@@ -498,9 +505,7 @@ it('drops hidden sessions from the list and from the header count', async () => 
   renderSelect({}, { hidden: new Set(['session-b5129c7b']) });
   const rows = await screen.findAllByRole('option');
   expect(rows.map((r) => r.id)).not.toContain('team-option-session-b5129c7b');
-  expect(screen.getByText(/SESSIONS IN THIS FOLDER/).textContent).toContain(
-    String(rows.length),
-  );
+  expect(screen.getByTestId('session-count').textContent).toBe(String(rows.length));
 });
 
 // Hiding the last row would otherwise be a one-way door: an empty list with no
@@ -570,7 +575,7 @@ it('counts every listed session in the header', async () => {
   soloList();
   renderSelect();
   await screen.findAllByRole('option');
-  expect(screen.getByText('SESSIONS IN THIS FOLDER · 2')).toBeTruthy();
+  expect(screen.getByTestId('session-count').textContent).toBe('2');
 });
 
 function listOf(teams: TeamSummary[]) {
@@ -677,7 +682,7 @@ it('tells a workflow session apart from a bare one by its kind pill', async () =
 
   const rows = await screen.findAllByRole('option');
   expect(rows).toHaveLength(2);
-  expect(screen.getByText('SESSIONS IN THIS FOLDER · 2')).toBeTruthy();
+  expect(screen.getByTestId('session-count').textContent).toBe('2');
   expect(within(rows[0]).getByTestId('team-kind').textContent).toBe('workflow');
   expect(within(rows[1]).getByTestId('team-kind').textContent).toBe('solo');
   expect(within(rows[0]).getByTestId('team-meta').textContent).toContain('running');
@@ -805,4 +810,92 @@ it('calls a roster of one with a tree subagents, and a bare one solo', async () 
     'subagents',
     'solo',
   ]);
+});
+
+// The folder menu — the chip in the header opens a second, narrower list of
+// every folder the machine has sessions in, and picking one rescopes the
+// session list under it.
+it('opens the folder menu from the chip and lists every folder with its count', async () => {
+  renderSelect();
+  await screen.findAllByRole('option');
+  expect(screen.queryByTestId('folder-menu')).toBeNull();
+
+  fireEvent.click(screen.getByTestId('folder-chip'));
+  const menu = screen.getByTestId('folder-menu');
+  const rows = within(menu).getAllByRole('option');
+  expect(rows.map((r) => r.textContent)).toEqual(['octo~/code/octo2', 'hatch~/code/hatch5']);
+  // The folder in scope is the marked one, so the menu says where you already are.
+  expect(rows[0].getAttribute('aria-selected')).toBe('true');
+  expect(rows[1].getAttribute('aria-selected')).toBe('false');
+});
+
+it('refetches the list scoped to the folder that was picked, and closes the folder menu', async () => {
+  renderSelect();
+  await screen.findAllByRole('option');
+  fireEvent.click(screen.getByTestId('folder-chip'));
+  fireEvent.click(within(screen.getByTestId('folder-menu')).getAllByRole('option')[1]);
+
+  expect(fetchMock).toHaveBeenLastCalledWith(
+    `/api/teams?folder=${encodeURIComponent('/Users/dev/code/hatch')}`,
+  );
+  // Only one menu is ever open: the session list stays up, since picking a
+  // folder is how you get to a session inside it.
+  expect(screen.queryByTestId('folder-menu')).toBeNull();
+  expect(screen.getByTestId('team-list')).toBeTruthy();
+});
+
+// The scope is the folder the SERVER answered with, never the one that was
+// asked for: a folder it refuses would otherwise leave the chip naming a list
+// it is not showing.
+it('names the folder the server answered with, not the one requested', async () => {
+  renderSelect();
+  await screen.findAllByRole('option');
+  fireEvent.click(screen.getByTestId('folder-chip'));
+  fireEvent.click(within(screen.getByTestId('folder-menu')).getAllByRole('option')[1]);
+
+  await screen.findAllByRole('option');
+  expect(screen.getByTestId('folder-chip').textContent).toContain('octo');
+});
+
+it('states the scope in the footer, with the way out of it', async () => {
+  renderSelect();
+  await screen.findAllByRole('option');
+  expect(screen.getByTestId('folder-note').textContent).toBe(
+    '2 of 7 sessions are in this folder · switch folders to see the rest',
+  );
+});
+
+// Offering to "see the rest" when there is no rest is a control that does
+// nothing — the sentence keeps its count and drops its clause.
+it('drops the switch-folders clause when every session is in this folder', async () => {
+  const only = {
+    ...LIST,
+    folders: [{ path: '/Users/dev/code/octo', name: 'octo', sessions: 2 }],
+  };
+  vi.stubGlobal('fetch', vi.fn((path: string) =>
+    path.startsWith('/api/teams')
+      ? Promise.resolve(new Response(JSON.stringify(only), { status: 200 }))
+      : Promise.resolve(new Response('{}', { status: 200 })),
+  ));
+  renderSelect();
+  await screen.findAllByRole('option');
+  expect(screen.getByTestId('folder-note').textContent).toBe(
+    '2 of 2 sessions are in this folder',
+  );
+});
+
+// A machine-wide listing has no folder to name and no menu to offer.
+it('leaves the note empty when the listing is not scoped to a folder', async () => {
+  vi.stubGlobal('fetch', vi.fn((path: string) =>
+    path.startsWith('/api/teams')
+      ? Promise.resolve(
+          new Response(JSON.stringify({ current: LIST.current, teams: LIST.teams }), { status: 200 }),
+        )
+      : Promise.resolve(new Response('{}', { status: 200 })),
+  ));
+  renderSelect();
+  await screen.findAllByRole('option');
+  expect(screen.getByTestId('folder-note').textContent).toBe('');
+  fireEvent.click(screen.getByTestId('folder-chip'));
+  expect(within(screen.getByTestId('folder-menu')).queryAllByRole('option')).toHaveLength(0);
 });

@@ -111,8 +111,12 @@ export interface HttpDeps {
   state: () => TeamState;
   readOnly: boolean;
   leadName?: string;
-  /** Every team on the machine, live and dead — the selector's options. */
-  listTeams?: () => Promise<TeamsResponse>;
+  /**
+   * The picker's options — every session in one folder, live and dead. `folder`
+   * is the operator switching scope from the folder menu; absent means the one
+   * the console was started in.
+   */
+  listTeams?: (folder?: string) => Promise<TeamsResponse>;
   /** Older transcript lines for one agent — the wall's scrollback. */
   history?: (agent: string) => TranscriptLine[];
   lineText?: (agent: string, id: string) => string | undefined;
@@ -245,7 +249,7 @@ export function createHttpServer(deps: HttpDeps): Server {
         // Beside /health rather than below: every other non-API GET is the SPA
         // bundle, and a `/api/` path reaching that branch falls through to 404.
         if (method === 'GET' && route === '/api/teams' && deps.listTeams) {
-          json(res, 200, await deps.listTeams());
+          json(res, 200, await deps.listTeams(url.searchParams.get('folder') ?? undefined));
           return;
         }
 
