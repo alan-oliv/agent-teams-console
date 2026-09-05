@@ -963,46 +963,39 @@ it('mounts the trace view over the session’s own tree when its pill is picked'
 
 // ————— the /s/:sessionId route (task #4) —————
 
-it('defaults to trace and the two-pill switcher for a /s/:sessionId URL, independent of roster size', async () => {
+// The route's job is to select the session and to resolve its lead without a
+// roster-of-one check. It is NOT what decides the mode: a session reached this
+// way and then given teammates is a team, and the picker that navigated here
+// calls it one off `members >= 2`. It used to keep a one-pill switcher and a
+// `solo` kind pill over a wall of four columns.
+it('selects the session from a /s/:sessionId URL and takes its mode from the roster', async () => {
   window.history.replaceState(null, '', '/s/abc12345');
   const fetchMock = stubTeamsFetch();
   render(<App />);
   // A team-mode fixture on purpose: several agents, not the one-agent roster
-  // soloState() builds, to prove the route doesn't gate on agents.length === 1.
-  const state = sampleTeamState();
-  const lead = state.agents.find((a) => a.isLead)!;
-  act(() =>
-    MockEventSource.last().emit('snapshot', {
-      ...state,
-      subagents: {
-        [lead.name]: [
-          {
-            toolUseId: 'toolu_route1',
-            name: 'probe',
-            agent: lead.name,
-            parent: lead.name,
-            depth: 1,
-            spawnIndex: 0,
-            siblingGroup: 'rec-1',
-            state: 'returned' as const,
-            queuedAt: FIXTURE_NOW - 60_000,
-            startedAt: FIXTURE_NOW - 59_000,
-            returnedAt: FIXTURE_NOW - 10_000,
-            durationMs: 49_000,
-            tokens: 28_700,
-            returnedSummary: 'probe finished',
-            children: [],
-          },
-        ],
-      },
-    }),
-  );
+  // soloState() builds.
+  act(() => MockEventSource.last().emit('snapshot', sampleTeamState()));
 
   expect(fetchMock).toHaveBeenCalledWith('/api/select-session/abc12345', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: '{}',
   });
+
+  const tabs = await screen.findAllByRole('tab');
+  expect(tabs.map((t) => t.textContent)).toEqual([
+    'wall', 'overview', 'comms', 'tasks', 'rail', 'grid', 'usage',
+  ]);
+  // The route defaults the view to `trace`, which a team's switcher does not
+  // offer — it falls back rather than mounting a view with no tab above it.
+  expect(screen.getByRole('tab', { name: 'wall' }).getAttribute('aria-selected')).toBe('true');
+});
+
+it('opens a lone /s/:sessionId session on its trace, with the two-pill switcher', async () => {
+  window.history.replaceState(null, '', '/s/abc12345');
+  stubTeamsFetch();
+  render(<App />);
+  act(() => MockEventSource.last().emit('snapshot', soloState()));
 
   const tabs = await screen.findAllByRole('tab');
   expect(tabs.map((t) => t.textContent)).toEqual(['stream', 'trace']);

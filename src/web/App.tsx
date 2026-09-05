@@ -61,13 +61,22 @@ export function App() {
       ? (state.agents.find((a) => a.isLead) ?? state.agents[0] ?? null)
       : null;
   const traceLead = soloLead ?? routedLead;
-  const solo = store.sessionRoute !== null || soloLead !== null;
+  // The ROSTER decides the mode, never the route. `/s/:sessionId` used to force
+  // solo on its own, so a session reached that way and then given teammates
+  // kept a one-pill switcher and a `solo` kind pill over a wall of four
+  // columns — while the picker that navigated there called the same session
+  // `teammates` off `members >= 2`. The route's real job is above: resolving a
+  // lead without a roster-of-one check. Before the first snapshot there is no
+  // roster to ask, so the route stands in as the only hint there is.
+  const solo = state === null ? store.sessionRoute !== null : state.agents.length <= 1;
   // `trace` is offered when its subject exists (decision 24's rule), and on a
   // bare session it does not: no subagents, nothing to draw lifelines for. A
-  // `trace` left in the URL from a session that had them falls back to the
-  // stream rather than mounting an empty view.
+  // team never offers it either, whatever it has spawned — its switcher is the
+  // seven views. Either way a `trace` left in the URL falls back to the stream
+  // rather than mounting a view with no tab above it.
   const hasSubagents = Object.values(state?.subagents ?? {}).some((list) => list.length > 0);
-  const view = store.view === 'trace' && !hasSubagents ? 'wall' : store.view;
+  const offersTrace = solo && hasSubagents;
+  const view = store.view === 'trace' && !offersTrace ? 'wall' : store.view;
   // Lives here, not in the view, so switching away from usage and back does
   // not restart the sampler — the same reason widths and hidden sessions live
   // above the views that read them.
