@@ -512,13 +512,14 @@ describe('push -> pull wiring', () => {
       expect(byName.get(TEAM)!.members).toBe(4);
       expect(byName.get(TEAM_B)!.members).toBe(2);
       expect(byName.get(TEAM)!.current).toBe(true);
-      // The current team sorts first so the dropdown opens on it.
-      expect(listed.teams[0].name).toBe(TEAM);
 
       expect((await selectTeam(url, TEAM_B)).status).toBe(200);
       const again = (await (await fetch(`${url}/api/teams`)).json()) as TeamsResponse;
       expect(again.current).toBe(TEAM_B);
       expect(again.teams.filter((t) => t.current).map((t) => t.name)).toEqual([TEAM_B]);
+      // Only the flag moves: switching must never reshuffle the list under the
+      // cursor, so the row order is identical before and after.
+      expect(again.teams.map((t) => t.name)).toEqual(listed.teams.map((t) => t.name));
     },
     20_000,
   );

@@ -69,6 +69,17 @@ function agentCount(team: TeamSummary): string {
   return `${team.members} agent${team.members === 1 ? '' : 's'}`;
 }
 
+/**
+ * `session-` + 8 hex — the id vocabulary every other surface uses. A
+ * session-only row's `name` is the transcript's raw UUID, and 36 chars of it
+ * as a row title (or in the trigger) reads as noise, not identity.
+ */
+const RAW_UUID = /^([0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export function shortIdOf(name: string): string {
+  const m = RAW_UUID.exec(name);
+  return m ? `session-${m[1]}` : name;
+}
+
 function matchesQuery(team: TeamSummary, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
@@ -307,7 +318,7 @@ export function SessionPicker({ current, sessionName, mode, open, onOpenChange, 
             whiteSpace: 'nowrap',
           }}
         >
-          {watch.dismissed ? 'no session selected' : (sessionName ?? current)}
+          {watch.dismissed ? 'no session selected' : (sessionName ?? shortIdOf(current))}
         </span>
         {inWorld && !watch.dismissed && (
           <span
@@ -477,7 +488,7 @@ export function SessionPicker({ current, sessionName, mode, open, onOpenChange, 
                         whiteSpace: 'nowrap',
                       }}
                     >
-                      {team.goal ?? team.name}
+                      {team.goal ?? shortIdOf(team.name)}
                     </span>
                     <span style={{ flex: 1 }} />
                     {rowMark && (
@@ -558,7 +569,7 @@ export function SessionPicker({ current, sessionName, mode, open, onOpenChange, 
                           flex: 'none',
                         }}
                       >
-                        {team.name}
+                        {shortIdOf(team.name)}
                       </span>
                     )}
                     {/* The run's own name lands with its snapshot, which is

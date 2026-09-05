@@ -493,10 +493,10 @@ describe('listTeamSummaries', () => {
 
     const listed = await listTeamSummaries(teams(), sessions(), 'session-aaaa1111');
     expect(listed.current).toBe('session-aaaa1111');
-    expect(listed.teams.map((t) => [t.name, t.members, t.current])).toEqual([
-      ['session-aaaa1111', 5, true],
-      ['session-bbbb2222', 1, false],
-    ]);
+    // By name, not position: being current earns the flag, never a better slot.
+    const byName = new Map(listed.teams.map((t) => [t.name, t] as const));
+    expect(byName.get('session-aaaa1111')).toMatchObject({ members: 5, current: true });
+    expect(byName.get('session-bbbb2222')).toMatchObject({ members: 1, current: false });
   });
 
   // The picker's only route to a session that never formed a team: no
@@ -615,7 +615,9 @@ describe('listTeamSummaries', () => {
     expect(busy.live).toBe(true);
   });
 
-  it('orders current first, then live, then by last activity', async () => {
+  // Selecting a session must never reshuffle the list under the cursor: the
+  // order is live first then last activity, the same whoever is current.
+  it('orders live first then by last activity, with the current row unpinned', async () => {
     for (const [name, createdAt] of [['session-cur00001', 10], ['session-live0002', 20], ['session-old00003', 30], ['session-old00004', 40]] as const) {
       await writeConfig(name, team(name, { createdAt, leadSessionId: `${name}-x`, members: 2 }));
     }
@@ -623,15 +625,15 @@ describe('listTeamSummaries', () => {
     // session-old00003 is the older of the two dead teams.
     await fs.utimes(path.join(teams(), 'session-old00003', 'config.json'), stale - 100, stale - 100);
     await fs.utimes(path.join(teams(), 'session-old00004', 'config.json'), stale, stale);
-    // The current team is dead too, and still sorts first.
+    // The current team is dead and the oldest — it sorts last, not first.
     await fs.utimes(path.join(teams(), 'session-cur00001', 'config.json'), stale - 200, stale - 200);
 
     const listed = await listTeamSummaries(teams(), sessions(), 'session-cur00001');
     expect(listed.teams.map((t) => t.name)).toEqual([
-      'session-cur00001',
       'session-live0002',
       'session-old00004',
       'session-old00003',
+      'session-cur00001',
     ]);
   });
 

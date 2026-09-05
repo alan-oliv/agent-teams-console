@@ -5,7 +5,7 @@ import { FIXTURE_NOW, sampleTeams } from '../test/state-fixture';
 import { WatchContext, type WatchState } from '../state/useWatch';
 import { buildCast } from '../../shared/cast';
 import { CastContext } from '../state/useCast';
-import { SessionPicker } from './SessionPicker';
+import { SessionPicker, shortIdOf } from './SessionPicker';
 import type { TeamSummary } from '../../shared/domain';
 
 // This suite renders once per `it`; without explicit cleanup the un-unmounted
@@ -125,6 +125,15 @@ it('leads with the session name and demotes the id to the second line', async ()
   expect(within(rows[0]).getByTestId('team-id').textContent).toBe('session-98b0b4a7');
   // Unnamed: the id is already the title, so it is not repeated below it.
   expect(within(rows[1]).queryByTestId('team-id')).toBeNull();
+});
+
+// A session-only row's `name` is the transcript's raw UUID; the picker speaks
+// `session-` + 8 hex everywhere else, and 36 chars of UUID is noise not
+// identity.
+it('shortens a raw-UUID name to session-plus-8-hex wherever it shows', () => {
+  expect(shortIdOf('467af3ad-5216-4aa1-a8ec-e98bac2adf33')).toBe('session-467af3ad');
+  expect(shortIdOf('session-98b0b4a7')).toBe('session-98b0b4a7');
+  expect(shortIdOf('agents-team-console-design')).toBe('agents-team-console-design');
 });
 
 it('carries the agent count and state on the second line', async () => {

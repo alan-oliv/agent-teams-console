@@ -5792,7 +5792,7 @@ async function listTeamSummaries(teamsRoot2, sessionsRoot, current, projectsRoot
     teams.push(...await sessionRows(projectsRoot, ids, cwd ?? "", sessions, covered, diffstats, now));
   }
   teams.sort(
-    (a, b) => Number(b.current) - Number(a.current) || Number(b.live) - Number(a.live) || b.lastActivityAt - a.lastActivityAt || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
+    (a, b) => Number(b.live) - Number(a.live) || b.lastActivityAt - a.lastActivityAt || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
   );
   return { current, teams };
 }
