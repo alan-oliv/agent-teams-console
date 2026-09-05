@@ -12,6 +12,7 @@ import {
   listFolders,
   listTeamSummaries,
   sessionProjectDir,
+  workflowScriptOf,
   DEFAULT_PORT,
   IDLE_GRACE_MS,
 } from './index';
@@ -997,5 +998,69 @@ describe('folderScope', () => {
 
   it('takes its own cwd unread when no folder was asked for', async () => {
     expect(await folderScope(projects(), '/Users/dev/code/octo')).toBe('/Users/dev/code/octo');
+  });
+});
+
+describe('workflowScriptOf', () => {
+  const RUN = 'wf_3c49ecab-c51';
+  const known = new Set([RUN]);
+  const sessionDir = () => path.join(dir, 'session');
+
+  const writeAsExecuted = (body: string) =>
+    fs.mkdir(path.join(sessionDir(), 'workflows', 'scripts'), { recursive: true }).then(() =>
+      fs.writeFile(path.join(sessionDir(), 'workflows', 'scripts', `deep-research-${RUN}.js`), body),
+    );
+
+  const writeSnapshot = (script: string) =>
+    fs.mkdir(path.join(sessionDir(), 'workflows'), { recursive: true }).then(() =>
+      fs.writeFile(
+        path.join(sessionDir(), 'workflows', `${RUN}.json`),
+        JSON.stringify({ runId: RUN, workflowName: 'deep-research', script }),
+      ),
+    );
+
+  it('prefers the copy as executed, which exists from the moment a run starts', async () => {
+    await writeAsExecuted('// as executed');
+    await writeSnapshot('// from the snapshot');
+    const found = await workflowScriptOf(sessionDir(), RUN, known);
+    expect(found?.source).toBe('as-executed');
+    expect(found?.script).toBe('// as executed');
+  });
+
+  it('falls back to the snapshot once a run has terminated without leaving a copy', async () => {
+    await writeSnapshot('// from the snapshot');
+    const found = await workflowScriptOf(sessionDir(), RUN, known);
+    expect(found?.source).toBe('snapshot');
+    expect(found?.script).toBe('// from the snapshot');
+  });
+
+  it('finds nothing when the run left neither', async () => {
+    await fs.mkdir(path.join(sessionDir(), 'workflows'), { recursive: true });
+    expect(await workflowScriptOf(sessionDir(), RUN, known)).toBeNull();
+  });
+
+  // `runId` arrives from the browser and is about to name a file. The set of
+  // runs already ingested from disk is the gate: anything outside it is
+  // rejected before a path is built, so no request can steer the read.
+  it('refuses a runId the server has never ingested, rather than resolving it', async () => {
+    await writeAsExecuted('// as executed');
+    await writeSnapshot('// from the snapshot');
+    for (const hostile of [
+      '../../etc/passwd',
+      '..%2f..%2fetc%2fpasswd',
+      '/etc/passwd',
+      'wf_someone-elses-run',
+      `${RUN}/../../../../etc/passwd`,
+    ]) {
+      expect(await workflowScriptOf(sessionDir(), hostile, known)).toBeNull();
+    }
+  });
+
+  // The traversal gate must not be the only one: a run that IS known still
+  // reads a real directory entry rather than an interpolated path.
+  it('resolves inside the session it was handed, never above it', async () => {
+    await writeAsExecuted('// as executed');
+    const found = await workflowScriptOf(sessionDir(), RUN, known);
+    expect(found?.path.startsWith(path.join(sessionDir(), 'workflows'))).toBe(true);
   });
 });

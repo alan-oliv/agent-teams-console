@@ -112,25 +112,97 @@ describe('WorkflowScript', () => {
     expect(screen.getByTestId('wf-script-source').textContent).toContain('export const meta');
   });
 
-  // The runtime writes the script to disk at run START, so it exists for the
-  // whole of both cases. What differs is only how far it got: stripped off the
-  // frame when finished, never in the journal's records while live. Neither
-  // message may say the source is unavailable, or that it arrives later.
-  it('explains the absent source rather than drawing an empty pane', () => {
-    render(<WorkflowScript run={run()} />);
-    expect(screen.queryByTestId('wf-script-source')).toBeNull();
+  // The runtime writes the script to disk at run START, so the old message —
+  // that the source is not carried because of its size — was the reason a
+  // FINISHED run's frame drops it, not a reason it cannot be shown. Now that
+  // the pane fetches, the only honest message is the fetch's own result: no
+  // source found. It may not say the source arrives later, or is too big.
+  it('explains the absent source rather than drawing an empty pane', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 404, json: async () => ({}) }));
 
-    const absent = screen.getByTestId('wf-script-absent').textContent ?? '';
-    expect(absent).toMatch(/console does not fetch/i);
-    expect(absent).not.toMatch(/lands with the snapshot|not carried on the wire/i);
+    render(<WorkflowScript run={run()} />);
+    const absent = (await screen.findByTestId('wf-script-absent')).textContent ?? '';
+    expect(screen.queryByTestId('wf-script-source')).toBeNull();
+    expect(absent).toMatch(/no source on disk/i);
+    expect(absent).not.toMatch(/lands with the snapshot|not carried on the wire|two thirds/i);
+    vi.unstubAllGlobals();
   });
 
-  it('gives a live run its own reason the source is not on screen', () => {
+  it('gives a live run its own reason the source is not on screen', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 404, json: async () => ({}) }));
+
     render(<WorkflowScript run={run({ live: true, agents: [agent('a1', 'run', 'x')] })} />);
-    const absent = screen.getByTestId('wf-script-absent').textContent ?? '';
-    expect(absent).toMatch(/console does not fetch/i);
-    expect(absent).toMatch(/journal/i);
-    expect(absent).not.toMatch(/lands with the snapshot|two thirds/i);
+    const absent = (await screen.findByTestId('wf-script-absent')).textContent ?? '';
+    expect(absent).toMatch(/no source on disk/i);
+    expect(absent).toMatch(/run start/i);
+    expect(absent).not.toMatch(/snapshot/i);
+    vi.unstubAllGlobals();
+  });
+
+  // Between mount and the fetch answering, the pane knows neither the source
+  // nor that there is none. Drawing "no source on disk" in that window would be
+  // a claim it cannot yet make.
+  it('claims nothing about the source while the fetch is still out', () => {
+    vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise(() => {})));
+
+    render(<WorkflowScript run={run()} />);
+    expect(screen.queryByTestId('wf-script-absent')).toBeNull();
+    expect(screen.queryByTestId('wf-script-source')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  // The source is on disk from the moment a run starts; the frame just does not
+  // carry it. Fetching it is what closes the "I can't see the script" gap.
+  it('fetches the source the frame dropped and draws it', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        runId: 'wf_x',
+        source: 'as-executed',
+        path: '/s/workflows/scripts/deep-research-wf_x.js',
+        script: "export const meta = { name: 'deep-research' }",
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<WorkflowScript run={run()} />);
+    expect(fetchMock).toHaveBeenCalledWith('/api/workflow/wf_x/script');
+
+    const source = await screen.findByTestId('wf-script-source');
+    expect(source.textContent).toContain('export const meta');
+    expect(screen.queryByTestId('wf-script-absent')).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  // Three copies of a script can differ: the one on the wire, the one as
+  // executed, and the file in the repo the run pointed at, which may have been
+  // edited since. Which one is on screen is not a detail.
+  it('labels which copy of the source it got', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ runId: 'wf_x', source: 'snapshot', path: '/s/workflows/wf_x.json', script: 'x' }),
+    }));
+
+    render(<WorkflowScript run={run()} />);
+    expect((await screen.findByTestId('wf-script-origin')).textContent).toMatch(/snapshot/i);
+    vi.unstubAllGlobals();
+  });
+
+  it('keeps the absent-source message when the run left no source to fetch', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 404, json: async () => ({}) }));
+
+    render(<WorkflowScript run={run()} />);
+    expect((await screen.findByTestId('wf-script-absent')).textContent).toMatch(/no source on disk/i);
+    vi.unstubAllGlobals();
+  });
+
+  it('does not ask the server for a source the frame already carried', () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<WorkflowScript run={run({ script: 'export const meta = {}' })} />);
+    expect(fetchMock).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 
   it('states the determinism rule a resume depends on', () => {

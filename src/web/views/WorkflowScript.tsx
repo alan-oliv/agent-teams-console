@@ -1,4 +1,4 @@
-import { Fragment, type CSSProperties } from 'react';
+import { Fragment, useEffect, useState, type CSSProperties } from 'react';
 import type { WorkflowRun } from '../../shared/domain';
 import { resumeSplit } from './workflow-resume';
 
@@ -47,10 +47,61 @@ const TINT = {
   fresh: { color: 'var(--color-accent-400)', mark: '▸' },
 } as const;
 
+interface FetchedScript {
+  source: 'as-executed' | 'snapshot';
+  path: string;
+  script: string;
+}
+
+const ORIGIN_WORD: Record<FetchedScript['source'], string> = {
+  'as-executed': 'as executed · written at run start',
+  snapshot: 'from the run’s snapshot',
+};
+
+/**
+ * The source is on disk from the moment a run starts, and on no frame at any
+ * point: `leanRun` strips it because it is 65% of the model's bytes. So it is
+ * fetched once per run, and only when the frame did not carry it after all.
+ */
+function useScriptSource(runId: string, onFrame: string | undefined): FetchedScript | 'missing' | null {
+  // Null is the fetch still being in flight, and is drawn as neither a source
+  // nor "there is none" — for the moment it takes, both would be a guess.
+  const [fetched, setFetched] = useState<FetchedScript | 'missing' | null>(null);
+
+  useEffect(() => {
+    setFetched(null);
+    if (onFrame !== undefined) return;
+    let current = true;
+    void (async () => {
+      let got: FetchedScript | 'missing' = 'missing';
+      try {
+        const res = await fetch(`/api/workflow/${encodeURIComponent(runId)}/script`);
+        // 404 is a run that left no source on either path — ordinary, and what
+        // the absent-source message exists to say.
+        if (res.ok) {
+          const body = (await res.json()) as FetchedScript;
+          if (typeof body.script === 'string') got = body;
+        }
+      } catch {
+        // The console went away; the next frame remounts this.
+      }
+      if (current) setFetched(got);
+    })();
+    return () => {
+      current = false;
+    };
+  }, [runId, onFrame]);
+
+  return fetched;
+}
+
 export function WorkflowScript({ run }: { run: WorkflowRun }) {
   const split = resumeSplit(run.agents);
   const boundary = split.cached.length;
   const scriptPath = run.scriptPath;
+  const fetched = useScriptSource(run.runId, run.script);
+  const origin = fetched === null || fetched === 'missing' ? null : fetched;
+  const script = run.script ?? origin?.script;
 
   return (
     <div data-testid="workflow-script" style={{ flex: 1, display: 'flex', minHeight: 0 }}>
@@ -146,24 +197,42 @@ export function WorkflowScript({ run }: { run: WorkflowRun }) {
             );
           })}
 
-          {run.script !== undefined && (
-            <pre
-              data-testid="wf-script-source"
-              style={{
-                margin: 0,
-                padding: '12px 16px',
-                borderTop: '1px solid var(--color-neutral-900)',
-                color: 'var(--color-neutral-500)',
-                fontSize: '11px',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-              }}
-            >
-              {run.script}
-            </pre>
+          {script !== undefined && (
+            <>
+              {/* Three copies of a script can differ — the one on the wire, the
+                  one as executed, and the repo file `scriptPath` points at,
+                  which may have been edited since. Which one this is matters. */}
+              {origin !== null && (
+                <div
+                  data-testid="wf-script-origin"
+                  style={{
+                    borderTop: '1px solid var(--color-neutral-900)',
+                    padding: '8px 16px 0',
+                    color: 'var(--color-neutral-700)',
+                    fontSize: '10px',
+                  }}
+                >
+                  {`${ORIGIN_WORD[origin.source]} · ${origin.path}`}
+                </div>
+              )}
+              <pre
+                data-testid="wf-script-source"
+                style={{
+                  margin: 0,
+                  padding: '12px 16px',
+                  borderTop: origin === null ? '1px solid var(--color-neutral-900)' : 'none',
+                  color: 'var(--color-neutral-500)',
+                  fontSize: '11px',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                }}
+              >
+                {script}
+              </pre>
+            </>
           )}
 
-          {run.script === undefined && (
+          {script === undefined && fetched === 'missing' && (
             <div
               data-testid="wf-script-absent"
               style={{
@@ -174,12 +243,12 @@ export function WorkflowScript({ run }: { run: WorkflowRun }) {
                 lineHeight: 1.5,
               }}
             >
-              {/* The runtime writes the script to disk at run START, so it exists
-                  in both cases. Only the route to it differs, and neither case
-                  has one yet. */}
+              {/* The frame never carries the source, so this is the fetch coming
+                  back empty — not a guess about what disk holds. The two cases
+                  have a different set of places left to look. */}
               {run.live
-                ? 'the console does not fetch the source: a live run has no snapshot yet, and a journal record carries only type, key and agentId — neither the source nor its path has reached this view'
-                : 'the console does not fetch the source: the snapshot carries it, and the frame the browser receives strips it back off'}
+                ? 'no source on disk for this run: the copy the runtime writes at run start is not there, and no frame carries one'
+                : 'no source on disk for this run: neither the copy written at run start nor an inline script in its snapshot, and no frame carries one'}
               {scriptPath !== undefined && (
                 <div style={{ color: 'var(--color-neutral-700)', fontSize: '10px', marginTop: '4px' }}>
                   {scriptPath}

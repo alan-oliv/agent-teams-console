@@ -120,6 +120,14 @@ export interface HttpDeps {
   /** Older transcript lines for one agent — the wall's scrollback. */
   history?: (agent: string) => TranscriptLine[];
   lineText?: (agent: string, id: string) => string | undefined;
+  /**
+   * One run's script source, read from disk on demand — the other half of
+   * `leanRun`, which strips it from every frame because it is 65% of the bytes.
+   * Null when the run left no source, or when `runId` names no ingested run.
+   */
+  workflowScript?: (
+    runId: string,
+  ) => Promise<{ source: 'as-executed' | 'snapshot'; path: string; script: string } | null>;
   /** Re-points the console at another team; the SSE frame carries the result. */
   selectTeam?: (name: string) => Promise<SelectTeamOutcome>;
   /** Same, at a lone session that never formed a team. */
@@ -133,6 +141,7 @@ export interface HttpDeps {
 const AGENT_ROUTE = /^\/api\/agents\/([^/]+)\/(message|interrupt|stop|respawn)$/;
 const PLAN_ROUTE = /^\/api\/plans\/([^/]+)\/(approve|reject)$/;
 const PERMIT_ROUTE = /^\/api\/permits\/([^/]+)\/(allow|deny)$/;
+const WORKFLOW_SCRIPT_ROUTE = /^\/api\/workflow\/([^/]+)\/script$/;
 const TEAM_SELECT_ROUTE = /^\/api\/teams\/([^/]+)\/select$/;
 const SESSION_SELECT_ROUTE = /^\/api\/select-session\/([^/]+)$/;
 
@@ -281,6 +290,25 @@ export function createHttpServer(deps: HttpDeps): Server {
             return;
           }
           json(res, 200, { id, text });
+          return;
+        }
+
+        // The run's source, which no frame carries. The id names a file, so it
+        // passes the same allowlist every other path segment does BEFORE the
+        // resolver — which gates it a second time, against the runs already
+        // ingested — is asked for anything.
+        if (method === 'GET' && deps.workflowScript && WORKFLOW_SCRIPT_ROUTE.test(route)) {
+          const runId = decodeSegment(WORKFLOW_SCRIPT_ROUTE.exec(route)![1]);
+          if (!runId) {
+            json(res, 400, BAD_SEGMENT_BODY);
+            return;
+          }
+          const found = await deps.workflowScript(runId);
+          if (!found) {
+            json(res, 404, { error: 'not found', message: `no source on disk for ${runId}` });
+            return;
+          }
+          json(res, 200, { runId, ...found });
           return;
         }
 

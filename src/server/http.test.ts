@@ -57,6 +57,9 @@ let sessionCalls: string[];
 let sessionOutcome: (sessionId: string) => SelectTeamOutcome;
 /** What `/api/line` can resolve, keyed `agent|id`. A miss is a dropped record. */
 let lineTexts: Record<string, string>;
+/** What `/api/workflow/:runId/script` can resolve. A miss is a run with no source on disk. */
+let workflowScripts: Record<string, { source: 'as-executed' | 'snapshot'; path: string; script: string }>;
+let scriptCalls: string[];
 
 
 async function boot(readOnly: boolean, webDist?: string): Promise<{ server: Server; url: string }> {
@@ -84,6 +87,8 @@ async function boot(readOnly: boolean, webDist?: string): Promise<{ server: Serv
   sessionCalls = [];
   sessionOutcome = () => ({ ok: true, changed: true });
   lineTexts = {};
+  workflowScripts = {};
+  scriptCalls = [];
   hub = createStream(() => state, 50);
   const server = createHttpServer({
     permits,
@@ -93,6 +98,10 @@ async function boot(readOnly: boolean, webDist?: string): Promise<{ server: Serv
     readOnly,
     webDist,
     lineText: (agent: string, id: string) => lineTexts[`${agent}|${id}`],
+    workflowScript: (runId: string) => {
+      scriptCalls.push(runId);
+      return Promise.resolve(workflowScripts[runId] ?? null);
+    },
     listTeams: (folder?: string) => {
       listFolderCalls.push(folder);
       return Promise.resolve(listed);
@@ -739,5 +748,55 @@ describe('GET /api/line', () => {
     const res = await fetch(`${url}/api/line?agent=probe-alpha&id=rec-1%230`);
     expect(res.status).toBe(200);
     expect((await res.json()).text).toBe('visible');
+  });
+});
+
+describe('GET /api/workflow/:runId/script', () => {
+  let server: Server;
+  let url: string;
+
+  beforeEach(async () => {
+    ({ server, url } = await boot(false));
+  });
+  afterEach(() => shutdown(server));
+
+  it('serves the source the frame is too small to carry, and says which copy it is', async () => {
+    workflowScripts['wf_3c49ecab-c51'] = {
+      source: 'as-executed',
+      path: '/s/workflows/scripts/deep-research-wf_3c49ecab-c51.js',
+      script: '// as executed',
+    };
+    const res = await fetch(`${url}/api/workflow/wf_3c49ecab-c51/script`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      runId: 'wf_3c49ecab-c51',
+      source: 'as-executed',
+      path: '/s/workflows/scripts/deep-research-wf_3c49ecab-c51.js',
+      script: '// as executed',
+    });
+  });
+
+  it('404s a run whose source is on neither disk path', async () => {
+    const res = await fetch(`${url}/api/workflow/wf_3c49ecab-c51/script`);
+    expect(res.status).toBe(404);
+  });
+
+  // The id names a file. `%2F` would smuggle a separator past a pattern that
+  // only excludes a literal one, so the decoded segment is allowlisted before
+  // the resolver — which is the second gate — is called at all.
+  it('rejects an id that is not a bare segment without asking the resolver', async () => {
+    for (const hostile of ['..%2F..%2Fetc%2Fpasswd', 'wf_x%2F..%2F..', 'wf%00x', 'a%zz']) {
+      const res = await fetch(`${url}/api/workflow/${hostile}/script`);
+      expect(res.status).toBe(400);
+    }
+    expect(scriptCalls).toEqual([]);
+  });
+
+  it('stays readable with --read-only: it reads a file, it writes nothing', async () => {
+    await shutdown(server);
+    ({ server, url } = await boot(true));
+    workflowScripts['wf_3c49ecab-c51'] = { source: 'snapshot', path: '/s/w/x.json', script: 'x' };
+    const res = await fetch(`${url}/api/workflow/wf_3c49ecab-c51/script`);
+    expect(res.status).toBe(200);
   });
 });
