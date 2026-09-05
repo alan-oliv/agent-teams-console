@@ -199,6 +199,14 @@ describe('WorkflowRun', () => {
     expect(limits).toContain('1000');
   });
 
+  // The cap alone says nothing about this run. The numerator exists on both a
+  // finished run and a live one, so the panel counts against it rather than
+  // quoting a ceiling nobody can place themselves under.
+  it('counts this run against the lifetime cap', () => {
+    render(<WorkflowRun run={RUN} />);
+    expect(screen.getByTestId('wf-limits').textContent).toContain('4 of 1000');
+  });
+
   // The cap is computed from the HOST's cpu count at launch and never written
   // down. The browser's own core count is a different machine's number, so the
   // panel names the formula and says the value is not recorded.
@@ -252,7 +260,7 @@ describe('WorkflowRun', () => {
     it('keeps the sidebar, which the spec never restricted to a finished run', () => {
       render(<WorkflowRun run={LIVE} />);
 
-      expect(screen.getByTestId('wf-limits')).toBeTruthy();
+      expect(screen.getByTestId('wf-limits').textContent).toContain('3 of 1000');
       expect(screen.getByTestId('wf-not-in-loop')).toBeTruthy();
     });
 

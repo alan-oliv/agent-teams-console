@@ -436,7 +436,7 @@ export function WorkflowRun({ run }: { run: Run }) {
           <div data-testid="wf-limits" style={SIDE_BODY}>
             concurrency is min(16, CPUs − 2) agents at once
             <div style={{ color: 'var(--color-neutral-600)', marginTop: '4px' }}>
-              1000 agents is the lifetime cap for the whole run
+              {`${run.live ? live.started : (run.agentCount ?? run.agents.length)} of 1000 agents — the lifetime cap for the whole run`}
             </div>
             {/* The cap is resolved from the HOST's cpu count at launch and never
                 written to the snapshot. This browser's own core count is a
@@ -453,7 +453,7 @@ export function WorkflowRun({ run }: { run: Run }) {
           <div data-testid="wf-log" style={{ ...SIDE_BODY, flex: 1, minHeight: 0, overflow: 'auto' }}>
             {run.logs.length > 0
               ? run.logs.map((line, i) => (
-                  <div key={`${i}-${line}`} style={{ marginBottom: '3px' }}>
+                  <div key={`${i}-${line}`} style={{ marginBottom: '12px' }}>
                     {line}
                   </div>
                 ))
