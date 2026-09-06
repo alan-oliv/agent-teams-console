@@ -423,6 +423,58 @@ async function workflowNameOf(snapshot: string): Promise<string | undefined> {
   }
 }
 
+/** The first entry of `dir` the caller recognises, joined — never a built path. */
+async function entryIn(dir: string, match: (entry: string) => boolean): Promise<string | null> {
+  try {
+    const entry = (await fs.readdir(dir)).find(match);
+    return entry === undefined ? null : path.join(dir, entry);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * One run's script, for `GET /api/workflow/:runId/script`. The frame never
+ * carries it — `leanRun` strips it, at 65% of the model's bytes — so this is
+ * where a view that wants the source gets it.
+ *
+ * Two copies exist, and they are not the same file:
+ *
+ *   <session>/workflows/scripts/<name>-<runId>.js   as executed, from run START
+ *   <session>/workflows/<runId>.json  → `script`    inline, once it terminated
+ *
+ * The first wins, and is why a LIVE run can show its source at all. Neither is
+ * `snapshot.scriptPath`, which points at the original in the repo and may have
+ * been edited since.
+ *
+ * `runId` comes from the browser and is about to name a file, so it is gated
+ * twice and interpolated into a path neither time: it must name a run already
+ * ingested off disk, and it is then matched against real directory entries.
+ */
+export async function workflowScriptOf(
+  sessionDir: string,
+  runId: string,
+  knownRuns: ReadonlySet<string>,
+): Promise<{ source: 'as-executed' | 'snapshot'; path: string; script: string } | null> {
+  if (!knownRuns.has(runId)) return null;
+
+  const workflows = path.join(sessionDir, 'workflows');
+  const asExecuted = await entryIn(path.join(workflows, 'scripts'), (e) => e.endsWith(`-${runId}.js`));
+  if (asExecuted) {
+    try {
+      return { source: 'as-executed', path: asExecuted, script: await fs.readFile(asExecuted, 'utf8') };
+    } catch {
+      // Deleted under us; the snapshot below may still hold a copy.
+    }
+  }
+
+  const snapshot = await entryIn(workflows, (e) => e === `${runId}.json`);
+  if (!snapshot) return null;
+  const raw = await readJsonSafe<{ script?: unknown }>(snapshot);
+  const script = typeof raw?.script === 'string' && raw.script ? raw.script : null;
+  return script === null ? null : { source: 'snapshot', path: snapshot, script };
+}
+
 /**
  * Every team on the machine, dead ones included — paging back through a team
  * that has ended is the point of the selector, and `departed` already renders
@@ -1255,6 +1307,18 @@ export async function main(argv: string[]): Promise<number> {
       ),
     history: (agent: string) => transcriptHistory(store.replay(), agent),
     lineText: (agent: string, id: string) => transcriptLineText(store.replay(), agent, id),
+    // Only the lead session's own directory is searched: that is the session
+    // the ingest scopes runs to, so a run on the frame is a run under it.
+    workflowScript: async (runId: string) => {
+      const known = new Set(foldWorkflows(store.replay()).map((run) => run.runId));
+      const sessions = await readSessions(sessionsRoot);
+      const dir = await sessionProjectDir(
+        projectsRoot,
+        leadSessionId ?? '',
+        sessions.cwds.get(leadSessionId ?? '') ?? cli.cwd,
+      );
+      return dir ? workflowScriptOf(dir, runId, known) : null;
+    },
     selectTeam,
     selectSession,
     onShutdown: stop,

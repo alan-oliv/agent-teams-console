@@ -103,6 +103,18 @@ describe('WorkflowRun', () => {
     expect(cells[2].textContent).toBe('');
   });
 
+  // The cell vocabulary is seven glyphs the grid never explains otherwise, and
+  // a skip must not be legended as a failure.
+  it('legends every cell state under the grid, once the grid is drawn', () => {
+    render(<WorkflowRun run={RUN} />);
+    expect(screen.queryByTestId('wf-legend')).toBeNull();
+    openGrid();
+    const legend = screen.getByTestId('wf-legend').textContent ?? '';
+    for (const word of ['returned', 'running', 'cache', 'null', 'queued', 'failed', 'blocked']) {
+      expect(legend).toContain(word);
+    }
+  });
+
   it('marks a running agent with its own glyph', () => {
     render(<WorkflowRun run={RUN} />);
     openGrid();
@@ -182,11 +194,11 @@ describe('WorkflowRun', () => {
   it('shows the run totals that exist, and says why there is no budget', () => {
     render(<WorkflowRun run={RUN} />);
     const totals = screen.getByTestId('wf-totals').textContent ?? '';
-    expect(totals).toContain('219 tool calls');
-    expect(totals).toContain('4 agents');
+    expect(totals).toContain('tool calls219');
+    expect(totals).toContain('agents4');
     // The figure is each agent's final context, summed — not the run's spend.
     // §20: labeling it bare next to "tool calls" and "agents" read as a bill.
-    expect(totals).toContain('699k final context');
+    expect(totals).toContain('final context699k');
     // Absent by fact, not by omission — and the panel has to say so, or the
     // missing meter reads as a console that failed to read one.
     expect(totals).toMatch(/no budget on disk/i);
@@ -197,6 +209,14 @@ describe('WorkflowRun', () => {
     const limits = screen.getByTestId('wf-limits').textContent ?? '';
     expect(limits).toContain('min(16, CPUs − 2)');
     expect(limits).toContain('1000');
+  });
+
+  // The cap alone says nothing about this run. The numerator exists on both a
+  // finished run and a live one, so the panel counts against it rather than
+  // quoting a ceiling nobody can place themselves under.
+  it('counts this run against the lifetime cap', () => {
+    render(<WorkflowRun run={RUN} />);
+    expect(screen.getByTestId('wf-limits').textContent).toContain('4 of 1000');
   });
 
   // The cap is computed from the HOST's cpu count at launch and never written
@@ -232,6 +252,8 @@ describe('WorkflowRun', () => {
       expect(screen.queryByTestId('wf-row')).toBeNull();
       expect(screen.queryByTestId('wf-phase-group')).toBeNull();
       expect(screen.queryByTestId('wf-layout')).toBeNull();
+      // No grid to read means nothing for a legend to explain.
+      expect(screen.queryByTestId('wf-legend')).toBeNull();
     });
 
     // The design: "Draw the flat list, and say what it is" — the list below the
@@ -252,7 +274,7 @@ describe('WorkflowRun', () => {
     it('keeps the sidebar, which the spec never restricted to a finished run', () => {
       render(<WorkflowRun run={LIVE} />);
 
-      expect(screen.getByTestId('wf-limits')).toBeTruthy();
+      expect(screen.getByTestId('wf-limits').textContent).toContain('3 of 1000');
       expect(screen.getByTestId('wf-not-in-loop')).toBeTruthy();
     });
 
@@ -262,8 +284,8 @@ describe('WorkflowRun', () => {
       render(<WorkflowRun run={LIVE} />);
       const totals = screen.getByTestId('wf-totals').textContent ?? '';
 
-      expect(totals).toContain('3 started');
-      expect(totals).toContain('2 returned');
+      expect(totals).toContain('started3');
+      expect(totals).toContain('returned2');
       expect(totals).not.toMatch(/0 tool calls/);
     });
 
