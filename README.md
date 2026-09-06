@@ -7,6 +7,8 @@ what is waiting on you.
 
 ![The wall view: the lead pinned on the left, one scrolling transcript column per teammate](docs/console-wall.png)
 
+<video src="docs/demo.mp4" controls></video>
+
 You never start it. The plugin's `PreToolUse`/`PostToolUse` hooks on the `Agent`
 and `Workflow` tools watch for the moment a real team, or a workflow, comes into
 existence and start the server themselves, then print the URL into the session
