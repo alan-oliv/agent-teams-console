@@ -1,0 +1,56 @@
+name: Bump plugin version
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump type"
+        required: true
+        type: choice
+        options: [patch, minor, major]
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm install
+      - run: npm run build
+
+      - name: Bump version
+        id: bump
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          node -e '
+            const fs = require("fs");
+            const path = "plugin/.claude-plugin/plugin.json";
+            const pkg = JSON.parse(fs.readFileSync(path, "utf8"));
+            const [major, minor, patch] = pkg.version.split(".").map(Number);
+            const bump = process.env.BUMP;
+            const next =
+              bump === "major" ? `${major + 1}.0.0` :
+              bump === "minor" ? `${major}.${minor + 1}.0` :
+              `${major}.${minor}.${patch + 1}`;
+            pkg.version = next;
+            fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + "\n");
+            console.log(next);
+          ' > /tmp/version
+          echo "version=$(cat /tmp/version)" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add plugin/.claude-plugin/plugin.json plugin/dist
+          git commit -m "chore(plugin): ${{ steps.bump.outputs.version }}"
+          git push
