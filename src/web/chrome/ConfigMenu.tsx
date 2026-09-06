@@ -364,40 +364,6 @@ export function ConfigMenu({ appearance, open, onOpenChange }: ConfigMenuProps) 
               </button>
               {list === 'theme' && (
                 <div className="tscroll" role="listbox" data-testid="theme-menu" style={MENU}>
-                  <span style={GROUP}>SYSTEM</span>
-                  {THEME_IDS.map((id) => {
-                    const on = !hasFilm && settings.theme === id;
-                    return (
-                      <button
-                        key={id}
-                        type="button"
-                        className="cfg-tile"
-                        data-testid={`theme-${id}`}
-                        role="option"
-                        aria-selected={on}
-                        title={THEMES[id].note}
-                        onClick={() => {
-                          // A system row means real agent names, so it drops the
-                          // film as well as setting the ground.
-                          set('theme', id as ThemeId);
-                          set('movieTheme', null);
-                          setList(null);
-                        }}
-                        style={optionStyle(on)}
-                      >
-                        {/* Each option previews itself in its OWN colours, so
-                            the choice is visible before it is applied. */}
-                        <Swatch bands={themeBands(id as ThemeId)} />
-                        <span
-                          style={{ color: optionColor(on), fontSize: '10.5px', whiteSpace: 'nowrap' }}
-                        >
-                          {`System default \u00b7 ${THEMES[id].label}`}
-                        </span>
-                        <span style={{ flex: 1 }} />
-                        <Check on={on} />
-                      </button>
-                    );
-                  })}
                   <span style={GROUP}>FILM &middot; names, portraits and palette</span>
                   {MOVIE_THEMES.filter((entry) => entry.palette).map((entry) => {
                     const on = settings.movieTheme === entry.key;
@@ -440,6 +406,40 @@ export function ConfigMenu({ appearance, open, onOpenChange }: ConfigMenuProps) 
                         >
                           {entry.roles.lead}
                         </span>
+                        <Check on={on} />
+                      </button>
+                    );
+                  })}
+                  <span style={GROUP}>SYSTEM</span>
+                  {THEME_IDS.map((id) => {
+                    const on = !hasFilm && settings.theme === id;
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        className="cfg-tile"
+                        data-testid={`theme-${id}`}
+                        role="option"
+                        aria-selected={on}
+                        title={THEMES[id].note}
+                        onClick={() => {
+                          // A system row means real agent names, so it drops the
+                          // film as well as setting the ground.
+                          set('theme', id as ThemeId);
+                          set('movieTheme', null);
+                          setList(null);
+                        }}
+                        style={optionStyle(on)}
+                      >
+                        {/* Each option previews itself in its OWN colours, so
+                            the choice is visible before it is applied. */}
+                        <Swatch bands={themeBands(id as ThemeId)} />
+                        <span
+                          style={{ color: optionColor(on), fontSize: '10.5px', whiteSpace: 'nowrap' }}
+                        >
+                          {`System default · ${THEMES[id].label}`}
+                        </span>
+                        <span style={{ flex: 1 }} />
                         <Check on={on} />
                       </button>
                     );

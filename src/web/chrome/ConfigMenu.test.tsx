@@ -402,13 +402,14 @@ describe('one dropdown, system themes and films together', () => {
     expect(screen.getByTestId('theme-trigger').textContent).toContain('System default · Nocturne');
   });
 
-  it('groups the six system themes above the ten films', () => {
+  it('groups the ten films above the six system themes', () => {
     mount();
     open();
     openTheme();
     const menu = screen.getByTestId('theme-menu');
-    expect(within(menu).getByText('SYSTEM')).toBeTruthy();
-    expect(within(menu).getByText('FILM · names, portraits and palette')).toBeTruthy();
+    const filmGroup = within(menu).getByText('FILM · names, portraits and palette');
+    const systemGroup = within(menu).getByText('SYSTEM');
+    expect(filmGroup.compareDocumentPosition(systemGroup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(menu.querySelectorAll('[data-testid^="theme-film-"]')).toHaveLength(10);
     for (const id of ['nocturne', 'organic', 'ember', 'frost', 'slate', 'phosphor']) {
       expect(within(menu).getByTestId(`theme-${id}`).textContent).toContain('System default');
