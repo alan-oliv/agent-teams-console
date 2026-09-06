@@ -3443,7 +3443,7 @@ function watchRoot(root, onEvent) {
 
 // src/server/watch/tail.ts
 function emptyTailState() {
-  return { inode: 0, offset: 0, partial: "" };
+  return { inode: 0, offset: 0, partial: "", birthtimeMs: 0 };
 }
 async function drain(filePath, state) {
   let st;
@@ -3453,8 +3453,8 @@ async function drain(filePath, state) {
     return { lines: [], state, fromStart: false };
   }
   let next = state;
-  if (st.ino !== state.inode || st.size < state.offset) {
-    next = { inode: st.ino, offset: 0, partial: "" };
+  if (st.ino !== state.inode || st.size < state.offset || st.birthtimeMs !== state.birthtimeMs) {
+    next = { inode: st.ino, offset: 0, partial: "", birthtimeMs: st.birthtimeMs };
   }
   const fromStart = next.offset === 0;
   const mtimeMs = st.mtimeMs;
@@ -3476,12 +3476,17 @@ async function drain(filePath, state) {
   const cut = chunk.lastIndexOf("\n");
   const offset = next.offset + read;
   if (cut === -1) {
-    return { lines: [], state: { inode: next.inode, offset, partial: chunk }, fromStart, mtimeMs };
+    return {
+      lines: [],
+      state: { inode: next.inode, offset, partial: chunk, birthtimeMs: next.birthtimeMs },
+      fromStart,
+      mtimeMs
+    };
   }
   const lines = chunk.slice(0, cut).split("\n").filter((l) => l.length > 0);
   return {
     lines,
-    state: { inode: next.inode, offset, partial: chunk.slice(cut + 1) },
+    state: { inode: next.inode, offset, partial: chunk.slice(cut + 1), birthtimeMs: next.birthtimeMs },
     fromStart,
     mtimeMs
   };
@@ -6158,6 +6163,7 @@ async function main(argv) {
   console.log(`agent teams console on http://127.0.0.1:${port}${cli.readOnly ? " (read-only)" : ""}`);
   const followRealTeam = async () => {
     if (switching) return;
+    const gen = generation;
     const { teams } = await listTeamSummaries(
       teamsRoot2,
       sessionsRoot,
@@ -6167,7 +6173,7 @@ async function main(argv) {
     );
     const mine = teams.find((t) => t.name === currentTeam);
     leadFacts = { sessionName: mine?.goal, branch: mine?.branch };
-    if (pinned) return;
+    if (pinned || gen !== generation) return;
     if (teams.some((t) => t.name === currentTeam && t.members >= 2)) return;
     const target = teams.find((t) => t.members >= 2 && t.live);
     if (!target || target.name === currentTeam) return;
