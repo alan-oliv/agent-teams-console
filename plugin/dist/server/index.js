@@ -4882,6 +4882,7 @@ async function serveWebBundle(res, webDist, route) {
 var AGENT_ROUTE = /^\/api\/agents\/([^/]+)\/(message|interrupt|stop|respawn)$/;
 var PLAN_ROUTE = /^\/api\/plans\/([^/]+)\/(approve|reject)$/;
 var PERMIT_ROUTE = /^\/api\/permits\/([^/]+)\/(allow|deny)$/;
+var WORKFLOW_SCRIPT_ROUTE = /^\/api\/workflow\/([^/]+)\/script$/;
 var TEAM_SELECT_ROUTE = /^\/api\/teams\/([^/]+)\/select$/;
 var SESSION_SELECT_ROUTE = /^\/api\/select-session\/([^/]+)$/;
 var SAFE_SEGMENT = /^[A-Za-z0-9_-]+$/;
@@ -4991,6 +4992,20 @@ function createHttpServer(deps) {
             return;
           }
           json(res, 200, { id, text });
+          return;
+        }
+        if (method === "GET" && deps.workflowScript && WORKFLOW_SCRIPT_ROUTE.test(route)) {
+          const runId = decodeSegment(WORKFLOW_SCRIPT_ROUTE.exec(route)[1]);
+          if (!runId) {
+            json(res, 400, BAD_SEGMENT_BODY);
+            return;
+          }
+          const found = await deps.workflowScript(runId);
+          if (!found) {
+            json(res, 404, { error: "not found", message: `no source on disk for ${runId}` });
+            return;
+          }
+          json(res, 200, { runId, ...found });
           return;
         }
         if (method === "POST" && (route === "/hook" || route === "/statusline" || route === "/substatus")) {
@@ -5591,6 +5606,30 @@ async function workflowNameOf(snapshot) {
     return void 0;
   }
 }
+async function entryIn(dir, match) {
+  try {
+    const entry = (await fs8.readdir(dir)).find(match);
+    return entry === void 0 ? null : path10.join(dir, entry);
+  } catch {
+    return null;
+  }
+}
+async function workflowScriptOf(sessionDir, runId, knownRuns) {
+  if (!knownRuns.has(runId)) return null;
+  const workflows = path10.join(sessionDir, "workflows");
+  const asExecuted = await entryIn(path10.join(workflows, "scripts"), (e) => e.endsWith(`-${runId}.js`));
+  if (asExecuted) {
+    try {
+      return { source: "as-executed", path: asExecuted, script: await fs8.readFile(asExecuted, "utf8") };
+    } catch {
+    }
+  }
+  const snapshot = await entryIn(workflows, (e) => e === `${runId}.json`);
+  if (!snapshot) return null;
+  const raw = await readJsonSafe(snapshot);
+  const script = typeof raw?.script === "string" && raw.script ? raw.script : null;
+  return script === null ? null : { source: "snapshot", path: snapshot, script };
+}
 async function teamsOfLiveSessions(projectsRoot, sessions) {
   const teams = /* @__PURE__ */ new Map();
   for (const sessionId of sessions.live) {
@@ -6099,6 +6138,18 @@ async function main(argv) {
     ),
     history: (agent) => transcriptHistory(store.replay(), agent),
     lineText: (agent, id) => transcriptLineText(store.replay(), agent, id),
+    // Only the lead session's own directory is searched: that is the session
+    // the ingest scopes runs to, so a run on the frame is a run under it.
+    workflowScript: async (runId) => {
+      const known = new Set(foldWorkflows(store.replay()).map((run2) => run2.runId));
+      const sessions = await readSessions(sessionsRoot);
+      const dir = await sessionProjectDir(
+        projectsRoot,
+        leadSessionId ?? "",
+        sessions.cwds.get(leadSessionId ?? "") ?? cli.cwd
+      );
+      return dir ? workflowScriptOf(dir, runId, known) : null;
+    },
     selectTeam,
     selectSession,
     onShutdown: stop
@@ -6161,5 +6212,6 @@ export {
   main,
   parseArgs,
   parseShortstat,
-  sessionProjectDir
+  sessionProjectDir,
+  workflowScriptOf
 };
