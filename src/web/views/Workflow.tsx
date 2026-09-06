@@ -90,7 +90,7 @@ export function Workflow({
   return (
     <>
       <Bar
-        wordmark="OCTO"
+        wordmark="logo"
         picker={
           <>
             <TeamSelect

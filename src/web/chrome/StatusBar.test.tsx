@@ -82,7 +82,7 @@ it('fires the view change when a tab is clicked', () => {
 
 it('renders the wordmark and the team name', () => {
   renderBar();
-  const wordmark = screen.getByText('OCTO');
+  const wordmark = screen.getByText('logo');
   expect(wordmark.style.color).toBe('var(--color-accent)');
   expect(wordmark.style.letterSpacing).toBe('.14em');
   expect(wordmark.style.fontWeight).toBe('700');
@@ -242,7 +242,7 @@ it('makes the team name the control that opens the team list', () => {
       appearance={APPEARANCE}
     />,
   );
-  const trigger = screen.getByRole('button', { name: 'OCTO session-98b0b4a7' });
+  const trigger = screen.getByRole('button', { name: 'logo session-98b0b4a7' });
   expect(trigger.getAttribute('aria-haspopup')).toBe('listbox');
   expect(trigger.getAttribute('aria-expanded')).toBe('false');
 

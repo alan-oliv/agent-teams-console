@@ -5,6 +5,16 @@ of them side by side in a browser window: every teammate's live transcript, the
 shared task list, the mailboxes they talk through, who is burning context, and
 what is waiting on you.
 
+## The problem
+
+Spawn more than one agent and the visibility that was fine for a single session
+stops scaling: teammates run in separate transcripts with no shared view, tokens
+burn toward a context ceiling with nothing to show it, mailbox traffic between
+agents has nowhere to be read at a glance, and a permission or plan prompt in a
+pane you are not watching just sits there. Coordinating a team by tabbing
+between terminals is worse than running one agent alone. This is the cockpit
+for a team's actual state, in one screen.
+
 <video src="docs/demo.mp4" controls></video>
 
 You never start it. The plugin's `PreToolUse`/`PostToolUse` hooks on the `Agent`
