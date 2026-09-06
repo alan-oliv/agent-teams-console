@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import type { WorkflowAgent, WorkflowRun as Run } from '../../shared/domain';
+import { clockLabel } from '../format';
 import { WorkflowRun } from './WorkflowRun';
 
 afterEach(cleanup);
@@ -326,5 +327,189 @@ describe('WorkflowRun', () => {
       />,
     );
     expect(screen.getByTestId('wf-unphased').textContent).toContain('1');
+  });
+
+  describe('AGENTS panel (9-decisions.md row 12)', () => {
+    it('counts every state, including one nobody used', () => {
+      render(<WorkflowRun run={RUN} />);
+      const text = screen.getByTestId('wf-agents').textContent ?? '';
+      // RUN has 3 done + 1 running, and no cached/null/failed agents — those
+      // still show as 0 rather than being omitted, unlike a phase's tally.
+      expect(text).toContain('returned 3');
+      expect(text).toContain('running 1');
+      expect(text).toContain('cached 0');
+      expect(text).toContain('null 0');
+      expect(text).toContain('failed 0');
+    });
+
+    it('counts a live run the same way, without waiting for the snapshot', () => {
+      const live: Run = {
+        runId: 'wf_live-002',
+        status: 'running',
+        live: true,
+        phases: [],
+        logs: [],
+        agents: [agent({ agentId: 'a1', state: 'done' }), agent({ agentId: 'a2', state: 'run' })],
+      };
+      render(<WorkflowRun run={live} />);
+      const text = screen.getByTestId('wf-agents').textContent ?? '';
+      expect(text).toContain('returned 1');
+      expect(text).toContain('running 1');
+    });
+  });
+
+  describe('the identity badge shortens the agent id (9-decisions.md row 15)', () => {
+    it('shows an 8-character id, not the full a+16-hex one', () => {
+      render(
+        <WorkflowRun
+          run={{
+            ...RUN,
+            phases: [{ index: 1, title: 'Design' }],
+            agents: [agent({ agentId: 'a06eeee08bb883b02', label: 'x:fda.gov', phaseIndex: 1 })],
+          }}
+        />,
+      );
+      const row = screen.getByTestId('wf-phase-agent');
+      expect(row.textContent).toContain('a06eeee0');
+      expect(row.textContent).not.toContain('a06eeee08bb883b02');
+    });
+  });
+
+  describe('dispatch-group timestamp (9-decisions.md row 13)', () => {
+    it('shows the cluster’s shared queuedAt next to its count', () => {
+      render(
+        <WorkflowRun
+          run={{
+            ...RUN,
+            phases: [{ index: 1, title: 'Design' }],
+            agents: [
+              agent({ agentId: 'a1', label: 'd:S1', phaseIndex: 1, queuedAt: 1_700_000_000_000 }),
+              agent({ agentId: 'a2', label: 'd:S2', phaseIndex: 1, queuedAt: 1_700_000_000_000 }),
+            ],
+          }}
+        />,
+      );
+      expect(screen.getByTestId('wf-dispatch').textContent).toContain(clockLabel(1_700_000_000_000));
+    });
+  });
+
+  describe('large dispatch groups fold (9-decisions.md row 14)', () => {
+    const bigCluster = (state: 'done' | 'run') =>
+      Array.from({ length: 7 }, (_, i) =>
+        agent({ agentId: `a${i}`, label: `d:item-${i}`, phaseIndex: 1, queuedAt: 1000, state }),
+      );
+
+    it('shows a handful of rows plus a fold-away note when every hidden agent is done', () => {
+      render(
+        <WorkflowRun
+          run={{ ...RUN, phases: [{ index: 1, title: 'Design' }], agents: bigCluster('done') }}
+        />,
+      );
+      expect(screen.getAllByTestId('wf-phase-agent')).toHaveLength(5);
+      expect(screen.getByTestId('wf-more').textContent).toBe('+ 2 more, all returned');
+    });
+
+    it('does not fold away a still-running agent behind a false "all returned"', () => {
+      render(
+        <WorkflowRun
+          run={{ ...RUN, phases: [{ index: 1, title: 'Design' }], agents: bigCluster('run') }}
+        />,
+      );
+      expect(screen.queryByTestId('wf-more')).toBeNull();
+      expect(screen.getAllByTestId('wf-phase-agent')).toHaveLength(7);
+    });
+  });
+
+  describe('shared-item trail glyph (9-decisions.md row 16)', () => {
+    it('marks a later-phase row whose item key already appeared earlier', () => {
+      render(
+        <WorkflowRun
+          run={{
+            ...RUN,
+            phases: [
+              { index: 1, title: 'Reproduce' },
+              { index: 2, title: 'Fix' },
+            ],
+            agents: [
+              agent({ agentId: 'a1', label: 'reproduce:spec/auth.spec.ts', phaseIndex: 1 }),
+              agent({ agentId: 'a2', label: 'fix:spec/auth.spec.ts', phaseIndex: 2 }),
+            ],
+          }}
+        />,
+      );
+      const groups = screen.getAllByTestId('wf-phase-group');
+      expect(within(groups[0]).queryByTestId('wf-trail')).toBeNull();
+      expect(within(groups[1]).getByTestId('wf-trail')).toBeTruthy();
+    });
+  });
+
+  describe('phases collapse once the run has returned (9-decisions.md row 4)', () => {
+    const RETURNED: Run = {
+      ...RUN,
+      status: 'completed',
+      result: 'the brief goes here',
+    };
+
+    it('opens a phase every one of whose agents settled, on a run still going', () => {
+      // RUN itself is 'killed', not 'completed' — a phase finishing early does
+      // not collapse anything while the run around it has not returned.
+      render(<WorkflowRun run={RUN} />);
+      expect(within(screen.getAllByTestId('wf-phase-group')[0]).getAllByTestId('wf-name')).toHaveLength(2);
+    });
+
+    it('starts every phase collapsed once the run itself has returned, and reopens on click', () => {
+      render(<WorkflowRun run={RETURNED} />);
+      const firstGroup = screen.getAllByTestId('wf-phase-group')[0];
+      expect(within(firstGroup).queryAllByTestId('wf-name')).toHaveLength(0);
+
+      fireEvent.click(within(firstGroup).getByTestId('wf-phase'));
+      expect(within(firstGroup).getAllByTestId('wf-name')).toHaveLength(2);
+    });
+  });
+
+  describe('the Returned box (9-decisions.md row 3)', () => {
+    const RETURNED: Run = {
+      ...RUN,
+      status: 'completed',
+      result: 'a two word brief',
+    };
+
+    it('shows only once the run has actually returned', () => {
+      render(<WorkflowRun run={RUN} />);
+      expect(screen.queryByTestId('wf-returned')).toBeNull();
+    });
+
+    it('shows the return time, the prose, and a word count — no invented claim/citation counts', () => {
+      render(<WorkflowRun run={RETURNED} />);
+      const box = screen.getByTestId('wf-returned').textContent ?? '';
+      expect(box).toContain(clockLabel(RETURNED.startedAt! + RETURNED.durationMs!));
+      expect(box).toContain('a two word brief');
+      expect(box).toContain('4 words');
+      expect(box).not.toMatch(/claims|sources|contradictions|citations/i);
+    });
+
+    it('copies the return value verbatim', () => {
+      const writeText = vi.fn();
+      Object.assign(navigator, { clipboard: { writeText } });
+      render(<WorkflowRun run={RETURNED} />);
+      fireEvent.click(screen.getByTestId('wf-copy-return'));
+      expect(writeText).toHaveBeenCalledWith('a two word brief');
+    });
+
+    it('routes to the journal tab when a handler is given, and hides the button otherwise', () => {
+      const onOpenJournal = vi.fn();
+      render(<WorkflowRun run={RETURNED} onOpenJournal={onOpenJournal} />);
+      fireEvent.click(screen.getByTestId('wf-open-journal'));
+      expect(onOpenJournal).toHaveBeenCalled();
+
+      cleanup();
+      render(<WorkflowRun run={RETURNED} />);
+      expect(screen.queryByTestId('wf-open-journal')).toBeNull();
+    });
+
+    it('says nothing about a run with no result to show', () => {
+      render(<WorkflowRun run={{ ...RETURNED, result: undefined }} />);
+      expect(screen.queryByTestId('wf-returned')).toBeNull();
+    });
   });
 });

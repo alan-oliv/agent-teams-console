@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import type { SubagentTree, WorkflowRun } from '../../shared/domain';
+import { clockLabel } from '../format';
 import { DEFAULT_SETTINGS } from '../state/useSettings';
 import { cssVarsFor, DENSITY } from '../themes';
 import { Workflow, WORKFLOW_VIEW_IDS } from './Workflow';
@@ -97,7 +98,10 @@ describe('Workflow', () => {
   it('carries the task id and the elapsed on the right', () => {
     renderWorkflow();
     expect(screen.getByTestId('wf-task-id').textContent).toContain('w04rzzvc3');
-    expect(screen.getByTestId('wf-elapsed').textContent).toBe('1m 00s');
+    // 9-decisions.md row 5: a completed run's elapsed carries the return glyph.
+    expect(screen.getByTestId('wf-elapsed').textContent).toBe(
+      `✓ returned ${clockLabel(FINISHED.startedAt! + FINISHED.durationMs!)} · 1m 00s`,
+    );
   });
 
   // The design gives the right side the task id, the run totals and elapsed —

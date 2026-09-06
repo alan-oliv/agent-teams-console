@@ -5,7 +5,7 @@ import type {
   WorkflowPhase,
   WorkflowRun as Run,
 } from '../../shared/domain';
-import { formatTokens } from '../format';
+import { clockLabel, formatElapsed, formatTokens, meterCells } from '../format';
 import { WorkflowAgents } from './WorkflowAgents';
 import {
   gridCooperates,
@@ -24,10 +24,14 @@ import {
  * cell and borrows the console's own failed treatment, because a decision and a
  * failure drawn identically is the one thing this cell cannot do.
  */
+// 9-decisions.md row 17: cache's glyph matches the artboard's `↻`. `null`
+// stays `∅` rather than the artboard's `⊘` — that character is already
+// `block`'s, and the two states are kept visually distinct on purpose (see
+// the comment above this map).
 export const GLYPH: Record<WorkflowAgentState, string> = {
   done: '✓',
   run: '●',
-  cache: '⤿',
+  cache: '↻',
   null: '∅',
   wait: '·',
   fail: '✗',
@@ -242,11 +246,35 @@ function phaseState(agents: readonly WorkflowAgent[], phaseIndex: number): Workf
   return 'wait';
 }
 
-/** Shared by both layouts, so a phase reads identically whichever is drawn. */
-function PhaseHead({ run, phase, style }: { run: Run; phase: WorkflowPhase; style: CSSProperties }) {
+/**
+ * Shared by both layouts, so a phase reads identically whichever is drawn.
+ * `onToggle` (9-decisions.md row 4) is only ever passed by the phase-group
+ * layout — a grid column head is not a listing and has nothing to collapse.
+ */
+function PhaseHead({
+  run,
+  phase,
+  style,
+  onToggle,
+}: {
+  run: Run;
+  phase: WorkflowPhase;
+  style: CSSProperties;
+  onToggle?: () => void;
+}) {
   const state = phaseState(run.agents, phase.index);
   return (
-    <div data-testid="wf-phase" style={{ display: 'flex', flexDirection: 'column', gap: '3px', ...style }}>
+    <div
+      data-testid="wf-phase"
+      onClick={onToggle}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '3px',
+        ...(onToggle ? { cursor: 'pointer' } : null),
+        ...style,
+      }}
+    >
       <div style={{ display: 'flex', gap: '7px', alignItems: 'baseline' }}>
         <span
           data-testid="wf-phase-state"
@@ -271,7 +299,17 @@ function PhaseHead({ run, phase, style }: { run: Run; phase: WorkflowPhase; styl
   );
 }
 
-function AgentRow({ agent }: { agent: WorkflowAgent }) {
+// 9-decisions.md row 15: the design shortens an item's id to 8 characters
+// rather than the full `a`+16-hex `agentId`. A display choice over the same
+// field, not a new one.
+const shortId = (id: string): string => id.slice(0, 8);
+
+/**
+ * 9-decisions.md row 16: a small trail glyph on a shared item's row when its
+ * key already appeared under an earlier phase — `workflowGrid`'s cross-phase
+ * join, surfaced here rather than only in the ITEM GRID layout.
+ */
+function AgentRow({ agent, trail }: { agent: WorkflowAgent; trail: boolean }) {
   const identity = itemKeyOf(agent.label, agent.agentId);
   return (
     <div
@@ -294,15 +332,34 @@ function AgentRow({ agent }: { agent: WorkflowAgent }) {
       <span data-testid="wf-name" style={IDENTITY} title={agent.label}>
         {identity}
       </span>
+      {trail && (
+        <span
+          data-testid="wf-trail"
+          title="also appeared in an earlier phase"
+          style={{ flex: 'none', color: 'var(--color-neutral-600)', fontSize: '10px' }}
+        >
+          ↩
+        </span>
+      )}
       {identity !== agent.agentId && (
-        <span style={{ color: 'var(--color-neutral-700)', fontSize: '10px' }}>{agent.agentId}</span>
+        <span style={{ color: 'var(--color-neutral-700)', fontSize: '10px' }}>{shortId(agent.agentId)}</span>
       )}
     </div>
   );
 }
 
-export function WorkflowRun({ run }: { run: Run }) {
+/** 9-decisions.md row 12: the five states the AGENTS panel counts, always shown even at 0 — the design draws `cached 0`/`failed 0` rather than omitting them, unlike `phaseTally`'s per-phase omission of a state nobody used. */
+const AGENT_TALLY: Array<[WorkflowAgentState, string]> = [
+  ['done', 'returned'],
+  ['run', 'running'],
+  ['cache', 'cached'],
+  ['null', 'null'],
+  ['fail', 'failed'],
+];
+
+export function WorkflowRun({ run, onOpenJournal }: { run: Run; onOpenJournal?: () => void }) {
   const [layout, setLayout] = useState<'phases' | 'grid'>('phases');
+  const [expandedPhases, setExpandedPhases] = useState<ReadonlySet<number>>(new Set());
   const { columns, rows } = workflowGrid(run);
   const { groups, unphased } = phaseList(run);
   // The grid is offered, not assumed — and the offer can be withdrawn under a
@@ -310,6 +367,24 @@ export function WorkflowRun({ run }: { run: Run }) {
   const offered = gridCooperates(run);
   const showGrid = offered && layout === 'grid';
   const live = liveCounts(run);
+
+  const togglePhase = (index: number) =>
+    setExpandedPhases((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+
+  // 9-decisions.md row 3: the run's own return, once there is one. `result`
+  // only reaches disk as a string (see parseWorkflowRun) — a non-string return
+  // is dropped upstream, which is an existing, separate behaviour this view
+  // does not change.
+  const returnedAt =
+    !run.live && run.status === 'completed' && run.startedAt !== undefined && run.durationMs !== undefined
+      ? run.startedAt + run.durationMs
+      : undefined;
+  const wordCount = run.result !== undefined ? run.result.trim().split(/\s+/).filter(Boolean).length : 0;
 
   return (
     <div data-testid="workflow-run" style={{ flex: 1, display: 'flex', minHeight: 0 }}>
@@ -337,6 +412,57 @@ export function WorkflowRun({ run }: { run: Run }) {
           </>
         ) : (
           <>
+            {returnedAt !== undefined && run.result !== undefined && (
+              <div
+                data-testid="wf-returned"
+                style={{
+                  flex: 'none',
+                  margin: '10px 16px 0',
+                  padding: '10px 12px',
+                  border: '1px solid var(--color-neutral-900)',
+                  borderRadius: '5px',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '10px' }}>
+                  <span style={{ color: 'var(--color-accent-400)', fontSize: '11.5px' }}>
+                    {`${GLYPH.done} Returned`}
+                    <span style={{ color: 'var(--color-neutral-600)', fontSize: '10px', marginLeft: '8px' }}>
+                      {`returned ${clockLabel(returnedAt)} · ${formatElapsed(run.durationMs ?? 0)}`}
+                    </span>
+                  </span>
+                  <span style={{ display: 'flex', gap: '8px', flex: 'none' }}>
+                    <button
+                      type="button"
+                      data-testid="wf-copy-return"
+                      onClick={() => void navigator.clipboard?.writeText(run.result ?? '')}
+                      style={{ ...TAB, color: 'var(--color-neutral-500)', border: '1px solid var(--color-neutral-800)', borderRadius: '4px' }}
+                    >
+                      copy return
+                    </button>
+                    {onOpenJournal && (
+                      <button
+                        type="button"
+                        data-testid="wf-open-journal"
+                        onClick={onOpenJournal}
+                        style={{ ...TAB, color: 'var(--color-neutral-500)', border: '1px solid var(--color-neutral-800)', borderRadius: '4px' }}
+                      >
+                        open in journal
+                      </button>
+                    )}
+                  </span>
+                </div>
+                {/* 9-decisions.md row 3: the claims/sources/contradictions summary
+                    line the artboard draws above this prose is left out on
+                    purpose — nothing parses that structure out of `result`. */}
+                <div style={{ color: 'var(--color-neutral-300)', fontSize: '11px', lineHeight: 1.5, marginTop: '8px' }}>
+                  {run.result}
+                </div>
+                <div style={{ color: 'var(--color-neutral-700)', fontSize: '10px', marginTop: '8px' }}>
+                  {`full return — ${wordCount} word${wordCount === 1 ? '' : 's'} — in the journal as the run's final entry`}
+                </div>
+              </div>
+            )}
+
             {offered ? (
               <div data-testid="wf-layout" style={{ flex: 'none', display: 'flex', padding: '8px 12px 0' }}>
                 {(['phases', 'grid'] as const).map((id) => (
@@ -418,36 +544,88 @@ export function WorkflowRun({ run }: { run: Run }) {
           </>
         ) : (
           <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-            {groups.map(({ phase, clusters }) => (
-              <div key={phase.index} data-testid="wf-phase-group">
-                <PhaseHead
-                  run={run}
-                  phase={phase}
-                  style={{
-                    padding: '10px 16px 8px',
-                    borderTop: '1px solid var(--color-neutral-900)',
-                  }}
-                />
-                {clusters.map((cluster) => (
-                  <div key={cluster.agents[0].agentId}>
-                    {/* Only ever said of a cluster of two or more. A singleton
-                        is not evidence of sequential dispatch, so it says
-                        nothing at all rather than the opposite. */}
-                    {cluster.together && (
-                      <div
-                        data-testid="wf-dispatch"
-                        style={{ padding: '5px 16px 1px', color: 'var(--color-neutral-600)', fontSize: '10px' }}
-                      >
-                        {`${cluster.agents.length} dispatched together`}
-                      </div>
-                    )}
-                    {cluster.agents.map((agent) => (
-                      <AgentRow key={agent.agentId} agent={agent} />
-                    ))}
+            {/* 9-decisions.md row 16: a shared item's row grows a trail glyph
+                once its key has already been seen under an earlier phase. */}
+            {(() => {
+              const seenKeys = new Set<string>();
+              // 9-decisions.md row 4: 9a/9b keep a fully-`returned` phase
+              // expanded while the REST of the run is still going — Fetch's
+              // "25 returned 1 null" still lists every URL. It is the run
+              // having returned, not a phase finishing early, that collapses
+              // anything, matching 9c.
+              const collapsible = !run.live && run.status === 'completed';
+              return groups.map(({ phase, clusters }) => {
+                const isOpen = !collapsible || expandedPhases.has(phase.index);
+                const keysThisPhase = new Set<string>();
+                const body = isOpen && (
+                  <>
+                    {clusters.map((cluster) => {
+                      // 9-decisions.md row 14: a large fan-out shows a handful
+                      // of rows and folds the rest, but only when every folded
+                      // agent is terminal — a truncation that hides a running
+                      // agent would misreport the phase as further along than
+                      // it is.
+                      const CLUSTER_PREVIEW = 5;
+                      const hidden = cluster.agents.slice(CLUSTER_PREVIEW);
+                      const shown = hidden.length > 0 ? cluster.agents.slice(0, CLUSTER_PREVIEW) : cluster.agents;
+                      const foldedRow = (agent: WorkflowAgent) => {
+                        const key = itemKeyOf(agent.label, agent.agentId);
+                        const trail = seenKeys.has(key);
+                        keysThisPhase.add(key);
+                        return <AgentRow key={agent.agentId} agent={agent} trail={trail} />;
+                      };
+                      return (
+                        <div key={cluster.agents[0].agentId}>
+                          {/* Only ever said of a cluster of two or more. A singleton
+                              is not evidence of sequential dispatch, so it says
+                              nothing at all rather than the opposite. */}
+                          {cluster.together && (
+                            <div
+                              data-testid="wf-dispatch"
+                              style={{ padding: '5px 16px 1px', color: 'var(--color-neutral-600)', fontSize: '10px' }}
+                            >
+                              {/* 9-decisions.md row 13: the cluster's shared queuedAt, formatted. */}
+                              {`${cluster.agents.length} dispatched together${
+                                cluster.agents[0].queuedAt !== undefined
+                                  ? ` · ${clockLabel(cluster.agents[0].queuedAt)}`
+                                  : ''
+                              }`}
+                            </div>
+                          )}
+                          {shown.map(foldedRow)}
+                          {hidden.length > 0 &&
+                            (hidden.every((a) => a.state === 'done') ? (
+                              <div
+                                data-testid="wf-more"
+                                style={{ padding: '6px 16px', color: 'var(--color-neutral-600)', fontSize: '10px' }}
+                              >
+                                {`+ ${hidden.length} more, all returned`}
+                              </div>
+                            ) : (
+                              hidden.map(foldedRow)
+                            ))}
+                        </div>
+                      );
+                    })}
+                  </>
+                );
+                for (const key of keysThisPhase) seenKeys.add(key);
+                return (
+                  <div key={phase.index} data-testid="wf-phase-group">
+                    <PhaseHead
+                      run={run}
+                      phase={phase}
+                      onToggle={collapsible ? () => togglePhase(phase.index) : undefined}
+                      style={{
+                        padding: '10px 16px 8px',
+                        borderTop: '1px solid var(--color-neutral-900)',
+                      }}
+                    />
+                    {body}
                   </div>
-                ))}
-              </div>
-            ))}
+                );
+              });
+            })()}
 
             {groups.length === 0 && unphased.length === 0 && (
               <div style={{ padding: '14px 16px', color: 'var(--color-neutral-700)', fontSize: '11px' }}>
@@ -516,6 +694,23 @@ export function WorkflowRun({ run }: { run: Run }) {
                 />
               </>
             )}
+          </div>
+        </div>
+
+        <div style={SIDE_PANEL}>
+          <div style={SIDE_LABEL}>AGENTS</div>
+          <div data-testid="wf-agents" style={SIDE_BODY}>
+            {/* 9-decisions.md row 12: the count and the bar are both derivable
+                on a live run too — `run.agents` is populated from the journal
+                as it goes, this doesn't wait for the snapshot. */}
+            <div style={{ fontFamily: 'inherit', letterSpacing: '.05em', color: 'var(--color-neutral-500)' }}>
+              {meterCells((run.live ? live.started : (run.agentCount ?? run.agents.length)) / 1000)}
+            </div>
+            <div style={{ marginTop: '6px', color: 'var(--color-neutral-600)', fontSize: '10px' }}>
+              {AGENT_TALLY.map(
+                ([state, word]) => `${word} ${run.agents.filter((a) => a.state === state).length}`,
+              ).join(' · ')}
+            </div>
           </div>
         </div>
 
