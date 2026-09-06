@@ -168,7 +168,7 @@ export function StatusBar({
 
   return (
     <Bar
-      wordmark="OCTO"
+      wordmark="logo"
       picker={
         <>
           <TeamSelect
