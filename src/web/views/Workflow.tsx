@@ -3,7 +3,7 @@ import type { SubagentTree, WorkflowRun as Run } from '../../shared/domain';
 import { Bar, METRIC } from '../chrome/Bar';
 import { RunSelect } from '../chrome/RunSelect';
 import { TeamSelect } from '../chrome/TeamSelect';
-import { formatElapsed, formatTokens } from '../format';
+import { clockLabel, formatElapsed, formatTokens } from '../format';
 import type { SettingsStore } from '../state/useSettings';
 import { flattenSubagents } from '../../shared/subagents';
 import { Usage } from './Usage';
@@ -78,6 +78,15 @@ export function Workflow({
         ? formatElapsed(now - run.startedAt)
         : '—';
 
+  // 9-decisions.md row 5: ruling 18 keeps this corner reading taskId/totals/
+  // elapsed rather than the artboard's ctx/tools/elapsed cluster — that stands.
+  // What the artboard adds that ruling 18 never considered is the live→final
+  // status glyph, which costs nothing to add on top.
+  const returnedGlyph =
+    !run.live && run.status === 'completed' && run.startedAt !== undefined && run.durationMs !== undefined
+      ? `✓ returned ${clockLabel(run.startedAt + run.durationMs)} · `
+      : '';
+
   return (
     <>
       <Bar
@@ -150,7 +159,7 @@ export function Workflow({
             data-testid="wf-elapsed"
             style={{ color: 'var(--color-neutral-500)', ...METRIC }}
           >
-            {elapsed}
+            {`${returnedGlyph}${elapsed}`}
           </span>,
         ]}
         metricRank={WORKFLOW_METRIC_RANK}
@@ -162,7 +171,7 @@ export function Workflow({
             list and the live note mid-flight, the phases once they land, and
             the sidebar either way — which the spec never restricted to a
             finished run. */}
-        {view === 'run' && <WorkflowRun run={run} />}
+        {view === 'run' && <WorkflowRun run={run} onOpenJournal={() => setView('journal')} />}
         {view === 'agents' && <WorkflowAgents agents={run.agents} />}
         {view === 'script' && <WorkflowScript run={run} />}
         {view === 'journal' && <WorkflowJournal agents={run.agents} />}
