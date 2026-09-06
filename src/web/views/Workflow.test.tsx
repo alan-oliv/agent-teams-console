@@ -80,11 +80,11 @@ function renderWorkflow(
 }
 
 describe('Workflow', () => {
-  // The wordmark is `OCTO` in every shell (canvas 4a/6a/8a); the mode badge in
-  // the picker is what says a workflow is not a team.
+  // The wordmark is the same word in every shell (canvas 4a/6a/8a); the mode
+  // badge in the picker is what says a workflow is not a team.
   it('badges itself workflow — a workflow is not a team', () => {
     renderWorkflow();
-    expect(screen.getByTestId('bar-wordmark').textContent).toBe('OCTO');
+    expect(screen.getByTestId('bar-wordmark').textContent).toBe('logo');
     expect(screen.getByTestId('team-mode').textContent).toBe('workflow');
   });
 
