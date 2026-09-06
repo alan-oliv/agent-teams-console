@@ -5,8 +5,6 @@ of them side by side in a browser window: every teammate's live transcript, the
 shared task list, the mailboxes they talk through, who is burning context, and
 what is waiting on you.
 
-![The wall view: the lead pinned on the left, one scrolling transcript column per teammate](docs/console-wall.png)
-
 <video src="docs/demo.mp4" controls></video>
 
 You never start it. The plugin's `PreToolUse`/`PostToolUse` hooks on the `Agent`
