@@ -1341,6 +1341,12 @@ export async function main(argv: string[]): Promise<number> {
    */
   const followRealTeam = async (): Promise<void> => {
     if (switching) return;
+    // Snapshotted before the listing awaits: retarget/retargetSession bump
+    // `generation` synchronously as their first act, so a switch that starts
+    // and finishes entirely during the listing below is detectable here even
+    // though it also resets `switching` back to false before we resume — the
+    // same bug `onTeam`'s `gen !== generation` check guards against.
+    const gen = generation;
     const { teams } = await listTeamSummaries(
       teamsRoot,
       sessionsRoot,
@@ -1358,7 +1364,7 @@ export async function main(argv: string[]): Promise<number> {
     const mine = teams.find((t) => t.name === currentTeam);
     leadFacts = { sessionName: mine?.goal, branch: mine?.branch };
 
-    if (pinned) return;
+    if (pinned || gen !== generation) return;
     if (teams.some((t) => t.name === currentTeam && t.members >= 2)) return;
     // Sorted live-first, then by most recent activity, so the first real team
     // is the one worth watching.

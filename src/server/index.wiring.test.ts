@@ -15,7 +15,11 @@ const TSX = fileURLToPath(new URL('../../node_modules/.bin/tsx', import.meta.url
 
 const TEAM = 'session-98b0b4a7';
 const LEAD_SESSION = '98b0b4a7-3206-455b-aaf6-a5a81ad1e283';
-const SLUG = '-Users-alanoliv-code-agents-team-ui';
+// Matches folderSessionIds' own transform (index.ts) of the spawned server's
+// cwd, which `boot()` inherits from this process — not a fixed string, or the
+// folder-scoping in `listTeamSummaries` drops every fixture team but the one
+// on screen anywhere this repo is not checked out at the author's own path.
+const SLUG = process.cwd().replace(/[^a-zA-Z0-9]/g, '-');
 const AGENT = 'probe-alpha';
 const SPAWN_ID = `a${AGENT}-84fd551b27de6433`;
 

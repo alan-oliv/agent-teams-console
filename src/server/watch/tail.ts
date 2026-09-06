@@ -7,10 +7,11 @@ export interface TailState {
   inode: number;
   offset: number;
   partial: string;
+  birthtimeMs: number;
 }
 
 export function emptyTailState(): TailState {
-  return { inode: 0, offset: 0, partial: '' };
+  return { inode: 0, offset: 0, partial: '', birthtimeMs: 0 };
 }
 
 /**
@@ -38,10 +39,14 @@ export async function drain(
   }
 
   // Inode change means the file was replaced; size below our offset means it was
-  // truncated. Both invalidate the offset, so start over from byte 0.
+  // truncated. A birthtime change catches the replacement inode reuse hides: on
+  // some filesystems a delete-then-recreate reissues the just-freed inode, so a
+  // same-or-larger new file reads as a plain append without this — birthtime
+  // does not move on a real append, only on a fresh inode allocation. Any of
+  // the three invalidates the offset, so start over from byte 0.
   let next: TailState = state;
-  if (st.ino !== state.inode || st.size < state.offset) {
-    next = { inode: st.ino, offset: 0, partial: '' };
+  if (st.ino !== state.inode || st.size < state.offset || st.birthtimeMs !== state.birthtimeMs) {
+    next = { inode: st.ino, offset: 0, partial: '', birthtimeMs: st.birthtimeMs };
   }
 
   const fromStart = next.offset === 0;
@@ -67,7 +72,12 @@ export async function drain(
   const offset = next.offset + read;
 
   if (cut === -1) {
-    return { lines: [], state: { inode: next.inode, offset, partial: chunk }, fromStart, mtimeMs };
+    return {
+      lines: [],
+      state: { inode: next.inode, offset, partial: chunk, birthtimeMs: next.birthtimeMs },
+      fromStart,
+      mtimeMs,
+    };
   }
 
   const lines = chunk
@@ -77,7 +87,7 @@ export async function drain(
 
   return {
     lines,
-    state: { inode: next.inode, offset, partial: chunk.slice(cut + 1) },
+    state: { inode: next.inode, offset, partial: chunk.slice(cut + 1), birthtimeMs: next.birthtimeMs },
     fromStart,
     mtimeMs,
   };

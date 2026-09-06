@@ -8,15 +8,25 @@ on:
         required: true
         type: choice
         options: [patch, minor, major]
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: write
 
 jobs:
   bump:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       !contains(github.event.workflow_run.head_commit.message, 'chore(plugin):'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
 
       - uses: actions/setup-node@v4
         with:
@@ -28,8 +38,10 @@ jobs:
 
       - name: Bump version
         id: bump
+        # workflow_run carries no inputs, so an auto-triggered run always bumps
+        # patch — minor/major stay a deliberate workflow_dispatch choice.
         env:
-          BUMP: ${{ inputs.bump }}
+          BUMP: ${{ inputs.bump || 'patch' }}
         run: |
           node -e '
             const fs = require("fs");
